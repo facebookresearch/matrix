@@ -21,7 +21,7 @@ def matrix_cluster() -> Generator[Any, Any, Any]:
     with tempfile.TemporaryDirectory() as temp_dir:
         cli = Cli(cluster_id=str(uuid.uuid4()), matrix_dir=temp_dir)
         cli.start_cluster(
-            num_workers=1,
+            add_workers=1,
             slurm=None,
             local={"gpus_per_node": 0, "cpus_per_task": 2},
             enable_grafana=False,

@@ -155,7 +155,7 @@ class RayCluster:
 
     def start(
         self,
-        num_workers: int,
+        add_workers: int,
         slurm: tp.Dict[str, tp.Union[str, int]] | None,
         local: tp.Dict[str, tp.Union[str, int]] | None,
         enable_grafana: bool = False,
@@ -167,7 +167,7 @@ class RayCluster:
         or add worker nodes to an existing cluster.
 
         Args:
-            num_workers (int): The number of worker nodes to start.
+            add_workers (int): The number of worker nodes to start.
             requirements (dict): Slurm resource requirements for worker nodes.
                                  e.g., {'qos': '...', 'partition': '...', 'gpus-per-node': 8}.
             head_requirements (dict): optional to specify head requirements when launching head.
@@ -191,7 +191,7 @@ class RayCluster:
                 cluster=executor,
             )
             default_params = {"cpus_per_task": 10, "timeout_min": 10080}
-            if num_workers == 0:
+            if add_workers == 0:
                 head_params = requirements
             else:
                 head_params = {
@@ -250,7 +250,7 @@ class RayCluster:
             self.start_grafana(force=True)
 
         # start the workers
-        if num_workers > 0:
+        if add_workers > 0:
             s_executor = submitit.AutoExecutor(
                 folder=str(self.log_dir), cluster=executor
             )
@@ -278,7 +278,7 @@ class RayCluster:
             with (
                 s_executor.batch()
             ):  # TODO set slurm array max parallelism here, because we really want all jobs to be scheduled at the same time
-                for i in range(num_workers):
+                for i in range(add_workers):
                     jobs.append(
                         s_executor.submit(
                             RayWorkerJob(

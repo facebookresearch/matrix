@@ -76,7 +76,7 @@ class Cli:
 
     def start_cluster(
         self,
-        num_workers: int = 0,
+        add_workers: int = 0,
         slurm: tp.Dict[str, tp.Union[str, int]] | None = None,
         local: tp.Dict[str, tp.Union[str, int]] | None = None,
         enable_grafana: bool = False,
@@ -93,7 +93,7 @@ class Cli:
         Can add additional workers if the cluster already exists.
         
         Args:
-            num_workers (int): Number of worker nodes to add in the cluster.
+            add_workers (int): Number of worker nodes to add in the cluster.
             slurm (dict, optional): resources for slurm cluster.
             local (dict, optional): resources for local cluster.
             enable_grafana (bool, optional): If True, enable prometheus and grafana dashboard.
@@ -101,7 +101,7 @@ class Cli:
         Returns:
             None
         """
-        self.cluster.start(num_workers, slurm, local, enable_grafana=enable_grafana)
+        self.cluster.start(add_workers, slurm, local, enable_grafana=enable_grafana)
 
     def stop_cluster(self):
         """

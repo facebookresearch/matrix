@@ -35,7 +35,7 @@ pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[vll
 
 - Launch ray cluster
 ```
-matrix start_cluster --num_workers 1 --slurm "{'account': $SLURM_ACCOUNT, 'qos': $SLURM_QOS}"
+matrix start_cluster --add_workers 1 --slurm "{'account': $SLURM_ACCOUNT, 'qos': $SLURM_QOS}"
 ```
 
 - Deploy Model
@@ -69,7 +69,7 @@ matrix start_cluster --enable_grafana
 
 - Add More Workers
 ```
-matrix start_cluster --num_workers 4 --slurm "{'account': $SLURM_ACCOUNT, 'qos': $SLURM_QOS}"
+matrix start_cluster --add_workers 4 --slurm "{'account': $SLURM_ACCOUNT, 'qos': $SLURM_QOS}"
 ```
 
 - Add/Remove Applications
@@ -112,12 +112,14 @@ matrix deploy_applications --applications "[{'app_type': 'gemini', 'name': "gemi
 ### Deepseek R1
 ```
 // install sglang
-pip install 'git+ssh://git@github.com/fairinternal/matrix.git#egg=matrix[sglang_043]'
+pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[sglang_043]'
 
 matrix deploy_applications --applications "[{'model_name': 'deepseek-ai/DeepSeek-R1', 'min_replica': 2, 'app_type': sglang_llm}]"
 ```
 ### Llama 4
 ```
+pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[vllm_083]'
+
 matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-Scout-17B-16E-Instruct'}]"
 
 matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8'}]"
@@ -135,19 +137,24 @@ matrix llm_inference --app_name maverick-fp8 --input_jsonls test.jsonl --output_
 
 #### Input Format
 There are two format for the jsonl input files:
-  - Message foramt:
+  - Message foramt with arg --messages_key request.messages
 ```json
 {
     "request": {"messages": [{"role": "system","content": "You are ..."},{"role": "user","content": "Solve the following..."}]}
 }
 ```
-  - Instruct format:
+  - Instruct format with arg --text_key text
 ```json
 {
     "text": "<|start_header_id|>system<|end_header_id|>You are ... <|eot_id|><|start_header_id|>user<|end_header_id|>Solve the following ...<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
 }
 ```
-
+  - Raw tax with arg --text_key text
+```json
+{
+    "text": "Solve the following ..."
+}
+```
 ### Inference API
 ```
 from matrix import Cli
@@ -194,7 +201,7 @@ If you use matrix in your research and wish to refer to it, please use the
 following BibTeX entry.
 
 ```
-@software{dongwang2025matrix,
+@software{wang2025matrix,
   author = {Dong Wang and Yang Li and Ansong Ni and Youssef Emad and Xinjie Lei and Ruta Desai and Asli Celikyilmaz and Daniel Li},
   title = {Matrix},
   url = {http://github.com/facebookresearch/matrix},
