@@ -357,15 +357,13 @@ class Cli:
                 else:
                     if not use_chat:
                         data_payload = {"prompt": prompt}
-                    response = asyncio.run(
-                        query_llm.make_request(
-                            metadata["endpoints"]["head"],
-                            metadata["model_name"],
-                            data_payload,
-                            app_name=app_name,
-                            **kwargs,
-                        )
-                    )
+                    response = query_llm.batch_requests(
+                        metadata["endpoints"]["head"],
+                        metadata["model_name"],
+                        [data_payload],
+                        app_name=app_name,
+                        **kwargs,
+                    )[0]
                     print(response)
                     return "error" not in response["response"]
 

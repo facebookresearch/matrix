@@ -481,9 +481,12 @@ def batch_requests(
     Process multiple requests by calling make_request_async for each.
     This function works whether called from sync or async context.
     """
+
     async def _process_requests():
         """Helper function to process all requests concurrently."""
-        return await asyncio.gather(*[make_request(url, model, request, **kwargs) for request in requests])
+        return await asyncio.gather(
+            *[make_request(url, model, request, **kwargs) for request in requests]
+        )
 
     # Get or create an event loop
     try:
@@ -492,7 +495,7 @@ def batch_requests(
         # No event loop in this thread, create a new one
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    
+
     # Check if we're already in an async context
     if loop.is_running():
         # We're in an async context, create a task for the batch operation
