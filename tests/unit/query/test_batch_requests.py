@@ -13,30 +13,34 @@ import matrix
 from matrix.app_server.llm import query_llm
 
 
-@pytest.mark.asyncio
-async def test_batch_requests_in_async_context():
-    """Test batch_requests when called from an async context."""
-    # Create a mock for make_request_async
+def test_batch_requests_from_async_run():
+    """Test batch_requests called from within an asyncio.run context."""
     mock_response = "mocked_response"
 
     async def mock_make_request_async(_url, _model, request):
         return f"{mock_response}_{request}"
 
-    with patch(
-        "matrix.app_server.llm.query_llm.make_request",
-        side_effect=mock_make_request_async,
-    ):
-        # Test with a list of requests
-        requests = [1, 2, 3]
-        result = await query_llm.batch_requests("", "", requests)
+    async def async_wrapper():
+        with patch(
+            "matrix.app_server.llm.query_llm.make_request",
+            side_effect=mock_make_request_async,
+        ):
+            requests = [1, 2, 3]
+            # batch_requests should handle the async context internally
+            # and return a list directly, not a task
+            result = query_llm.batch_requests("", "", requests)
 
-        # Verify results
-        assert len(result) == 3
-        assert result == [
-            f"{mock_response}_1",
-            f"{mock_response}_2",
-            f"{mock_response}_3",
-        ]
+            # Verify it returned a list, not a task
+            assert isinstance(result, list)
+            assert len(result) == 3
+            assert result == [
+                f"{mock_response}_1",
+                f"{mock_response}_2",
+                f"{mock_response}_3",
+            ]
+
+    # Use asyncio.run to execute the async wrapper
+    asyncio.run(async_wrapper())
 
 
 def test_batch_requests_in_sync_context():
@@ -64,11 +68,10 @@ def test_batch_requests_in_sync_context():
         ]
 
 
-@pytest.mark.asyncio
-async def test_batch_requests_empty_list():
+def test_batch_requests_empty_list():
     """Test batch_requests with an empty list."""
     with patch("matrix.app_server.llm.query_llm.make_request") as mock_request:
-        result = await query_llm.batch_requests("", "", [])
+        result = query_llm.batch_requests("", "", [])
         # make_request_async should not be called
         mock_request.assert_not_called()
         # Result should be an empty list

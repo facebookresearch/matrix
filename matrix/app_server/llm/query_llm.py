@@ -478,7 +478,7 @@ def batch_requests(
     **kwargs,
 ) -> tp.List[tp.Dict[str, tp.Any]]:
     """
-    Process multiple requests by calling make_request_async for each.
+    Process multiple requests by calling make_request for each.
     This function works whether called from sync or async context.
     """
 
@@ -488,7 +488,7 @@ def batch_requests(
             *[make_request(url, model, request, **kwargs) for request in requests]
         )
 
-    # Get or create an event loop
+    # Get the event loop
     try:
         loop = asyncio.get_event_loop()
     except RuntimeError:
@@ -498,10 +498,24 @@ def batch_requests(
 
     # Check if we're already in an async context
     if loop.is_running():
-        # We're in an async context, create a task for the batch operation
-        return asyncio.create_task(_process_requests())
+        # We're in an async context and can't use run_until_complete
+        # Create a new thread to run our async code
+        import concurrent.futures
+        import threading
+
+        def run_in_new_loop():
+            # Create a new event loop for this thread
+            new_loop = asyncio.new_event_loop()
+            try:
+                return new_loop.run_until_complete(_process_requests())
+            finally:
+                new_loop.close()
+
+        # Run in an executor to avoid blocking the current event loop
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            return pool.submit(run_in_new_loop).result()
     else:
-        # We're in a sync context, run the event loop until complete
+        # We're in a sync context, use the current loop
         return loop.run_until_complete(_process_requests())
 
 
