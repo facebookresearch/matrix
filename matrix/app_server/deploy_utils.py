@@ -102,11 +102,11 @@ llama_model_default_parameters = {
     "deepseek-ai/DeepSeek-R1": {
         "name": "deepseek-r1",
         "tensor-parallel-size": 8,
-        "pipeline-parallel-size": 2,
+        "pipeline-parallel-size": 3,
         "enable-prefix-caching": True,
         "max-model-len": 32768,
-        "gpu-memory-utilization": 0.8,
-        "max_ongoing_requests": 50,
+        "gpu-memory-utilization": 0.9,
+        "max_ongoing_requests": 80,
         "trust-remote-code": True,
     },
     "meta-llama/Llama-4-Scout-17B-16E-Instruct": {
