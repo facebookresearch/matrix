@@ -19,6 +19,7 @@ import yaml
 from jinja2 import Template
 from ray import serve
 
+from matrix.app_server.llm.ray_serve_vllm import BaseDeployment
 from matrix.common.cluster_info import ClusterInfo
 from matrix.utils.ray import Action, get_ray_address, kill_matrix_actors
 
@@ -131,6 +132,19 @@ llama_model_default_parameters = {
         "kv-cache-dtype": "auto",
         "quantization": "compressed-tensors",
         "use_v1_engine": "true",
+    },
+    "unsloth/mistral-7b-instruct-v0.2-bnb-4bit": {
+        "name": "unsloth-mistral-7B",
+        "tensor-parallel-size": 1,
+        "pipeline-parallel-size": 1,
+        "enable-prefix-caching": True,
+        "max_ongoing_requests": 256,
+        "max-model-len": 32768,
+        "gpu-memory-utilization": 0.4,
+        "enable-lora": True,
+        "quantization": "bitsandbytes",
+        "load-format": "bitsandbytes",
+        "max_lora_rank": 32,
     },
 }
 
@@ -372,14 +386,6 @@ def get_yaml_for_deployment(
                 yaml_str += "\n" + yaml.dump([found_app[0]], indent=2, sort_keys=False)
                 continue
 
-            unknown = {
-                k: v
-                for k, v in app.items()
-                if k not in non_model_params
-                and not hasattr(AsyncEngineArgs, k.replace("-", "_"))
-            }
-            assert not unknown, f"unknown vllm model args {unknown}"
-
             app_type = app.get("app_type", "llm")
             assert app_type in [
                 "llm",
@@ -396,6 +402,19 @@ def get_yaml_for_deployment(
                 app["min_replica"] = 1
             if "max_replica" not in app:
                 app["max_replica"] = app["min_replica"]
+
+            if app_type in ["llm", "sglang_llm"]:
+                unknown = {
+                    k: v
+                    for k, v in app.items()
+                    if k not in non_model_params
+                    and not hasattr(AsyncEngineArgs, k.replace("-", "_"))
+                    and not hasattr(BaseDeployment, k.replace("-", "_"))
+                }
+                assert not unknown, f"unknown vllm model args {unknown}"
+            else:
+                unknown = {k: v for k, v in app.items() if k not in non_model_params}
+                assert not unknown, f"unknown {app_type} model args {unknown}"
 
             if app_type in ["llm", "sglang_llm"]:
                 update_vllm_app_params(app)

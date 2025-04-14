@@ -380,6 +380,13 @@ class GrpcDeployment(BaseDeployment):
         )
         logger.debug(f"Request: {chat}")
         try:
+            if (
+                self.openai_serving_chat.models.static_lora_modules
+                and len(self.openai_serving_chat.models.lora_requests) == 0
+            ):
+                # only need for lora modules, at vllm >= v0.7.0
+                # due to https://github.com/vllm-project/vllm/commit/ac2f3f7fee93cf9cd97c0078e362feab7b6c8299
+                await self.openai_serving_chat.models.init_static_loras()
             generator = await self.openai_serving_chat.create_chat_completion(chat)
             if isinstance(generator, ErrorResponse):
                 status_code = self.http_to_grpc_status(generator.code)
@@ -417,6 +424,13 @@ class GrpcDeployment(BaseDeployment):
         )
         logger.debug(f"Request: {completion_request}")
         try:
+            if (
+                self.openai_serving_chat.models.static_lora_modules
+                and len(self.openai_serving_chat.models.lora_requests) == 0
+            ):
+                # only need for lora modules, at vllm >= v0.7.0
+                # due to https://github.com/vllm-project/vllm/commit/ac2f3f7fee93cf9cd97c0078e362feab7b6c8299
+                await self.openai_serving_chat.models.init_static_loras()
             generator = await self.openai_serving_completion.create_completion(
                 completion_request,
                 Request(  # this Request is purely dummy, it is changed to optional in vllm's recent pull https://github.com/vllm-project/vllm/pull/12503
