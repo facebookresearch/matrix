@@ -81,19 +81,8 @@ matrix deploy_applications --action add --applications "[{'model_name': 'meta-ll
 ```
 matrix deploy_applications --applications ''
 ```
-### Adjust Context Length
-The prompt token length + max_tokens <= max-model-len.
-```
-matrix deploy_applications --applications "[{'name': '405B', 'model_name': '/path_to_dir/Llama-3.1-405B-Instruct', 'min_replica': 1, 'model_size': '405B', 'pipeline-parallel-size': 4, 'max-model-len': 30960}]"
-```
-
-405B recommended parameters
-| Context | Parallel |
-| ------- | -------- |
-| 10k | 2 |
-| 30k | 4 |
-| 60k | 6 |
-| 128k | 10 |
+### Adjust Model Args
+vLLM Engine [Aruments](https://docs.vllm.ai/en/latest/serving/engine_args.html) can be specified in the deploy_applications arguments. The default values for popular models are in this [config](matrix/app_server/llm/llm_config.py). To scale the deployment, `min_replia` and `max_replica` can be added based on num of workers.
 
 ### OpenAI Azure Model
 - Note: no GPU is required, in start_workers, can add `--slurm "{'gpus_per_node': 0}"`

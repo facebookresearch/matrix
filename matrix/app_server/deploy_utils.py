@@ -19,6 +19,7 @@ import yaml
 from jinja2 import Template
 from ray import serve
 
+from matrix.app_server.llm.llm_config import llm_model_default_parameters
 from matrix.app_server.llm.ray_serve_vllm import BaseDeployment
 from matrix.common.cluster_info import ClusterInfo
 from matrix.utils.ray import Action, get_ray_address, kill_matrix_actors
@@ -43,110 +44,6 @@ logging_config:
 
 applications:
 """
-
-# default model parameters can be overwritten from command line
-llama_model_default_parameters = {
-    "meta-llama/Meta-Llama-3.1-3B-Instruct": {
-        "name": "3B",
-        "tensor-parallel-size": 1,
-        "pipeline-parallel-size": 1,
-        "enable-prefix-caching": True,
-        "max_ongoing_requests": 256,
-        "max-model-len": 131072,
-        "gpu-memory-utilization": 0.8,
-    },
-    "meta-llama/Meta-Llama-3.1-8B-Instruct": {
-        "name": "8B",
-        "tensor-parallel-size": 1,
-        "pipeline-parallel-size": 1,
-        "enable-prefix-caching": True,
-        "max_ongoing_requests": 150,
-        "max-model-len": 131072,
-        "gpu-memory-utilization": 0.8,
-    },
-    "meta-llama/Meta-Llama-3.1-70B-Instruct": {
-        "name": "70B",
-        "tensor-parallel-size": 4,
-        "pipeline-parallel-size": 1,
-        "enable-prefix-caching": True,
-        "max-model-len": 30960,
-        "gpu-memory-utilization": 0.8,
-        "max_ongoing_requests": 100,
-    },
-    "meta-llama/Meta-Llama-3.1-405B-Instruct-FP8": {
-        "name": "405B-FP8",
-        "tensor-parallel-size": 8,
-        "pipeline-parallel-size": 1,
-        "enable-prefix-caching": True,
-        "max-model-len": 10240,
-        "gpu-memory-utilization": 0.8,
-        "max_ongoing_requests": 50,
-    },
-    "meta-llama/Meta-Llama-3.1-405B-Instruct": {
-        "name": "405B",
-        "tensor-parallel-size": 8,
-        "pipeline-parallel-size": 2,
-        "enable-prefix-caching": True,
-        "max-model-len": 10240,  # 30960 (4 node), 61440 (6 node), 128000 (10 nodes)
-        "gpu-memory-utilization": 0.8,
-        "max_ongoing_requests": 50,
-    },
-    "meta-llama/Meta-Llama-3.3-70B-Instruct": {
-        "name": "3_3_70B",
-        "tensor-parallel-size": 4,
-        "pipeline-parallel-size": 1,
-        "enable-prefix-caching": True,
-        "max-model-len": 30960,
-        "gpu-memory-utilization": 0.8,
-        "max_ongoing_requests": 100,
-    },
-    "deepseek-ai/DeepSeek-R1": {
-        "name": "deepseek-r1",
-        "tensor-parallel-size": 8,
-        "pipeline-parallel-size": 3,
-        "enable-prefix-caching": True,
-        "max-model-len": 32768,
-        "gpu-memory-utilization": 0.9,
-        "max_ongoing_requests": 80,
-        "trust-remote-code": True,
-    },
-    "meta-llama/Llama-4-Scout-17B-16E-Instruct": {
-        "name": "scout",
-        "tensor-parallel-size": 4,
-        "pipeline-parallel-size": 1,
-        "enable-prefix-caching": True,
-        "max-model-len": 32768,
-        "gpu-memory-utilization": 0.8,
-        "max_ongoing_requests": 100,
-        "use_v1_engine": "true",
-    },
-    "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {
-        "name": "maverick-fp8",
-        "tensor-parallel-size": 8,
-        "pipeline-parallel-size": 1,
-        "enable-prefix-caching": True,
-        "max-model-len": 128000,
-        "gpu-memory-utilization": 0.8,
-        "max_ongoing_requests": 100,
-        "dtype": "auto",
-        "kv-cache-dtype": "auto",
-        "quantization": "compressed-tensors",
-        "use_v1_engine": "true",
-    },
-    "unsloth/mistral-7b-instruct-v0.2-bnb-4bit": {
-        "name": "unsloth-mistral-7B",
-        "tensor-parallel-size": 1,
-        "pipeline-parallel-size": 1,
-        "enable-prefix-caching": True,
-        "max_ongoing_requests": 256,
-        "max-model-len": 32768,
-        "gpu-memory-utilization": 0.4,
-        "enable-lora": True,
-        "quantization": "bitsandbytes",
-        "load-format": "bitsandbytes",
-        "max_lora_rank": 32,
-    },
-}
 
 non_model_params = [
     "model_name",
@@ -285,12 +182,12 @@ other_app_template = """
 def update_vllm_app_params(app: Dict[str, Union[str, int]]):
     model_name = str(app.get("model_name"))
     assert model_name, "please add model_name"
-    default_params = llama_model_default_parameters.get(model_name)
+    default_params = llm_model_default_parameters.get(model_name)
     if default_params is None:
         model_size = app.get("model_size")
         assert model_size, f"please specify model size for custom model {model_name}"
         default_model_sizes = {
-            p["name"]: p for m, p in llama_model_default_parameters.items()
+            p["name"]: p for m, p in llm_model_default_parameters.items()
         }
         default_params = default_model_sizes[model_size].copy()
         assert default_params, f"model_size {model_size} not in {default_model_sizes}"
