@@ -149,7 +149,11 @@ class RayCluster:
                 num_gpus=0,
                 max_restarts=3,  # Allow 3 automatic retries
                 max_task_retries=-1,
-            ).remote(cluster_info)
+            ).remote(
+                cluster_info.temp_dir,
+                cluster_info.prometheus_port,
+                cluster_info.grafana_port,
+            )
             ray.get(actor.start.remote())
             return "Successfully started Grafana dashboard"
 
@@ -159,6 +163,7 @@ class RayCluster:
         slurm: tp.Dict[str, tp.Union[str, int]] | None,
         local: tp.Dict[str, tp.Union[str, int]] | None,
         enable_grafana: bool = False,
+        force_new_head: bool = False,
     ):
         """
         Starts a Ray cluster on Slurm.
@@ -168,18 +173,23 @@ class RayCluster:
 
         Args:
             add_workers (int): The number of worker nodes to start.
-            requirements (dict): Slurm resource requirements for worker nodes.
-                                 e.g., {'qos': '...', 'partition': '...', 'gpus-per-node': 8}.
-            head_requirements (dict): optional to specify head requirements when launching head.
-            executor (str): Slurm executor to use (default: "slurm").
+            slurm (dict, optional): resources requirements for slurm cluster.
+                                    e.g., {'qos': '...', 'partition': '...', 'gpus-per-node': 8}.
+            local (dict, optional): resources requirements for local cluster.
             enable_grafana (bool): Whether to start Prometheus and Grafana
                                           for monitoring (default: True).
+            force_new_head (bool): force to remove head.json if haven't run 'matrix stop_cluster'.
         """
         common_params = {"account", "partition", "qos", "exclusive"}
         start_wait_time_seconds = 60
         worker_wait_timeout_seconds = 60
         requirements = slurm or local or {}
         executor = "slurm" if slurm else "local"
+
+        if force_new_head:
+            # remove existing head.json
+            if self._cluster_json.exists():
+                self._cluster_json.unlink()
 
         if self._cluster_json.exists():
             print(f"Adding workers to existing cluster:\n{self.cluster_info()}")

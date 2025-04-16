@@ -80,6 +80,7 @@ class Cli:
         slurm: tp.Dict[str, tp.Union[str, int]] | None = None,
         local: tp.Dict[str, tp.Union[str, int]] | None = None,
         enable_grafana: bool = False,
+        force_new_head: bool = False,
     ):
         """
         Starts the Ray cluster with additional keyword arguments. Only do this for new clusters.
@@ -97,11 +98,18 @@ class Cli:
             slurm (dict, optional): resources for slurm cluster.
             local (dict, optional): resources for local cluster.
             enable_grafana (bool, optional): If True, enable prometheus and grafana dashboard.
-        
+            force_new_head (bool): force to remove head.json if haven't run 'matrix stop_cluster'.
+            
         Returns:
             None
         """
-        self.cluster.start(add_workers, slurm, local, enable_grafana=enable_grafana)
+        self.cluster.start(
+            add_workers,
+            slurm,
+            local,
+            enable_grafana=enable_grafana,
+            force_new_head=force_new_head,
+        )
 
     def stop_cluster(self):
         """
@@ -370,7 +378,3 @@ class Cli:
 
 def main():
     fire.Fire(Cli)
-
-
-if __name__ == "__main__":
-    main()

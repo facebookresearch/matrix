@@ -15,8 +15,6 @@ from typing import List
 
 import ray
 
-from matrix.common.cluster_info import ClusterInfo
-
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -38,14 +36,14 @@ class RayDashboardJob:
     properly when the actor is killed.
     """
 
-    def __init__(self, cluster_info: ClusterInfo):
+    def __init__(self, temp_dir: str, prometheus_port: int, grafana_port: int):
         """
         Initialize the RayDashboardJob actor.
         """
         self.head_env = os.environ.copy()
-        self.temp_dir = cluster_info.temp_dir
-        self.prometheus_port = cluster_info.prometheus_port
-        self.grafana_port = cluster_info.grafana_port
+        self.temp_dir = temp_dir
+        self.prometheus_port = prometheus_port
+        self.grafana_port = grafana_port
         self.processes: List[subprocess.Popen[str]] = []
         self.monitor_thread: threading.Thread | None = None
         self.should_run = True
