@@ -126,6 +126,11 @@ class BaseDeployment:
         # https://github.com/ray-project/ray/pull/51007
         del os.environ["CUDA_VISIBLE_DEVICES"]
 
+        # increase the timeout of getting result from a compiled graph execution
+        # https://github.com/vllm-project/vllm/pull/15301
+        if engine_args.pipeline_parallel_size > 1:
+            os.environ["RAY_CGRAPH_get_timeout"] = "1200"
+
         if self.use_v1_engine:
             os.environ["VLLM_USE_V1"] = "1"
             os.environ["TORCH_CUDA_ARCH_LIST"] = "9.0"
