@@ -35,8 +35,8 @@ from matrix.app_server.deploy_utils import (
     is_sglang_app,
     write_yaml_file,
 )
-from matrix.common.cluster_info import ClusterInfo
-from matrix.utils.http import fetch_url
+from matrix.client.endpoint_cache import EndpointCache
+from matrix.common.cluster_info import ClusterInfo, get_head_http_host
 from matrix.utils.json import convert_to_json_compatible
 from matrix.utils.ray import (
     ACTOR_NAME_SPACE,
@@ -48,68 +48,8 @@ from matrix.utils.ray import (
 
 logger = logging.getLogger("ray.serve")
 
-
-class EndpointCache:
-    def __init__(
-        self, ray_address, deployment_id, endpoint_template, ttl=360, serve_app=True
-    ):
-        self.lock = asyncio.Lock()
-        self.timestamp = None
-        self.ttl = ttl
-        self.serve_app = serve_app
-        self.deployment_id = deployment_id
-        self.endpoint_template = endpoint_template
-        self.ray_address = ray_address
-        if not serve_app:
-            if not ray.is_initialized():
-                ray.init(
-                    address=ray_address,
-                    ignore_reinit_error=True,
-                )
-
-            self.router_actor = ray.get_actor(
-                f"{self.deployment_id.app_name}_router", ACTOR_NAME_SPACE
-            )
-        else:
-            self.ray_address = ray_address.replace("ray:", "http:")
-        self.ips = set()
-
-    async def __call__(self, force_update=False):
-        if time.time() - (self.timestamp or 0) > self.ttl or force_update:
-            async with self.lock:
-                if time.time() - (self.timestamp or 0) > self.ttl or force_update:
-                    try:
-                        if self.serve_app:
-                            self.timestamp = time.time()
-                            status, content = await fetch_url(
-                                self.ray_address + "/api/serve/applications/",
-                                headers={"Accept": "application/json"},
-                            )
-                            if status is not None and status == 200:
-                                ray_query_result = json.loads(content)
-                                head_ip = ray_query_result["controller_info"]["node_ip"]
-                                self.ips = set([y["node_ip"] for x, y in ray_query_result["proxies"].items() if y["status"] == "HEALTHY" and y["node_ip"] != head_ip])  # type: ignore[attr-defined]
-                            else:
-                                raise Exception(f"status: {status}, {content}")
-                        else:
-                            self.ips = ray.get(
-                                self.router_actor.get_running_replicas.remote()
-                            )
-
-                    except Exception as e:
-                        logger.warning(f"Error fetching endpoints: {e}")
-
-        return [self.endpoint_template.format(host=ip) for ip in self.ips if ip]
-
-
 DEPLOYMENT_YAML = "deployment.yaml"
 DEPLOYMENT_SGLANG_YAML = "deployment_sglang.yaml"
-
-
-def get_head_http_host(cluster_info: ClusterInfo) -> str:
-    assert cluster_info.hostname
-    devvm = cluster_info.hostname.startswith("dev")
-    return "localhost" if devvm else cluster_info.hostname
 
 
 def deploy(
@@ -375,16 +315,9 @@ def get_app_metadata(
         endpoint_cache = dummy_updater
         workers = []
     else:
-        deployment_id = DeploymentID(
-            name=metadata["deployment_name"], app_name=metadata["name"]
-        )
         endpoint_cache = EndpointCache(
-            (
-                get_ray_dashboard_address(cluster_info)
-                if serve_app
-                else get_ray_address(cluster_info)
-            ),
-            deployment_id,
+            cluster_info,
+            metadata["name"],
             metadata["endpoint_template"],
             ttl=endpoint_ttl_sec,
             serve_app=serve_app,
@@ -408,7 +341,7 @@ def inference(
     load_balance: bool = True,
     **kwargs,
 ):
-    from matrix.app_server.llm.query_llm import main as query
+    from matrix.client.query_llm import main as query
 
     metadata = get_app_metadata(cluster_dir, cluster_info, app_name)
     assert cluster_info.hostname

@@ -17,7 +17,7 @@ from pathlib import Path
 import fire
 
 from matrix.app_server import deploy_app
-from matrix.app_server.llm import query_llm
+from matrix.client import query_llm
 from matrix.cluster.ray_cluster import RayCluster
 from matrix.utils.os import run_subprocess
 

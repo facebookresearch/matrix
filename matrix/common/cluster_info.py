@@ -27,3 +27,9 @@ class ClusterInfo:
     sglang_http_port: tp.Optional[int] = None
     temp_dir: tp.Optional[str] = None
     executor: tp.Optional[str] = None
+
+
+def get_head_http_host(cluster_info: ClusterInfo) -> str:
+    assert cluster_info.hostname
+    devvm = cluster_info.hostname.startswith("dev")
+    return "localhost" if devvm else cluster_info.hostname

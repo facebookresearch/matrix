@@ -24,8 +24,8 @@ from google.protobuf import json_format
 from grpc import aio as grpc_aio
 from openai import APIConnectionError, APITimeoutError, RateLimitError
 
-from matrix.app_server.deploy_app import EndpointCache
 from matrix.app_server.llm import openai_pb2, openai_pb2_grpc
+from matrix.client.endpoint_cache import EndpointCache
 
 CHAR_PER_TOKEN = 3.61
 logging.basicConfig(

@@ -30,7 +30,7 @@ Matrix is designed for scalable LLM inference on Slurm. Here is a feature compar
 ```
 conda create --name matrix python=3.10
 conda activate matrix
-pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[vllm_073]'
+pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[vllm_083]'
 ```
 
 - Launch ray cluster
@@ -114,7 +114,7 @@ matrix deploy_applications --applications "[{'app_type': 'gemini', 'name': "gemi
 // install sglang
 pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[sglang_043]'
 
-matrix deploy_applications --applications "[{'model_name': 'deepseek-ai/DeepSeek-R1', 'min_replica': 2, 'app_type': sglang_llm}]"
+matrix deploy_applications --applications "[{'model_name': 'deepseek-ai/DeepSeek-R1', 'pipeline-parallel-size': 2, 'app_type': sglang_llm}]"
 ```
 ### Llama 4
 ```
@@ -158,7 +158,7 @@ There are two format for the jsonl input files:
 ### Inference API
 ```
 from matrix import Cli
-from matrix.app_server.llm import query_llm
+from matrix.client import query_llm
 
 metadata = Cli().get_app_metadata(app_name="8B")
 await query_llm.make_request(
@@ -167,6 +167,13 @@ await query_llm.make_request(
   app_name=metadata["name"],
   data={"messages": [{"role": "user", "content": "hi"}]},
 ))
+
+query_llm.batch_requests(
+  url=metadata["endpoints"]["head"],
+  model=metadata["model_name"],
+  app_name=metadata["name"],
+  requests=[{"messages": [{"role": "user", "content": "hi"}]}],
+)
 ```
 
 ## Code Execution
@@ -201,7 +208,7 @@ If you use matrix in your research and wish to refer to it, please use the
 following BibTeX entry.
 
 ```
-@software{wang2025matrix,
+@software{matrix2025,
   author = {Dong Wang and Yang Li and Ansong Ni and Youssef Emad and Xinjie Lei and Ruta Desai and Asli Celikyilmaz and Daniel Li},
   title = {Matrix},
   url = {http://github.com/facebookresearch/matrix},
@@ -212,3 +219,7 @@ following BibTeX entry.
 
 ## License
 This project is MIT licensed, as found in the [LICENSE](LICENSE) file.
+
+
+## Acknowledgement
+We gratefully acknowledge the [Ray](https://github.com/ray-project/ray) and [vLLM](https://github.com/vllm-project/vllm) team for initial Ray Serve integration with vLLM.

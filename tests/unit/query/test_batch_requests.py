@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import matrix
-from matrix.app_server.llm import query_llm
+from matrix.client import query_llm
 
 
 def test_batch_requests_from_async_run():
@@ -22,7 +22,7 @@ def test_batch_requests_from_async_run():
 
     async def async_wrapper():
         with patch(
-            "matrix.app_server.llm.query_llm.make_request",
+            "matrix.client.query_llm.make_request",
             side_effect=mock_make_request_async,
         ):
             requests = [1, 2, 3]
@@ -52,7 +52,7 @@ def test_batch_requests_in_sync_context():
         return f"{mock_response}_{request}"
 
     with patch(
-        "matrix.app_server.llm.query_llm.make_request",
+        "matrix.client.query_llm.make_request",
         side_effect=mock_make_request_async,
     ):
         # Test with a list of requests
@@ -70,7 +70,7 @@ def test_batch_requests_in_sync_context():
 
 def test_batch_requests_empty_list():
     """Test batch_requests with an empty list."""
-    with patch("matrix.app_server.llm.query_llm.make_request") as mock_request:
+    with patch("matrix.client.query_llm.make_request") as mock_request:
         result = query_llm.batch_requests("", "", [])
         # make_request_async should not be called
         mock_request.assert_not_called()
