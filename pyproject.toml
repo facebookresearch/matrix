@@ -24,6 +24,7 @@ dependencies = [
   "portalocker",
   "boto3",
   "google-genai",
+  "datasketch",
 ]
 # zip_safe = false
 classifiers=[
@@ -66,8 +67,8 @@ classifiers=[
       "ray[serve]==2.40.0",
   ]
   # SGLang for DS R1
-  sglang_043 = [
-      "sglang[all]==0.4.3.post4",
+  sglang_045 = [
+      "sglang[all]==0.4.5.post1",
       "sglang-router",
   ]
   vllm_083 = [

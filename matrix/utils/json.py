@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import re
 from dataclasses import asdict
 
 
@@ -18,3 +19,17 @@ def convert_to_json_compatible(obj):
         return convert_to_json_compatible(asdict(obj))
     else:
         return str(obj)
+
+
+def get_user_prompt(text: str) -> str:
+    PATTERN = re.compile(
+        r"<\|start_header_id\|>user<\|end_header_id\|>\n\n(.*?)<\|eot_id\|>", re.DOTALL
+    )
+
+    if "<|end_header_id|>" in text:
+        match = PATTERN.search(text)
+        if not match:
+            return text
+        return match.group(1)
+    else:
+        return text

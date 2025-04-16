@@ -99,9 +99,10 @@ matrix deploy_applications --applications "[{'app_type': 'gemini', 'name': "gemi
 ```
 
 ### Deepseek R1
+vLLM >=0.8.3 supports DS R1. An alternative backend is sglang.
 ```
 // install sglang
-pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[sglang_043]'
+pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[sglang_045]'
 
 matrix deploy_applications --applications "[{'model_name': 'deepseek-ai/DeepSeek-R1', 'pipeline-parallel-size': 2, 'app_type': sglang_llm}]"
 ```
@@ -150,6 +151,8 @@ from matrix import Cli
 from matrix.client import query_llm
 
 metadata = Cli().get_app_metadata(app_name="8B")
+
+# async call
 await query_llm.make_request(
   url=metadata["endpoints"]["head"],
   model=metadata["model_name"],
@@ -157,6 +160,7 @@ await query_llm.make_request(
   data={"messages": [{"role": "user", "content": "hi"}]},
 ))
 
+# batch inference
 query_llm.batch_requests(
   url=metadata["endpoints"]["head"],
   model=metadata["model_name"],
@@ -179,11 +183,11 @@ matrix check_health --app_name code
 ## Data Pipelines
 - minhash dedup
 ```
-python matrix/data_pipeline/quality/dedup_minhash.py ray_head:client_server_port input.jsonl output_dir working_dir
+python  -m matrix.data_pipeline.quality.dedup_minhash $ray_head:$client_server_port input.jsonl output_dir working_dir --text_key problem
 ```
 - multilabel classification
 ```
-python matrix/data_pipeline/classification/multi_label_classification.py ray_head:client_server_port  cardiffnlp/twitter-roberta-base-emotion-multilabel-latest input.jsonl output_dir --num_gpus 48 --text_key question --threshold_fname ""
+python -m matrix.data_pipeline.classification.multi_label_classification $ray_head:$client_server_port  cardiffnlp/twitter-roberta-base-emotion-multilabel-latest input.jsonl output_dir --num_gpus 8 --text_key question --threshold_fname ""
 ```
 
 ## Contributing

@@ -74,7 +74,6 @@ class SandboxRunner:
         # Create temporary directory for execution
         with tempfile.TemporaryDirectory() as temp_dir:
             # Write code to a file
-            temp_dir = "/home/dongwang/workspace/backup"
             code_file = Path(temp_dir) / "code.py"
             result_file = Path(temp_dir) / "result.json"
 

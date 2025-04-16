@@ -21,8 +21,9 @@ import tqdm
 from datasketch import LeanMinHash, MinHash, MinHashLSH
 from fire import Fire
 
+from matrix.utils.json import get_user_prompt
+
 num_perm = 128
-PATTERN = re.compile(r"\|end_header_id\|>\n\n(.*?)<\|eot_id\|>", re.DOTALL)
 
 
 def normalize_text(s):
@@ -49,11 +50,8 @@ def normalize_text(s):
 
 def process_row(row, text_key):
     """Extract text and compute MinHash with index"""
-    src_data = row["src"]
-    match = PATTERN.search(src_data)
-    if not match:
-        return None
-    text = match.group(1)
+    src_data = row[text_key]
+    text = get_user_prompt(src_data)
     text = normalize_text(text)
     tokens = text.split()
 
