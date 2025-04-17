@@ -82,7 +82,13 @@ matrix deploy_applications --action add --applications "[{'model_name': 'meta-ll
 matrix deploy_applications --applications ''
 ```
 ### Adjust Model Args
-vLLM Engine [Aruments](https://docs.vllm.ai/en/latest/serving/engine_args.html) can be specified in the deploy_applications arguments. The default values for popular models are in this [config](matrix/app_server/llm/llm_config.py). To scale the deployment, `min_replia` and `max_replica` can be added based on num of workers.
+vLLM Engine [Aruments](https://docs.vllm.ai/en/latest/serving/engine_args.html) can be specified in the deploy_applications arguments. The default values for popular models are in [llm_config.py](matrix/app_server/llm/llm_config.py). Other useful args
+* `model_name`: a huggingface model name or a directory containing checkpoints.
+* `name`: the default app_name.
+* `model_size`: map a non huggingface model to the defaults in the config file.
+* `max_ongoing_requests`: the max concurrent requests to each replica.
+* `min_replia` and `max_replica`: the num of replicas ranges auto-scaled based on num of Ray workers.
+* `use_grpc`: enable grpc by adding `{'use_grpc':  'true'}`.
 
 ### OpenAI Azure Model
 - Note: no GPU is required, in start_workers, can add `--slurm "{'gpus_per_node': 0}"`

@@ -73,7 +73,7 @@ classifiers=[
   ]
   vllm_083 = [
       "vllm==v0.8.3",
-      "ray[serve]>=2.43.0",
+      "ray[serve]==2.43.0",
       "torch>=2.6.0",
   ]
 

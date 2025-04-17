@@ -6,7 +6,7 @@
 
 # default model parameters can be overwritten from command line
 llm_model_default_parameters = {
-    "meta-llama/Meta-Llama-3.1-3B-Instruct": {
+    "meta-llama/Llama-3.1-3B-Instruct": {
         "name": "3B",
         "tensor-parallel-size": 1,
         "pipeline-parallel-size": 1,
@@ -15,7 +15,7 @@ llm_model_default_parameters = {
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
     },
-    "meta-llama/Meta-Llama-3.1-8B-Instruct": {
+    "meta-llama/Llama-3.1-8B-Instruct": {
         "name": "8B",
         "tensor-parallel-size": 1,
         "pipeline-parallel-size": 1,
@@ -24,7 +24,7 @@ llm_model_default_parameters = {
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
     },
-    "meta-llama/Meta-Llama-3.1-70B-Instruct": {
+    "meta-llama/Llama-3.1-70B-Instruct": {
         "name": "70B",
         "tensor-parallel-size": 4,
         "pipeline-parallel-size": 1,
@@ -33,7 +33,7 @@ llm_model_default_parameters = {
         "gpu-memory-utilization": 0.8,
         "max_ongoing_requests": 100,
     },
-    "meta-llama/Meta-Llama-3.1-405B-Instruct-FP8": {
+    "meta-llama/Llama-3.1-405B-Instruct-FP8": {
         "name": "405B-FP8",
         "tensor-parallel-size": 8,
         "pipeline-parallel-size": 1,
@@ -42,7 +42,7 @@ llm_model_default_parameters = {
         "gpu-memory-utilization": 0.8,
         "max_ongoing_requests": 50,
     },
-    "meta-llama/Meta-Llama-3.1-405B-Instruct": {
+    "meta-llama/Llama-3.1-405B-Instruct": {
         "name": "405B",
         "tensor-parallel-size": 8,
         "pipeline-parallel-size": 2,
@@ -51,7 +51,7 @@ llm_model_default_parameters = {
         "gpu-memory-utilization": 0.8,
         "max_ongoing_requests": 50,
     },
-    "meta-llama/Meta-Llama-3.3-70B-Instruct": {
+    "meta-llama/Llama-3.3-70B-Instruct": {
         "name": "3_3_70B",
         "tensor-parallel-size": 4,
         "pipeline-parallel-size": 1,
