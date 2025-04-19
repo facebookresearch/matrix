@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import aiohttp
+import requests
 
 
 async def post_url(session, url, data=None):
@@ -26,5 +27,16 @@ async def fetch_url(url, headers=None):
                 status = response.status  # Get the status code
                 content = await response.text()  # Get response body as text
                 return status, content
+    except Exception as e:  # Catch-all for unexpected errors
+        return None, f"Unexpected error: {str(e)}"
+
+
+def fetch_url_sync(url, headers=None):
+    """Synchronously fetch data from a single URL, returning status code and content."""
+    try:
+        response = requests.get(url, headers=headers)
+        status = response.status_code  # Get the status code
+        content = response.text  # Get response body as text
+        return status, content
     except Exception as e:  # Catch-all for unexpected errors
         return None, f"Unexpected error: {str(e)}"

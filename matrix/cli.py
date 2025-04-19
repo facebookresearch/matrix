@@ -16,9 +16,10 @@ from pathlib import Path
 
 import fire
 
-from matrix.app_server import deploy_app
+from matrix.app_server import app_api
 from matrix.client import query_llm
 from matrix.cluster.ray_cluster import RayCluster
+from matrix.utils.json import convert_to_json_compatible
 from matrix.utils.os import run_subprocess
 
 
@@ -148,7 +149,7 @@ class Cli:
             print(
                 f"ssh to head node:\nssh -L {head.dashboard_port}:localhost:{head.dashboard_port} -L {head.prometheus_port}:localhost:{head.prometheus_port} -L {head.grafana_port}:localhost:{head.grafana_port} {head.hostname}"  # type: ignore[union-attr]
             )
-            cluster_info = deploy_app.convert_to_json_compatible(head)
+            cluster_info = convert_to_json_compatible(head)
             print("\nHead Info:")
             print(json.dumps(cluster_info, indent=2))
 
@@ -157,14 +158,13 @@ class Cli:
                 ["ray", "status", "--address", f"{head.hostname}:{head.port}"]
             )
             print("\n\nServe status: --------")
-            deploy_app.status(head, replica)
+            self.app.status(replica)
 
     def deploy_applications(
         self,
-        action: str | deploy_app.Action = deploy_app.Action.REPLACE,
+        action: str | app_api.Action = app_api.Action.REPLACE,
         applications: tp.Optional[tp.List[tp.Dict[str, tp.Union[str, int]]]] = None,
         yaml_config: tp.Optional[str] = None,
-        block: bool = False,
     ):
         """
         Deploy applications on top of the Ray cluster.
@@ -183,21 +183,11 @@ class Cli:
         Returns:
             The deployed application names.
         """
-        head = self.cluster.cluster_info()
-        if not head:
-            print("head not started")
-            return
-        else:
-            assert head.hostname
-            assert self.cluster_id
-            return deploy_app.deploy(
-                self.matrix_dir / self.cluster_id,
-                head,
-                action,
-                applications,
-                yaml_config,
-                block=block,
-            )
+        self.app.deploy(
+            action,
+            applications,
+            yaml_config,
+        )
 
     def llm_inference(
         self, app_name: str, output_jsonl: str, input_jsonls: str, **kwargs
@@ -217,21 +207,12 @@ class Cli:
         Returns:
             None
         """
-        head = self.cluster.cluster_info()
-        if not head:
-            print("head not started")
-            return
-        else:
-            assert head.hostname
-            assert self.cluster_id
-            return deploy_app.inference(
-                self.matrix_dir / self.cluster_id,
-                head,
-                app_name,
-                output_jsonl,
-                input_jsonls,
-                **kwargs,
-            )
+        return self.app.inference(
+            app_name,
+            output_jsonl,
+            input_jsonls,
+            **kwargs,
+        )
 
     def get_app_metadata(
         self,
@@ -239,7 +220,7 @@ class Cli:
         endpoint_ttl_sec: int = 5,
         model_name: str | None = None,
         head_only: bool = False,
-    ):
+    ) -> tp.Dict[str, tp.Any]:
         """
         Retrieve metadata for a deployed application.
 
@@ -257,21 +238,12 @@ class Cli:
         Returns:
             The application metadata.
         """
-        head = self.cluster.cluster_info()
-        if not head:
-            print("head not started")
-            return
-        else:
-            assert head.hostname
-            assert self.cluster_id
-            return deploy_app.get_app_metadata(
-                self.matrix_dir / self.cluster_id,
-                head,
-                app_name,
-                endpoint_ttl_sec=endpoint_ttl_sec,
-                model_name=model_name,
-                head_only=head_only,
-            )
+        return self.app.get_metadata(
+            app_name,
+            endpoint_ttl_sec=endpoint_ttl_sec,
+            model_name=model_name,
+            head_only=head_only,
+        )
 
     def check_health(
         self,
@@ -374,6 +346,24 @@ class Cli:
                     )[0]
                     print(response)
                     return "error" not in response["response"]
+
+    @property
+    def app(self):
+        from matrix.app_server.app_api import AppApi
+
+        head = self.cluster.cluster_info()
+        assert head, "head not started"
+        assert self.cluster_id
+        return AppApi(self.matrix_dir / self.cluster_id, head)
+
+    @property
+    def job(self):
+        from matrix.job.job_api import JobApi
+
+        head = self.cluster.cluster_info()
+        assert head, "head not started"
+        assert self.cluster_id
+        return JobApi(self.matrix_dir / self.cluster_id, head, self.app)
 
 
 def main():

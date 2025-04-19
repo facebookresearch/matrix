@@ -538,7 +538,7 @@ async def main(
     timeout_secs=600,
     override_output_file: bool = False,
     append_output_file: bool = False,
-):
+) -> tp.Dict[str, int]:
     """Send jsonl llama3 instruct prompt for inference and save both the request and response as jsonl.
     params:
     url: Llama openai endpoint, eg http://hostname:8000/405B/v1
@@ -558,6 +558,9 @@ async def main(
     timeout_secs: per request timeout in seconds.
     override_output_file: Override given output file if it exists.
     append_output_file: Append to given output file if it exists.
+
+    Return
+    stats of the inference.
     """
 
     logger.info(
@@ -636,6 +639,7 @@ async def main(
         await save_outputs(flush=True)
     pbar.close()
     logger.info(f"Stats of the request: {stats}")
+    return stats
 
 
 if __name__ == "__main__":

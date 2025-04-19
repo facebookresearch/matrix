@@ -13,6 +13,7 @@ import aiohttp
 import ray
 
 from matrix.common.cluster_info import ClusterInfo
+from matrix.utils.http import fetch_url_sync
 
 ACTOR_NAME_SPACE = "matrix"
 
@@ -100,3 +101,14 @@ def init_ray_if_necessary(cluster_info: ClusterInfo):
             address=ray_address,
             ignore_reinit_error=True,
         )
+
+
+def get_serve_applications(ray_http_address):
+    status, content = fetch_url_sync(
+        ray_http_address + "/api/serve/applications/",
+        headers={"Accept": "application/json"},
+    )
+    if status is not None and status == 200:
+        return json.loads(content)
+    else:
+        return []
