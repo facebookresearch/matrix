@@ -132,8 +132,8 @@ matrix llm_inference --app_name maverick-fp8 --input_jsonls test.jsonl --output_
 ```
 
 #### Input Format
-There are two format for the jsonl input files:
-  - Message foramt with arg --messages_key request.messages
+There are two formats for the jsonl input files:
+  - Message format with arg --messages_key request.messages
 ```json
 {
     "request": {"messages": [{"role": "system","content": "You are ..."},{"role": "user","content": "Solve the following..."}]}
