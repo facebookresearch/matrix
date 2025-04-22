@@ -51,7 +51,7 @@ def test_run_and_stream():
     logger = Mock()
     command = "echo 'Hello, World!'"
 
-    process = run_and_stream(logger, command)
+    process = run_and_stream({"logger": logger}, command)
 
     assert process is not None
     assert isinstance(process, subprocess.Popen)

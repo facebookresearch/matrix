@@ -81,7 +81,7 @@ class SglangRouterActor:
             --host=0.0.0.0 --port {self.http_port} --worker-startup-timeout-secs=36000 --worker-startup-check-interval=10 \
             --policy=round_robin --worker-urls {worker_urls}
         """
-        self.process = run_and_stream(logger, command)
+        self.process = run_and_stream({"logger": logger}, command)
 
     async def update_replicas(self, running, dead):
         async with aiohttp.ClientSession() as session:
@@ -345,7 +345,7 @@ class SglangActor:
         if nnodes > 1:
             command = command.rstrip() + f" --dist-init-addr {dist_init_addr}"
 
-        self.process = run_and_stream(logger, command)
+        self.process = run_and_stream({"logger": logger}, command)
 
     def is_running(self):
         """Checks if the subprocess is still running."""

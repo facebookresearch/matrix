@@ -1,3 +1,4 @@
+import inspect
 import json
 import logging
 import math
@@ -145,6 +146,11 @@ def _execute_task_sequence(
         # --- Step 3: Execute User Function ---
         logger.log.remote(f"[{task_id}] Starting user function execution...")
         try:
+            sig = inspect.signature(user_func.func)
+            if "logging_config" in sig.parameters:
+                kwargs = kwargs.copy()
+                kwargs["logging_config"] = {"remote": True, "logger": logger}
+
             user_result = user_func(*args, **kwargs)
 
             if not isinstance(user_result, tuple) or len(user_result) != 2:
