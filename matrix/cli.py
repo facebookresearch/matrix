@@ -173,7 +173,7 @@ class Cli:
         LLM proxies, or code execution services to the Ray cluster.
 
         Args:
-            action (str | deploy_app.Action, optional): The deployment action to perform.
+            action (str | Action, optional): The deployment action to perform.
                 Can be REPLACE, REMOVE, or ADD. Defaults to REPLACE.
             applications (List[Dict], optional): List of application configurations.
                 Each dictionary should contain application specifications.
