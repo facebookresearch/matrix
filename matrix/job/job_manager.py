@@ -1,3 +1,4 @@
+import functools
 import inspect
 import json
 import logging
@@ -66,7 +67,7 @@ def _execute_task_sequence(
     cleanup_func,
     timeout_s,
     task_id,  # Pass task_id for logging on the worker
-) -> tp.Tuple[bool, tp.Dict[str, tp.Any]]:
+) -> tp.Dict[str, tp.Any]:
     """
     Wrapper to execute the deploy, health check, user function, and cleanup sequence.
     This runs as a single Ray task on a worker.
@@ -83,8 +84,9 @@ def _execute_task_sequence(
                 f"[{task_id}] Deployment finished. Result: {deployment_result}"
             )
         except Exception as e:
-            logger.log.remote(f"[{task_id}] Deployment failed: {e}", exc_info=True)
-            return False, {
+            logger.log.remote(f"[{task_id}] Deployment failed: {e}")
+            return {
+                "success": False,
                 "step": "deploy",
                 "error_type": type(e).__name__,
                 "error_message": str(e),
@@ -98,7 +100,8 @@ def _execute_task_sequence(
                 logger.log.remote(
                     f"[{task_id}] Health check failed for apps {failed_apps} after {max_status_check_attempts} attempts."
                 )
-                return False, {
+                return {
+                    "success": False,
                     "step": "status_check",
                     "error_type": "HealthCheckFailure",
                     "error_message": f"Applications at indices {failed_apps} did not become healthy within limits.",
@@ -146,41 +149,33 @@ def _execute_task_sequence(
         # --- Step 3: Execute User Function ---
         logger.log.remote(f"[{task_id}] Starting user function execution...")
         try:
-            sig = inspect.signature(user_func.func)
+            if isinstance(user_func, functools.partial):
+                sig = inspect.signature(user_func.func)
+            else:
+                sig = inspect.signature(user_func)
             if "logging_config" in sig.parameters:
                 kwargs = kwargs.copy()
                 kwargs["logging_config"] = {"remote": True, "logger": logger}
 
             user_result = user_func(*args, **kwargs)
 
-            if not isinstance(user_result, tuple) or len(user_result) != 2:
+            if not isinstance(user_result, dict) or "success" not in user_result:
                 raise TypeError(
-                    f"User function {user_func.__name__} did not return a tuple of length 2."
+                    f"User function {user_func} did not return a dic containing success flag."
                 )
 
-            success, data = user_result
-
-            if not isinstance(success, bool):
-                raise TypeError(
-                    f"First element of return tuple from {user_func.__name__} must be a boolean."
-                )
-
-            logger.log.remote(
-                f"[{task_id}] User function finished. Success: {success}, {data}"
-            )
-            return success, data
+            logger.log.remote(f"[{task_id}] User function finished. {user_result}")
+            return user_result
 
         except Exception as e:
-            logger.log.remote(
-                f"[{task_id}] Exception in user task execution: {e}", exc_info=True
-            )
-            error_details = {
+            logger.log.remote(f"[{task_id}] Exception in user task execution: {e}")
+            return {
+                "success": False,
                 "step": "user_function",
                 "error_type": type(e).__name__,
                 "error_message": str(e),
                 "traceback": traceback.format_exc(),
             }
-            return False, error_details  # Indicate failure and provide error info
 
     finally:
         # --- Step 4: Cleanup Applications ---
@@ -192,7 +187,7 @@ def _execute_task_sequence(
                     f"[{task_id}] Cleanup finished successfully removed {cleanup_results}."
                 )
             except Exception as e:
-                logger.log.remote(f"[{task_id}] Cleanup failed: {e}", exc_info=True)
+                logger.log.remote(f"[{task_id}] Cleanup failed: {e}")
 
 
 # --- Job Manager Actor ---
@@ -274,9 +269,9 @@ class JobManager:
                             if task_info["retries"] >= MAX_RETRIES:
                                 task_info["status"] = TaskStatus.FAILED
                                 task_info["result"] = (
-                                    False,
                                     {
-                                        "error": "Task failed due to actor restart during execution."
+                                        "success": False,
+                                        "error": "Task failed due to actor restart during execution.",
                                     },
                                 )
                                 task_info["end_time"] = time.time()
@@ -285,9 +280,7 @@ class JobManager:
                                 )
                             else:
                                 task_info["status"] = TaskStatus.RETRYING
-                                task_info["start_time"] = (
-                                    None  # Reset start time for the next attempt
-                                )
+                                task_info["start_time"] = None
                                 task_info["end_time"] = None
 
                 logger.info(f"State loaded from checkpoint at {self.checkpoint_path}.")
@@ -456,7 +449,7 @@ class JobManager:
         if not applications:
             job_info["status"] = JobStatus.RUNNING
 
-        for i, app in applications:
+        for i, app in enumerate(applications):
             status = job_info["app_status"][i]
             if not status_is_pending(status):
                 continue
@@ -501,12 +494,13 @@ class JobManager:
 
             self._running_task_futures.pop(task_id)
             try:
-                success, result_data = ray.get(future)
-                self._process_task_completion(task_id, success, result_data)
+                result_data = ray.get(future)
+                self._process_task_completion(task_id, result_data)
             except Exception as e:
                 logger.error(f"[{task_id}] Error getting result: {e}", exc_info=True)
                 self._process_task_completion(
-                    task_id, False, {"error": f"Failed to retrieve task result: {e}"}
+                    task_id,
+                    {"success": False, "error": f"Failed to retrieve task result: {e}"},
                 )
 
     def _handle_timed_out_tasks(self, job_id, timeout):
@@ -540,9 +534,9 @@ class JobManager:
             # Process as a failure
             self._process_task_completion(
                 task_id,
-                False,
                 {
-                    "error": f"Task timed out after exceeding {task_info['timeout']} seconds"
+                    "success": False,
+                    "error": f"Task timed out after exceeding {task_info['timeout']} seconds",
                 },
             )
 
@@ -618,8 +612,8 @@ class JobManager:
 
         # Build Ray options
         task_options = {
-            "num_cpus": resources.pop("CPU", 0),
-            "num_gpus": resources.pop("GPU", 0),
+            "num_cpus": resources.get("CPU", 0),
+            "num_gpus": resources.get("GPU", 0),
         }
 
         # Launch remote task
@@ -636,7 +630,7 @@ class JobManager:
         )
         self._running_task_futures[task_id] = future
 
-    def _process_task_completion(self, task_id, success, result_data):
+    def _process_task_completion(self, task_id, result_data):
         """
         Internal method called by the monitor thread when a Ray task future is ready.
         Processes the result, updates state, handles retries, and saves checkpoint.
@@ -652,15 +646,15 @@ class JobManager:
 
         job_id = task_info["job_id"]
         task_info["end_time"] = time.time()
-
+        success = result_data.get("success", False)
         if success:
             logger.info(f"[{task_id}] Succeeded.")
             task_info["status"] = TaskStatus.SUCCEEDED
-            task_info["result"] = (True, result_data)
+            task_info["result"] = result_data
         else:
             logger.warning(f"[{task_id}] Failed on attempt {task_info['retries'] + 1}.")
             task_info["retries"] += 1
-            task_info["result"] = (False, result_data)  # Store failure reason
+            task_info["result"] = result_data  # Store failure reason
 
             if task_info["retries"] < MAX_RETRIES:
                 logger.info(

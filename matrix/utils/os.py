@@ -105,10 +105,11 @@ def run_and_stream(logging_config, command, blocking=False):
     """Runs a subprocess, streams stdout/stderr in realtime, and ensures cleanup on termination."""
     remote = logging_config.get("remote", False)
     logger = logging_config["logger"]
+    pid = None
 
     def log(str):
         if remote:
-            logger.log.remote(str)
+            logger.log.remote(f"[{pid}]" + str)
         else:
             logger.info(str)
 
@@ -123,9 +124,10 @@ def run_and_stream(logging_config, command, blocking=False):
         text=True,
         preexec_fn=os.setsid,  # Run in a separate process group
     )
+    pid = process.pid
 
     terminate_flag = threading.Event()
-    stdout_buffer = deque(maxlen=64)
+    stdout_buffer: tp.Deque[str] = deque(maxlen=10)
 
     def stream_output():
         """Reads and logs the subprocess output in real-time."""
@@ -139,7 +141,7 @@ def run_and_stream(logging_config, command, blocking=False):
                             log(line.strip())
                             stdout_buffer.append(line)
         except Exception as e:
-            logger.error(f"Error reading subprocess output: {e}")
+            log(f"Error reading subprocess output: {e}")
         finally:
             # Make sure to read any remaining output
             if process.stdout:
@@ -152,7 +154,7 @@ def run_and_stream(logging_config, command, blocking=False):
     output_thread = threading.Thread(target=stream_output, daemon=True)
     output_thread.start()
 
-    log(f"Launch proces {process.pid} with group {os.getpgid(process.pid)}")
+    log(f"Launch proces {pid} with group {os.getpgid(pid)}")
     if not blocking:
         return process
     else:
@@ -160,9 +162,14 @@ def run_and_stream(logging_config, command, blocking=False):
             exit_code = process.wait()
             log(f"Process exited with code {exit_code}")
             stdout_content = "".join(stdout_buffer)
-            return exit_code == 0, {"exit_code": exit_code, "stdout": stdout_content}
+            return {
+                "success": exit_code == 0,
+                "exit_code": exit_code,
+                "stdout": stdout_content,
+            }
         except Exception as e:
-            return False, {
+            return {
+                "success": False,
                 "error": str(e),
                 "traceback": traceback.format_exc(),
                 "stdout": stdout_content,

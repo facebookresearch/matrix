@@ -21,4 +21,7 @@ Job results format is {task_id: (bool, json_data)}.
    Users can submit and check status for job, but the manager handles job in serial, 
    so there is a current_job. Checkpoint the state to ray store in case we restart the manager. 
    Use a lock to avoid race, don't hold the lock too long, which prevent submit jobs and check status.
+
+fault tolerance:
+1. deployed app in task or job shoul be undeployed after task/job done or killed.
 """

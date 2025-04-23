@@ -66,7 +66,7 @@ class ActorUnavailableError(RayJobManagerError):
 
 
 def echo(text):
-    return True, text
+    return {"success": True, "output": text}
 
 
 def status_is_success(app_status: str) -> bool:

@@ -20,7 +20,6 @@ from jinja2 import Template
 from ray import serve
 
 from matrix.app_server.llm.llm_config import llm_model_default_parameters
-from matrix.app_server.llm.ray_serve_vllm import BaseDeployment
 from matrix.common.cluster_info import ClusterInfo
 from matrix.utils.ray import Action, get_ray_address, kill_matrix_actors
 
@@ -264,6 +263,8 @@ def get_yaml_for_deployment(
     """deploy helper function.
     Return modified applications and yaml for deployment"""
     from vllm.engine.arg_utils import AsyncEngineArgs
+
+    from matrix.app_server.llm.ray_serve_vllm import BaseDeployment
 
     temp_dir = cluster_info.temp_dir
     if yaml_config is None:

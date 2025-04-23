@@ -102,7 +102,7 @@ class JobApi:
         """
         Submits tasks. Optionally sets max concurrency if the actor is created here.
 
-                job_definitions: dict like:
+        job_definitions: dict like:
           {
             'job_id": str
             'max_concurrent_tasks': int
@@ -231,8 +231,8 @@ class JobApi:
 
         Returns:
             dict: A dictionary mapping task_id to its result tuple (bool, json_data).
-                Example: {'job_xyz_task_0': (True, {'output': 123}),
-                            'job_xyz_task_1': (False, {'error': 'Something failed'})}
+                Example: {'job_xyz_task_0': {'success': True, 'output': 123}),
+                            'job_xyz_task_1': {'success': False, 'error': 'Something failed'}}
 
         Raises:
             JobNotFound: If the job ID does not exist.
@@ -267,6 +267,7 @@ class JobApi:
             raise RayJobManagerError(f"Failed to list jobs: {e}") from e
 
     def delete(self, job_id):
+        """Remove the given `job_id`."""
         actor = self._get_manager_actor()
         try:
             ray.get(actor.delete_job.remote(job_id))
@@ -275,12 +276,14 @@ class JobApi:
             raise RayJobManagerError(f"Failed to delete jobs: {e}") from e
 
     def clear(self):
+        """Remove all jobs."""
         job_ids = self.list()
         for job in job_ids:
             self.delete(job)
         return job_ids
 
     def start(self):
+        """Start the JobManager actor."""
         self._get_manager_actor()
 
     def stop(self):

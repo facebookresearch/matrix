@@ -201,7 +201,8 @@ class AppApi:
         app: Dict[str, Union[str, int]],
     ) -> str:
         """
-        this is used to deploy one application, appending to current deployments.
+        Appending to current deployments.
+
         for example, model checkpoint evaluation
         when done with this application, call deploy with Action.REMOVE
         """
@@ -214,11 +215,14 @@ class AppApi:
         return str(name)
 
     def remove_temp_app(self, app_name: str):
+        """Remove an app. Deprecated."""
         app = {"name": app_name}  # type: ignore[assignment]
         self.deploy(Action.REMOVE, [app])  # type: ignore[list-item]
         return app
 
     def status(self, replica):
+        """Print out Serve applications and matrix actors."""
+
         ray_dashboard_url = get_ray_dashboard_address(self._cluster_info)
         subprocess.run(["serve", "status", "--address", ray_dashboard_url])
         subprocess.run(
@@ -244,7 +248,7 @@ class AppApi:
             json_compatible_replicas = convert_to_json_compatible(replicas)
             print(json.dumps(json_compatible_replicas, indent=2))
 
-    def read_deployment(self, app_name, deployment_file, model_name=None):
+    def _read_deployment(self, app_name, deployment_file, model_name=None):
 
         yaml_config = str(self._cluster_dir / deployment_file)
         if not os.path.exists(yaml_config):
@@ -276,14 +280,16 @@ class AppApi:
         model_name: Optional[str] = None,
         head_only: bool = False,
     ) -> Dict[str, Any]:
+        """Return app's metadata, such as port, head, workers etc"""
+
         http_port, grpc_port = None, None
 
         serve_app = True
-        app, full_json = self.read_deployment(app_name, DEPLOYMENT_YAML, model_name)
+        app, full_json = self._read_deployment(app_name, DEPLOYMENT_YAML, model_name)
         if app is None:
             print("Nothing found. try sglang deployment")
             serve_app = False
-            app, full_json = self.read_deployment(
+            app, full_json = self._read_deployment(
                 app_name, DEPLOYMENT_SGLANG_YAML, model_name
             )
 
@@ -354,11 +360,11 @@ class AppApi:
         load_balance: bool = True,
         **kwargs,
     ):
+        """Run LLM inference."""
+
         from matrix.client.query_llm import main as query
 
-        metadata = self.get_app_metadata(
-            self._cluster_dir, self._cluster_info, app_name
-        )
+        metadata = self.get_app_metadata(app_name)
         assert self._cluster_info.hostname
         local_mode = self._cluster_info.hostname.startswith("devvm")
 
@@ -386,18 +392,20 @@ class AppApi:
 
     def app_status(self, app_name: str) -> str:
         """The current status of the application.
+
+        As from Ray
         class ApplicationStatus(str, Enum):
-        NOT_STARTED = "NOT_STARTED"
-        DEPLOYING = "DEPLOYING"
-        DEPLOY_FAILED = "DEPLOY_FAILED"
-        RUNNING = "RUNNING"
-        UNHEALTHY = "UNHEALTHY"
-        DELETING = "DELETING"
+            NOT_STARTED = "NOT_STARTED"
+            DEPLOYING = "DEPLOYING"
+            DEPLOY_FAILED = "DEPLOY_FAILED"
+            RUNNING = "RUNNING"
+            UNHEALTHY = "UNHEALTHY"
+            DELETING = "DELETING"
         """
-        app, _full_json = self.read_deployment(app_name, DEPLOYMENT_YAML)
+        app, _full_json = self._read_deployment(app_name, DEPLOYMENT_YAML)
         if app is None:
             serve_app = False
-            app, _full_json = self.read_deployment(app_name, DEPLOYMENT_SGLANG_YAML)
+            app, _full_json = self._read_deployment(app_name, DEPLOYMENT_SGLANG_YAML)
         else:
             serve_app = True
         assert app, f"uknown app_name {app_name} within deployment {app}"

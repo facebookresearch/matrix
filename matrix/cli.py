@@ -349,6 +349,8 @@ class Cli:
 
     @property
     def app(self):
+        """Manage applications."""
+
         from matrix.app_server.app_api import AppApi
 
         head = self.cluster.cluster_info()
@@ -358,6 +360,8 @@ class Cli:
 
     @property
     def job(self):
+        """Manage jobs."""
+
         from matrix.job.job_api import JobApi
 
         head = self.cluster.cluster_info()

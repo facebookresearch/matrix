@@ -1,3 +1,4 @@
+import functools
 import time
 import typing as tp
 from pathlib import Path
@@ -38,7 +39,7 @@ def main(
                     "tokenizer": str(tokenizer),
                 }
             ],
-            "func": matrix.utils.os.run_and_stream,
+            "func": functools.partial(matrix.utils.os.run_and_stream, blocking=True),
             "kwargs": {
                 "command": command.format(**cp_info),
             },

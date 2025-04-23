@@ -64,25 +64,25 @@ class RayCluster:
         self.cluster_id = cluster_id
         self.matrix_dir = matrix_dir
         print(f"cluster {self.cluster_id}")
-        self.cluster_dir.mkdir(parents=True, exist_ok=True)
-        (self.cluster_dir / "jobs").mkdir(parents=True, exist_ok=True)
+        self._cluster_dir.mkdir(parents=True, exist_ok=True)
+        (self._cluster_dir / "jobs").mkdir(parents=True, exist_ok=True)
 
-        print(f"logs will be in {self.log_dir.resolve()}")
+        print(f"logging to {self._log_dir.resolve()}")
 
     @property
-    def cluster_dir(self) -> Path:
+    def _cluster_dir(self) -> Path:
         """Returns the directory dedicated to this specific cluster's data."""
         return self.matrix_dir / self.cluster_id
 
     @property
-    def log_dir(self) -> Path:
+    def _log_dir(self) -> Path:
         """Returns the directory where logs for this cluster are stored."""
         return self.matrix_dir / "logs" / self.cluster_id
 
     @property
     def _cluster_json(self) -> Path:
         """Returns the path to the JSON file storing cluster head information."""
-        return self.cluster_dir / "head.json"
+        return self._cluster_dir / "head.json"
 
     def is_head_ready(self) -> bool:
         """Checks if the Ray head node has successfully started and cluster info is available."""
@@ -110,7 +110,7 @@ class RayCluster:
         Args:
             job (submitit.Job): The submitted Slurm job object.
         """
-        with (self.cluster_dir / "jobs" / f"{job.job_id}.json").open("w") as f:
+        with (self._cluster_dir / "jobs" / f"{job.job_id}.json").open("w") as f:
             json.dump(
                 {
                     "job_id": job.job_id,
@@ -119,6 +119,8 @@ class RayCluster:
             )
 
     def start_grafana(self, force: bool):
+        """Start Prometheus and Grafana dashboard."""
+
         cluster_info = self.cluster_info()
         assert cluster_info is not None, "Head is not ready"
         init_ray_if_necessary(cluster_info)
@@ -197,7 +199,7 @@ class RayCluster:
         else:
             # start the head node
             s_executor = submitit.AutoExecutor(
-                folder=str(self.log_dir),
+                folder=str(self._log_dir),
                 cluster=executor,
             )
             default_params = {"cpus_per_task": 10, "timeout_min": 10080}
@@ -226,7 +228,7 @@ class RayCluster:
                 executor,
             )
             self._add_job(head_job)
-            create_symlinks(self.log_dir, "head", head_job.paths)
+            create_symlinks(self._log_dir, "head", head_job.paths)
             print("head slurm job id:", head_job.job_id)
 
             job_submit_time = time.time()
@@ -262,7 +264,7 @@ class RayCluster:
         # start the workers
         if add_workers > 0:
             s_executor = submitit.AutoExecutor(
-                folder=str(self.log_dir), cluster=executor
+                folder=str(self._log_dir), cluster=executor
             )
             default_params = {
                 "ntasks_per_node": 1,
@@ -300,7 +302,7 @@ class RayCluster:
                     )
 
             for j in jobs:
-                create_symlinks(self.log_dir, f"worker", j.paths, True)
+                create_symlinks(self._log_dir, f"worker", j.paths, True)
             print("workers slurm job ids:", [job.job_id for job in jobs])
             for j in jobs:
                 self._add_job(j)
@@ -316,7 +318,7 @@ class RayCluster:
         init_ray_if_necessary(cluster_info)
         ray.shutdown()
 
-        job_ids = [f.stem for f in (self.cluster_dir / "jobs").iterdir()]
+        job_ids = [f.stem for f in (self._cluster_dir / "jobs").iterdir()]
         root_ids = list(set([i.split("_", maxsplit=2)[0] for i in job_ids]))
         run_subprocess(["scancel"] + root_ids)
         if cluster_info.executor == "local":
@@ -330,8 +332,8 @@ class RayCluster:
             for pattern in [cluster_info.temp_dir, f":{cluster_info.port}"]:
                 if pattern:
                     run_subprocess(["pkill", "-f", pattern, "-9"])
-        if os.path.exists(self.cluster_dir):
-            shutil.rmtree(self.cluster_dir)
+        if os.path.exists(self._cluster_dir):
+            shutil.rmtree(self._cluster_dir)
         print(f"cluster {self.cluster_id} shutdown")
 
     def __enter__(self):
