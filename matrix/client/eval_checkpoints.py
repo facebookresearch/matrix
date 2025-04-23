@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 import functools
 import time
 import typing as tp
@@ -20,6 +26,14 @@ def main(
 ):
     """
     command: the command template, to be formated by checkpoint.
+
+    Example:
+    python -m matrix.client.eval_checkpoints \
+    --checkpoints "[{'name': 'step_1000', 'path': '/checkpoints/step_1000/'}, {'name': 'step_200', 'path': '/checkpoints/step_200'}]" \
+    --tokenizer meta-llama/Llama-3.1-8B-Instruct --model_size 8B \
+    --job_apps "[{'model_name': 'meta-llama/Llama-3.1-8B-Instruct', 'use_grpc': 'true', 'model_size': '8B', 'name': '8B_grpc'}]" \
+    --command "matrix llm_inference --app_name {name} --input_jsonls /math-500/test.jsonl --output_jsonl /tmp/{name}.jsonl --batch_size=64 --system_prompt 'Please reason step by step, and put your final answer within \boxed{{}}.' --max_tokens 30000 --text_key problem --timeout_secs 1800 --override_output_file True" \
+    --max_concurrent_tasks 2
     """
     print(command)
     for app in job_apps:

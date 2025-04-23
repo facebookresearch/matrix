@@ -1,10 +1,15 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 import functools
 import inspect
-import json
 import logging
 import math
-import os  # Needed for checkpoint file path
-import pickle  # For checkpointing state
+import os
+import pickle
 import threading
 import time
 import traceback
@@ -18,7 +23,6 @@ from matrix.job.job_utils import (
     JobAlreadyExist,
     JobNotFound,
     generate_task_id,
-    is_json_serializable,
     status_is_failure,
     status_is_pending,
     status_is_success,
@@ -38,20 +42,20 @@ JOB_MONITOR_INTERVAL = 5  # run the monitor loop evey 5 seconds
 
 # --- Enums for Status ---
 class TaskStatus(Enum):
-    PENDING = "PENDING"  # Waiting to be launched or rescheduled
-    RUNNING = "RUNNING"  # Running the main user function
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
     SUCCEEDED = "SUCCEEDED"
-    FAILED = "FAILED"  # Failed permanently after retries
-    RETRYING = "RETRYING"  # Failed, but retries are available, waiting to be scheduled
+    FAILED = "FAILED"
+    RETRYING = "RETRYING"
 
 
 class JobStatus(Enum):
-    SUBMITTED = "SUBMITTED"  # Just submitted, not yet picked by monitor
+    SUBMITTED = "SUBMITTED"
     DEPLOYING = "DEPLOYING"
     STATUSCHECKING = "STATUSCHECKING"
-    RUNNING = "RUNNING"  # Being processed by the monitor thread
-    COMPLETED = "COMPLETED"  # All tasks finished successfully
-    FAILED = "FAILED"  # At least one task failed permanently
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
 
 
 # --- Ray Remote Function (Worker Task) ---
@@ -524,7 +528,7 @@ class JobManager:
             future = self._running_task_futures.pop(task_id, None)
             if future:
                 try:
-                    ray.kill(future, no_restart=True)
+                    ray.cancel(future)
                     logger.info(f"[{task_id}] Ray task killed due to timeout")
                 except Exception as e:
                     logger.error(
@@ -776,7 +780,7 @@ class JobManager:
                 future = self._running_task_futures.pop(task_id, None)
                 if future:
                     try:
-                        ray.kill(future, no_restart=True)
+                        ray.cancel(future)
                         logger.info(f"[{task_id}] Ray task killed")
                     except Exception as e:
                         logger.error(
@@ -804,7 +808,7 @@ class JobManager:
                 )
                 for task_id, future in list(self._running_task_futures.items()):
                     try:
-                        ray.kill(future, no_restart=True)
+                        ray.cancel(future)
                         logger.info(f"Killed task {task_id}.")
                     except Exception as e:
                         logger.error(

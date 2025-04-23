@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 import json
 import uuid
 
@@ -14,33 +20,6 @@ def generate_task_id(job_id, index):
     return f"{job_id}_task_{index}"
 
 
-def serialize_func(func):
-    """Placeholder for potential future complex serialization if needed.
-    For now, Ray handles function serialization directly.
-    """
-    # Basic check: ensure it's callable
-    if not callable(func):
-        raise TypeError("Provided 'func' must be callable.")
-    return func  # Ray handles the actual serialization
-
-
-def deserialize_func(serialized_func):
-    """Placeholder for potential future complex deserialization."""
-    return serialized_func  # Ray handles this
-
-
-def is_json_serializable(data):
-    """Checks if data is JSON serializable."""
-    if data is None:
-        return True
-    try:
-        json.dumps(data)
-        return True
-    except (TypeError, OverflowError):
-        return False
-
-
-# ray_task_manager/exceptions.py
 class JobNotFound(Exception):
     """Raised when a job ID is not found in the manager."""
 

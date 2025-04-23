@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 import logging
 from functools import partial
 
@@ -12,7 +18,6 @@ from matrix.job.job_utils import (
     check_status_helper,
     deploy_helper,
     generate_job_id,
-    serialize_func,
     undeploy_helper,
 )
 from matrix.utils.ray import Action, get_ray_address, get_ray_head_node
@@ -28,10 +33,6 @@ class JobApi:
         self._cluster_info = cluster_info
         self._app = app
         self._job_manager = None
-
-    # Keep track of the actor handle locally in the module? Might simplify things slightly.
-    # Or always fetch it. Fetching is safer if the process restarts.
-    # _actor_handle = None
 
     def _get_manager_actor(self, get_only=False):  # Add optional concurrency arg
         """Gets a handle to the JobManager actor, creating it if necessary."""
@@ -94,7 +95,6 @@ class JobApi:
                 f"Could not get JobManager actor handle: {e}"
             ) from e
 
-    # --- Modify submit_job to potentially pass concurrency on first creation ---
     def submit(
         self,
         job_definition,
@@ -139,21 +139,17 @@ class JobApi:
                 job_definition[k] = v
 
         task_definitions = job_definition["task_definitions"]
-        # ... (rest of submit_job function is the same) ...
         if not isinstance(task_definitions, list):
             raise TypeError("task_definitions must be a list")
         for i, task_def in enumerate(task_definitions):
-            # ... (validation as before) ...
             if not isinstance(task_def, dict):
                 raise TypeError(f"Item {i} not dict")
             if "func" not in task_def:
                 raise ValueError(f"Task {i} missing 'func'")
             if isinstance(task_def["func"], str):
                 task_def["func"] = str_to_callable(task_def["func"])
-            try:
-                serialized_func = serialize_func(task_def["func"])
-            except TypeError as e:
-                raise TypeError(f"Invalid func {i}: {e}") from e
+            if not callable(task_def["func"]):
+                raise TypeError("Provided 'func' must be callable.")
 
             default_params = {
                 "resources": {"CPU": 1},
@@ -168,7 +164,6 @@ class JobApi:
         job_id = job_definition["job_id"]
         logger.info(f"Submitting job {job_id} via API.")
 
-        # Pass concurrency hint to actor creation logic if needed
         actor = self._get_manager_actor()
 
         try:
@@ -180,10 +175,6 @@ class JobApi:
             raise RayJobManagerError(
                 f"Actor communication failed during submission: {e}"
             ) from e
-
-    # Other API functions (get_job_status, get_results, list_jobs, shutdown_manager)
-    # remain largely the same, but make sure they call _get_manager_actor() without
-    # the max_concurrency argument, as they are only retrieving an existing actor.
 
     def status(self, job_id):
         """
@@ -296,8 +287,6 @@ class JobApi:
             ray.get(actor.stop.remote())
             ray.kill(actor)
             logger.info("JobManager actor killed.")
-            # Note: This might impact jobs currently running if not handled gracefully within the actor.
-            # A more graceful shutdown would involve the actor finishing tasks or saving state.
         except ValueError:
             logger.info("JobManager actor not found, likely already shut down.")
         except Exception as e:
