@@ -238,7 +238,7 @@ class Cli:
         Returns:
             The application metadata.
         """
-        return self.app.get_metadata(
+        return self.app.get_app_metadata(
             app_name,
             endpoint_ttl_sec=endpoint_ttl_sec,
             model_name=model_name,

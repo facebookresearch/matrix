@@ -10,6 +10,7 @@ from functools import partial
 import ray
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
+import matrix
 from matrix.job.job_manager import ACTOR_NAME, NAMESPACE, JobManager
 from matrix.job.job_utils import (
     ActorUnavailableError,

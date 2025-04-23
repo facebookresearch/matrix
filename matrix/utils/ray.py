@@ -112,3 +112,15 @@ def get_serve_applications(ray_http_address):
         return json.loads(content)
     else:
         return []
+
+
+def status_is_success(app_status: str) -> bool:
+    return app_status == "RUNNING"
+
+
+def status_is_failure(app_status: str) -> bool:
+    return app_status in ["DEPLOY_FAILED", "DELETING"]
+
+
+def status_is_pending(app_status: str) -> bool:
+    return app_status in ["NOT_STARTED", "DEPLOYING", "UNHEALTHY"]

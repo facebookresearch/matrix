@@ -18,10 +18,9 @@ from matrix.job.job_api import JobApi
 
 def main(
     checkpoints: tp.List[tp.Dict[str, tp.Any]],
-    model_size: str,
-    tokenizer: Path,
-    job_apps: tp.List[tp.Dict[str, tp.Any]],
+    model_args: tp.Dict[str, tp.Any],
     command: str,
+    job_apps: tp.List[tp.Dict[str, tp.Any]] = [],
     **job_kwargs,
 ):
     """
@@ -30,12 +29,11 @@ def main(
     Example:
     python -m matrix.client.eval_checkpoints \
     --checkpoints "[{'name': 'step_1000', 'path': '/checkpoints/step_1000/'}, {'name': 'step_200', 'path': '/checkpoints/step_200'}]" \
-    --tokenizer meta-llama/Llama-3.1-8B-Instruct --model_size 8B \
+    --model_args "{'tokenizer': 'meta-llama/Llama-3.1-8B-Instruct', 'model_size': '8B'}" \
     --job_apps "[{'model_name': 'meta-llama/Llama-3.1-8B-Instruct', 'use_grpc': 'true', 'model_size': '8B', 'name': '8B_grpc'}]" \
     --command "matrix llm_inference --app_name {name} --input_jsonls /math-500/test.jsonl --output_jsonl /tmp/{name}.jsonl --batch_size=64 --system_prompt 'Please reason step by step, and put your final answer within \boxed{{}}.' --max_tokens 30000 --text_key problem --timeout_secs 1800 --override_output_file True" \
     --max_concurrent_tasks 2
     """
-    print(command)
     for app in job_apps:
         assert "name" in app, "name are required for each app"
     for cp in checkpoints:
@@ -49,8 +47,7 @@ def main(
                 {
                     "name": cp_info["name"],
                     "model_name": cp_info["path"],
-                    "model_size": model_size,
-                    "tokenizer": str(tokenizer),
+                    **model_args,
                 }
             ],
             "func": functools.partial(matrix.utils.os.run_and_stream, blocking=True),

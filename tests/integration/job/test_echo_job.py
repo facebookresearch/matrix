@@ -12,11 +12,9 @@ from typing import Any, Dict, Generator
 import pytest
 import ray
 
+import matrix
 from matrix.cli import Cli
-from matrix.utils.ray import (
-    status_is_pending,
-    status_is_success,
-)
+from matrix.job.job_utils import echo
 
 
 @pytest.fixture(scope="module")
@@ -37,11 +35,26 @@ def matrix_cluster() -> Generator[Any, Any, Any]:
 def test_deploy_hello(matrix_cluster: Cli) -> None:
     """Test hello app"""
     cli = matrix_cluster
-    cli.deploy_applications(applications=[{"name": "hello", "app_type": "hello"}])
+    task_definitions = [
+        {
+            "func": "matrix.job.job_utils.echo",
+            "args": ["hello "],
+        },
+        {
+            "func": echo,
+            "args": ["world!"],
+        },
+    ]
+    job_def = {
+        "task_definitions": task_definitions,
+    }
+    job_id = cli.job.submit(job_def)
     for _ in range(10):
-        status = cli.app.app_status("hello")
-        if not status_is_pending(status):
+        status = cli.job.status(job_id)
+        if status["status"] in ["COMPLETED", "FAILED"]:
             break
         time.sleep(5)
-    assert status_is_success(status), f"Bad status {status}"
-    assert cli.check_health("hello")
+    results = cli.job.get_results(job_id)
+    assert status["status"] == "COMPLETED", results
+    outputs = "".join([r["output"] for r in results.values()])
+    assert outputs == "hello world!"

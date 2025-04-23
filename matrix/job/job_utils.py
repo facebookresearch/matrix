@@ -48,18 +48,6 @@ def echo(text):
     return {"success": True, "output": text}
 
 
-def status_is_success(app_status: str) -> bool:
-    return app_status == "RUNNING"
-
-
-def status_is_failure(app_status: str) -> bool:
-    return app_status in ["DEPLOY_FAILED", "DELETING"]
-
-
-def status_is_pending(app_status: str) -> bool:
-    return app_status in ["NOT_STARTED", "DEPLOYING", "UNHEALTHY"]
-
-
 def deploy_helper(app_api, applications):
     """helper functions to do deployment for jobs"""
     if applications:

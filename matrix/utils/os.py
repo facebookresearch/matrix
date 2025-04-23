@@ -10,6 +10,7 @@ import signal
 import socket
 import subprocess
 import threading
+import time
 import traceback
 import typing as tp
 import uuid
@@ -17,6 +18,7 @@ from collections import deque
 from contextlib import closing
 from pathlib import Path
 
+import portalocker
 import psutil
 import submitit
 
@@ -159,7 +161,12 @@ def run_and_stream(logging_config, command, blocking=False):
         return process
     else:
         try:
-            exit_code = process.wait()
+            while True:
+                exit_code = process.poll()
+                if exit_code is not None:
+                    print(f"Process finished with code {exit_code}")
+                    break
+                time.sleep(1)
             log(f"Process exited with code {exit_code}")
             stdout_content = "".join(stdout_buffer)
             return {
@@ -178,6 +185,7 @@ def run_and_stream(logging_config, command, blocking=False):
             terminate_flag.set()
             output_thread.join(timeout=1.0)
             stop_process(process)
+            log(f"Subprocess killed")
 
 
 def stop_process(process):
@@ -210,3 +218,18 @@ def run_subprocess(command: tp.List[str]) -> bool:
             return False
     except Exception as e:
         return False
+
+
+def lock_file(filepath, mode, timeout=10, poll_interval=0.1):
+    start_time = time.time()
+    while True:
+        try:
+            return portalocker.Lock(
+                filepath, mode, flags=portalocker.LockFlags.EXCLUSIVE
+            )
+        except portalocker.exceptions.AlreadyLocked:
+            if (time.time() - start_time) >= timeout:
+                raise TimeoutError(
+                    f"Could not acquire lock for {filepath} within {timeout} seconds."
+                )
+            time.sleep(poll_interval)

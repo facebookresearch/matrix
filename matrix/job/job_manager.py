@@ -23,6 +23,8 @@ from matrix.job.job_utils import (
     JobAlreadyExist,
     JobNotFound,
     generate_task_id,
+)
+from matrix.utils.ray import (
     status_is_failure,
     status_is_pending,
     status_is_success,
@@ -568,7 +570,11 @@ class JobManager:
         job_id = job_info["job_id"]
         job_def = job_info["job_definition"]
         cleanup_func = job_def["cleanup_applications"]
-        applications = job_def["applications"]
+        applications = job_def["applications"] + [
+            app
+            for task_def in job_def["task_definitions"]
+            for app in task_def["applications"]
+        ]
 
         if cleanup_func:
             logger.info(f"[{job_id}] Starting cleanup...")
@@ -760,7 +766,7 @@ class JobManager:
             return all_ids
 
     def delete_job(self, job_id):
-        """remove all jobs"""
+        """remove one job"""
         with self._monitor_lock:
             if job_id not in self.jobs:
                 raise JobNotFound(f"Job with ID '{job_id}' not found.")
@@ -789,6 +795,7 @@ class JobManager:
 
             if self._current_job_id == job_id:
                 self._handle_finished_job(job_info)
+            self._save_checkpoint()
 
     def stop(self):
         """Gracefully shuts down the monitor thread."""

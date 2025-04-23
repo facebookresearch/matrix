@@ -20,7 +20,6 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Awaitable, Dict, List, Optional, Tuple, Union
 
-import portalocker
 import ray
 import yaml
 from ray.serve import scripts
@@ -38,6 +37,7 @@ from matrix.app_server.deploy_utils import (
 from matrix.client.endpoint_cache import EndpointCache
 from matrix.common.cluster_info import ClusterInfo, get_head_http_host
 from matrix.utils.json import convert_to_json_compatible
+from matrix.utils.os import lock_file
 from matrix.utils.ray import (
     ACTOR_NAME_SPACE,
     Action,
@@ -104,10 +104,8 @@ class AppApi:
                 f"Invalid action '{action}', expected one of {[a.value for a in Action]}"
             )
 
-        with portalocker.Lock(yaml_filepath, "a+", timeout=10) as yaml_file:
-            with portalocker.Lock(
-                sglang_yaml_filepath, "a+", timeout=10
-            ) as sglang_yaml_file:
+        with lock_file(yaml_filepath, "a+", timeout=10) as yaml_file:
+            with lock_file(sglang_yaml_filepath, "a+", timeout=10) as sglang_yaml_file:
                 yaml_file.seek(0)
                 old = yaml.safe_load(yaml_file)
                 if old is None:
@@ -121,6 +119,22 @@ class AppApi:
                 else:
                     sglang_old_apps = sglang_old["applications"] or []
                 existing_apps = old_apps + sglang_old_apps
+                existing_app_names = [app["name"] for app in existing_apps]
+                assert applications is not None
+                for _i in range(len(applications) - 1, -1, -1):
+                    app = applications[_i]
+                    found = app.get("name") in existing_app_names
+                    if found and action == Action.ADD:
+                        logger.warning(
+                            f"Ignore adding app {app}, already exist in {existing_app_names}"
+                        )
+                        del applications[_i]
+                    elif not found and action == Action.REMOVE:
+                        logger.warning(
+                            f"Ignore removing app {app}, does not exist in {existing_app_names}"
+                        )
+                        del applications[_i]
+
                 yaml_str = get_yaml_for_deployment(
                     self._cluster_info, action, applications, yaml_config, existing_apps
                 )
