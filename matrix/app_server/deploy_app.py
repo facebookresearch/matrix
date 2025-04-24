@@ -373,7 +373,7 @@ def inference(
                 **kwargs,
             )
         )
-    else:
+    elif app_type == "code":
         from matrix.client.execute_code import main as execute_code
 
         return asyncio.run(
@@ -384,3 +384,5 @@ def inference(
                 **kwargs,
             )
         )
+    else:
+        raise ValueError(f"app_type {app_type} is not supported.")

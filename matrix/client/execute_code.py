@@ -82,9 +82,19 @@ async def make_request(
     timeout_secs: int = 600,
     endpoint_cache: tp.Optional[EndpointCache] = None,
 ) -> tp.Dict[str, tp.Any]:
+    """
+    Send request data to code execution app.
+
+    params:
+        url: The base URL for the http endpoint (e.g., "http://localhost:8001/code").
+        data: request data, eg {"code": "assert 1 == 1"}
+    """
+    assert "code" in data, f"missing code field in {data}"
     if "metadata" not in data:
         data["metadata"] = {}
     data["metadata"]["request_timestamp"] = time.time()
+    if "timeout" not in data:
+        data["timeout"] = timeout_secs
     max_retries = max(1, max_retries)
     exception: tp.Optional[Exception] = None
 
@@ -100,9 +110,7 @@ async def make_request(
         assert base_url.startswith("http")
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    base_url, json={"code": data["code"], "timeout": timeout_secs}
-                ) as response:
+                async with session.post(base_url, json=data) as response:
                     status = response.status  # Get the HTTP status code
                     content = await response.text()
                     result = {
@@ -136,10 +144,10 @@ async def main(
     url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
     output_file: str,
     input_jsonls: str,
-    text_keys: list[str],  # Key for the code prompt in input jsonl
-    prompt_template: str = "check({entry_point})",
+    text_keys: list[str],
+    prompt_template: str,
     batch_size: int = 32,
-    timeout_secs: int = 120,  # Shorter timeout might be appropriate for execution
+    timeout_secs: int = 120,
     limit: int = 0,
 ):
     """
@@ -149,13 +157,15 @@ async def main(
     and saves results to a jsonl file.
 
     params:
-        url: The base URL for the httpx endpoint (e.g., "http://localhost:8001").
+        url: The base URL for the http endpoint (e.g., "http://localhost:8001/code").
         output_file: name of the output jsonl file.
         input_jsonls: glob pattern for input jsonl files (e.g., "code_data/*.jsonl").
+        text_keys: These columns are concated as `code` to send to backend.
+        prompt_template: prompt template is appended to `code` after string interpolation,
+            e.g. "check({entry_point})" will add check with entry_point column to `code`.
         batch_size: Max number of concurrent requests.
-        text_keys: The keys for raw text code prompts in input jsonl.
-        prompt_template: prompt template, e.g. "check({entry_point})".
         timeout_secs: Per request timeout in seconds.
+        limit: max num of inputs to take (0 means all inputs).
     """
 
     logger.info(

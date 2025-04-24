@@ -201,13 +201,13 @@ class Cli:
 
     def inference(self, app_name: str, output_jsonl: str, input_jsonls: str, **kwargs):
         """
-        Run batch inference using a deployed LLM application.
+        Run batch inference using a deployed application.
 
-        This method processes input data through a deployed LLM application and
+        This method processes input data through a deployed application and
         saves the results to the specified output file.
 
         Args:
-            app_name (str): The name of the deployed LLM application to use.
+            app_name (str): The name of the deployed application to use.
             output_jsonl (str): Path to save inference results in JSONL format.
             input_jsonls (str): Path to input data in JSONL format.
             **kwargs: Additional parameters for inference (e.g., temperature, max_tokens).
