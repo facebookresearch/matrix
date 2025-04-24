@@ -128,7 +128,7 @@ matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-M
 python -m matrix.scripts.hf_dataset_to_jsonl HuggingFaceH4/MATH-500 test test.jsonl
 
 // query math-500
-matrix llm_inference --app_name maverick-fp8 --input_jsonls test.jsonl --output_jsonl response.jsonl --batch_size=64 --system_prompt "Please reason step by step, and put your final answer within \boxed{}." --max_tokens 30000 --text_key problem --timeout_secs 1800
+matrix inference --app_name maverick-fp8 --input_jsonls test.jsonl --output_jsonl response.jsonl --batch_size=64 --system_prompt "Please reason step by step, and put your final answer within \boxed{}." --max_tokens 30000 --text_key problem --timeout_secs 1800
 ```
 
 #### Input Format
@@ -182,8 +182,11 @@ conda install -c conda-forge bubblewrap
 ```
 - Run example python code
 ```
-matrix deploy_applications --applications "[{'name': 'code', 'app_type': code}]"
+matrix deploy_applications --applications "[{'name': 'code', 'app_type': code, 'min_replica': 5}]"
 matrix check_health --app_name code
+
+python -m -m matrix.scripts.hf_dataset_to_jsonl openai/openai_humaneval test humaneval/test.jsonl
+matrix inference code ~/tmp/he.jsonl humaneval/test.jsonl --text_keys "[prompt, canonical_solution, test, entry_point]" --prompt_template "check({entry_point})"
 ```
 
 ## Data Pipelines

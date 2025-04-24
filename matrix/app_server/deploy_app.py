@@ -31,6 +31,7 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 from matrix.app_server.deploy_utils import (
     delete_apps,
+    get_app_type,
     get_yaml_for_deployment,
     is_sglang_app,
     write_yaml_file,
@@ -304,6 +305,7 @@ def get_app_metadata(
         "deployment_name": deployment_name,
         "use_grpc": use_grpc,
         "endpoint_template": endpoint_template,
+        "app_type": get_app_type(app),
     }
 
     head = metadata["endpoint_template"].format(host=get_head_http_host(cluster_info))
@@ -341,7 +343,6 @@ def inference(
     load_balance: bool = True,
     **kwargs,
 ):
-    from matrix.client.query_llm import main as query
 
     metadata = get_app_metadata(cluster_dir, cluster_info, app_name)
     assert cluster_info.hostname
@@ -358,13 +359,28 @@ def inference(
             host = random.choice(ips)
             return host
 
-    return asyncio.run(
-        query(
-            get_one_endpoint,
-            output_jsonl,
-            input_jsonls,
-            model=metadata["model_name"],
-            app_name=metadata["name"],
-            **kwargs,
+    app_type = metadata["app_type"]
+    if app_type in ["llm", "sglang_llm"]:
+        from matrix.client.query_llm import main as query_llm
+
+        return asyncio.run(
+            query_llm(
+                get_one_endpoint,
+                output_jsonl,
+                input_jsonls,
+                model=metadata["model_name"],
+                app_name=metadata["name"],
+                **kwargs,
+            )
         )
-    )
+    else:
+        from matrix.client.execute_code import main as execute_code
+
+        return asyncio.run(
+            execute_code(
+                get_one_endpoint,
+                output_jsonl,
+                input_jsonls,
+                **kwargs,
+            )
+        )

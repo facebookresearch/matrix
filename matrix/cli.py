@@ -199,9 +199,7 @@ class Cli:
                 block=block,
             )
 
-    def llm_inference(
-        self, app_name: str, output_jsonl: str, input_jsonls: str, **kwargs
-    ):
+    def inference(self, app_name: str, output_jsonl: str, input_jsonls: str, **kwargs):
         """
         Run batch inference using a deployed LLM application.
 

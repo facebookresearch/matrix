@@ -25,6 +25,7 @@ from grpc import aio as grpc_aio
 from openai import APIConnectionError, APITimeoutError, RateLimitError
 
 from matrix.app_server.llm import openai_pb2, openai_pb2_grpc
+from matrix.client.client_utils import get_an_endpoint_url, save_to_jsonl
 from matrix.client.endpoint_cache import EndpointCache
 
 CHAR_PER_TOKEN = 3.61
@@ -127,44 +128,6 @@ def load_from_jsonl(
                 f"Loaded {num_lines} lines from {file_name}, max text length {max_length}, estimated max token {int(max_length / CHAR_PER_TOKEN)}"
             )
     return data
-
-
-def save_to_jsonl(
-    data: tp.List[tp.Dict[str, tp.Any]],
-    filename: str,
-    write_mode: str,
-    stats: tp.Dict[str, tp.Any],
-) -> None:
-    with open(filename, write_mode) as file:
-        for item in data:
-            stats["total"] += 1
-            stats["success"] += 0 if "error" in item["response"] else 1
-            stats["sum_latency"] += (
-                item["response"]["response_timestamp"]
-                - item["request"]["metadata"]["request_timestamp"]
-            )
-            json_str = json.dumps(item)
-            file.write(json_str + "\n")
-
-
-async def get_an_endpoint_url(
-    endpoint_cache: EndpointCache,
-    multiplexed_model_id: str = "",
-    force_update: bool = False,
-) -> str:
-    urls = await endpoint_cache(force_update)
-    start_time = time.time()
-    while not urls:
-        # explicitly use synchronous sleep to block the whole event loop
-        time.sleep(60)
-        print(f"no worker is available, waited {time.time() - start_time}s..")
-        urls = await endpoint_cache(force_update)
-
-    if multiplexed_model_id:
-        hashed_int = int(hashlib.sha256(multiplexed_model_id.encode()).hexdigest(), 16)
-        return urls[hashed_int % len(urls)]
-    else:
-        return random.choice(urls)
 
 
 def _convert_token_log_probs(token_log_probs):
@@ -536,8 +499,6 @@ async def main(
     messages_key="request.messages",
     system_prompt="",
     timeout_secs=600,
-    override_output_file: bool = False,
-    append_output_file: bool = False,
 ):
     """Send jsonl llama3 instruct prompt for inference and save both the request and response as jsonl.
     params:
@@ -556,8 +517,6 @@ async def main(
     messages_key: the messages field in the input json.
     system_prompt: system prompt to use.
     timeout_secs: per request timeout in seconds.
-    override_output_file: Override given output file if it exists.
-    append_output_file: Append to given output file if it exists.
     """
 
     logger.info(
@@ -567,16 +526,15 @@ async def main(
     save_dir = os.path.dirname(output_file)
     if save_dir:
         os.makedirs(save_dir, exist_ok=True)
-    if override_output_file and append_output_file:
-        raise ValueError(
-            "Conflicting output file options. Please choose either `override_output_file` or `append_output_file`, but not both."
-        )
-    if os.path.exists(output_file) and not (override_output_file or append_output_file):
-        raise FileExistsError(
-            f"Output file '{output_file}' already exists. To proceed, please remove the file, set `override_output_file=True` to overwrite it, or set `append_output_file=True` to append to it."
-        )
+    if os.path.exists(output_file):
+        logger.warning(f"Output file '{output_file}' already exists, overwriting...")
+    input_files = glob.glob(input_jsonls)
+    if not input_files:
+        logger.error(f"No input files found matching pattern: {input_jsonls}")
+        return
+
     lines = load_from_jsonl(
-        tuple(glob.glob(input_jsonls)),
+        tuple(input_files),
         text_key,
         messages_key,
         system_prompt=system_prompt,
@@ -586,6 +544,7 @@ async def main(
     stats = {"success": 0, "total": 0, "sum_latency": 0}
     pending_tasks = set()  # type: ignore
     batch_results = []
+    append_output_file: bool = False
 
     async def save_outputs(flush=False):
         nonlocal pending_tasks, batch_results, append_output_file
