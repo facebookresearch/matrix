@@ -31,5 +31,5 @@ class ClusterInfo:
 
 def get_head_http_host(cluster_info: ClusterInfo) -> str:
     assert cluster_info.hostname
-    devvm = cluster_info.hostname.startswith("dev")
-    return "localhost" if devvm else cluster_info.hostname
+    local_mode = cluster_info.executor == "local"
+    return "localhost" if local_mode else cluster_info.hostname

@@ -23,7 +23,7 @@ dependencies = [
   "pyyaml",
   "portalocker",
   "boto3",
-  "google-genai",
+  "google-genai==1.9.0",
   "datasketch",
 ]
 # zip_safe = false

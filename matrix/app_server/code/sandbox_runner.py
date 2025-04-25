@@ -161,9 +161,6 @@ with open('{result_file}', 'w') as f:
             # Bind the temp directory
             bwrap_cmd.extend(["--bind", temp_dir, temp_dir])
 
-            # Set /tmp
-            bwrap_cmd.extend(["--tmpfs", "/tmp"])
-
             # CPU time limit in seconds
             timeout = self.resource_limits.get("time", 30)  # Default: 30 seconds
 

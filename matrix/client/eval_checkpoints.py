@@ -26,6 +26,23 @@ def main(
     """
     command: the command template, to be formated by checkpoint.
 
+     Args:
+        checkpoints: A list of checkpoint dictionaries. Each dictionary
+            must contain 'name' and 'path' keys. The 'name' is used for the
+            application name within the task, and 'path' is used as the
+            model name for the application.
+        model_args: Additional arguments to be included in the application
+            definition for each checkpoint's task.
+        command: The command template string to execute for each checkpoint.
+            It will be formatted using the corresponding checkpoint dictionary
+            (e.g., allowing use of '{name}', '{path}').
+        job_apps: A list of additional application dictionaries to include
+            in the main job definition. Each dictionary must contain a 'name'
+            key. These are static applications independent of the checkpoints,
+            such as extractors and judge LLM. Defaults to [].
+        **job_kwargs: Additional keyword arguments to be included in the
+            main job definition (e.g., 'max_concurrent_tasks', 'timeout').
+
     Example:
     python -m matrix.client.eval_checkpoints \
     --checkpoints "[{'name': 'step_1000', 'path': '/checkpoints/step_1000/'}, {'name': 'step_200', 'path': '/checkpoints/step_200'}]" \

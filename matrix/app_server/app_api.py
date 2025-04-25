@@ -30,6 +30,7 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 from matrix.app_server.deploy_utils import (
     delete_apps,
+    get_app_type,
     get_yaml_for_deployment,
     is_sglang_app,
     write_yaml_file,
@@ -210,30 +211,6 @@ class AppApi:
                             )
                 return [app["name"] for app in (update_apps.get("applications") or [])]
 
-    def append_deploy(
-        self,
-        app: Dict[str, Union[str, int]],
-    ) -> str:
-        """
-        Appending to current deployments.
-
-        for example, model checkpoint evaluation
-        when done with this application, call deploy with Action.REMOVE
-        """
-        name = app.get("name")
-        if name is None:
-            hex_hash = hashlib.sha256(str(app.get("model_name")).encode()).digest()
-            name = base64.b32encode(hex_hash).decode()[:8]
-            app["name"] = name
-        self.deploy(Action.ADD, [app])
-        return str(name)
-
-    def remove_temp_app(self, app_name: str):
-        """Remove an app. Deprecated."""
-        app = {"name": app_name}  # type: ignore[assignment]
-        self.deploy(Action.REMOVE, [app])  # type: ignore[list-item]
-        return app
-
     def status(self, replica):
         """Print out Serve applications and matrix actors."""
 
@@ -337,6 +314,7 @@ class AppApi:
             "deployment_name": deployment_name,
             "use_grpc": use_grpc,
             "endpoint_template": endpoint_template,
+            "app_type": get_app_type(app),
         }
 
         head = metadata["endpoint_template"].format(
@@ -380,7 +358,7 @@ class AppApi:
 
         metadata = self.get_app_metadata(app_name)
         assert self._cluster_info.hostname
-        local_mode = self._cluster_info.hostname.startswith("devvm")
+        local_mode = self._cluster_info.executor == "local"
 
         async def get_one_endpoint() -> str:
             if not load_balance:
@@ -393,16 +371,33 @@ class AppApi:
                 host = random.choice(ips)
                 return host
 
-        return asyncio.run(
-            query(
-                get_one_endpoint,
-                output_jsonl,
-                input_jsonls,
-                model=metadata["model_name"],
-                app_name=metadata["name"],
-                **kwargs,
+        app_type = metadata["app_type"]
+        if app_type in ["llm", "sglang_llm"]:
+            from matrix.client.query_llm import main as query_llm
+
+            return asyncio.run(
+                query_llm(
+                    get_one_endpoint,
+                    output_jsonl,
+                    input_jsonls,
+                    model=metadata["model_name"],
+                    app_name=metadata["name"],
+                    **kwargs,
+                )
             )
-        )
+        elif app_type == "code":
+            from matrix.client.execute_code import main as execute_code
+
+            return asyncio.run(
+                execute_code(
+                    get_one_endpoint,
+                    output_jsonl,
+                    input_jsonls,
+                    **kwargs,
+                )
+            )
+        else:
+            raise ValueError(f"app_type {app_type} is not supported.")
 
     def app_status(self, app_name: str) -> str:
         """The current status of the application.

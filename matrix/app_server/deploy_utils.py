@@ -204,6 +204,19 @@ def is_sglang_app(app):
         return False
 
 
+def get_app_type(app):
+    assert "deployments" in app
+    deployment = app["deployments"][0]["name"]
+    deploy_type = {
+        "HelloDeployment": "hello",
+        "CodeExecutionApp": "code",
+        "GrpcDeployment": "llm",
+        "VLLMDeployment": "llm",
+        "SglangDeployment": "sglang_llm",
+    }
+    return deploy_type.get(deployment, "unknown")
+
+
 def write_yaml_file(yaml_file, sglang_yaml_file, update_apps):
     apps, sglang_apps = None, None
     if yaml_file:

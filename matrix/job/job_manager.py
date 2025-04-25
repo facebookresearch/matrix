@@ -751,10 +751,10 @@ class JobManager:
                         if task_info and task_info["status"]
                         else "UNKNOWN"
                     )
-                    results[task_id] = (
-                        False,
-                        {"error": f"Task not completed (Status: {status})"},
-                    )
+                    results[task_id] = {
+                        "success": False,
+                        "error": f"Task not completed (Status: {status}",
+                    }
 
             return results
 
