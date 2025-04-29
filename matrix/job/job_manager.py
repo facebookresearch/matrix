@@ -542,7 +542,7 @@ class JobManager:
                 task_id,
                 {
                     "success": False,
-                    "error": f"Task timed out after exceeding {task_info['timeout']} seconds",
+                    "error": f"Task timed out after exceeding {timeout} seconds",
                 },
             )
 

@@ -153,6 +153,26 @@ other_app_template = """
       target_ongoing_requests: 64
       min_replicas: {{ app.min_replica }}
       max_replicas: {{ app.max_replica }}
+{% elif app.app_type == 'bedrock' %}
+- name: {{ app.name }}
+  route_prefix: /{{ app.name }}
+  import_path: matrix.app_server.llm.bedrock_proxy:build_app
+  runtime_env:
+    env_vars:
+        AWS_ACCESS_KEY_ID: {{ env.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: {{ env.AWS_SECRET_ACCESS_KEY }}
+        AWS_SESSION_TOKEN: {{ env.AWS_SESSION_TOKEN }}
+  args:
+    aws_region: {{ app.aws_region }}
+    model: {{ app.model_name }}
+    anthropic_version: {{ app.anthropic_version }}
+  deployments:
+  - name: BedrockDeployment
+    max_ongoing_requests: {{ app.max_ongoing_requests }}
+    autoscaling_config:
+      target_ongoing_requests: 64
+      min_replicas: {{ app.min_replica }}
+      max_replicas: {{ app.max_replica }}
   {% elif app.app_type == 'code' %}
 - name: {{ app.name }}
   route_prefix: /{{ app.name }}
@@ -307,6 +327,7 @@ def get_yaml_for_deployment(
                 "metagen",
                 "sagemaker",
                 "gemini",
+                "bedrock",
             ], f"unknown app_type {app_type}"
             app["app_type"] = app_type
             if "min_replica" not in app:
@@ -376,6 +397,17 @@ def get_yaml_for_deployment(
                 assert "api_key" in app, "add api_key to gemini app"
                 assert "model_name" in app, "add model_name to gemini app"
                 yaml_str += Template(other_app_template).render(app=app)
+            elif app_type == "bedrock":
+                default_params = {
+                    "name": "bedrock",
+                    "max_ongoing_requests": 10,
+                    "aws_region": "us-west-2",
+                    "anthropic_version": "bedrock-2023-05-31",
+                }
+                app.update({k: v for k, v in default_params.items() if k not in app})
+                assert "model_name" in app, "add model_name to bedrock app"
+                env = {k: v for k, v in os.environ.items() if k.startswith("AWS_")}
+                yaml_str += Template(other_app_template).render(app=app, env=os.environ)
             else:
                 assert "name" in app, "add name to app"
                 yaml_str += Template(other_app_template).render(app=app)
