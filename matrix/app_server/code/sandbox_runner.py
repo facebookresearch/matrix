@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import base64
 import json
 import os
 import signal
@@ -78,10 +79,12 @@ class SandboxRunner:
             result_file = Path(temp_dir) / "result.json"
 
             # Simplified wrapper to capture stdout and handle errors
+            encoded_code = base64.b64encode(code.encode()).decode()
             wrapped_code = f"""
 import sys
 import traceback
 import json
+import base64
 from io import StringIO
 
 # Capture stdout
@@ -97,7 +100,9 @@ result = {{
 
 try:
     # Execute the code
-    exec('''{code}''')
+    code_to_execute = "{encoded_code}"
+    decoded_code = base64.b64decode(code_to_execute).decode('utf-8')
+    exec(decoded_code)
     
     # Execution was successful
     result["success"] = True
