@@ -70,7 +70,7 @@ class BedrockDeployment:
             "max_tokens": completion_request.get("max_tokens", 1024),
         }
         messages = completion_request.get("messages")
-        if messages[0]["role"] == "system":
+        if messages is not None and messages[0]["role"] == "system":
             request_params["system"] = messages[0]["content"]
             request_params["messages"].pop(0)
 
@@ -81,8 +81,10 @@ class BedrockDeployment:
             body=json.dumps(request_params),
             modelId=self.model_name,
         )
-        response: Dict[str, Any] = await loop.run_in_executor(None, invoke_func)
-
+        try:
+            response: Dict[str, Any] = await loop.run_in_executor(None, invoke_func)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
         completion_response = None
         if "body" in response:
             completion_response = json.loads(response["body"].read())

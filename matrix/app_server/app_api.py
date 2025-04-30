@@ -372,7 +372,15 @@ class AppApi:
                 return host
 
         app_type = metadata["app_type"]
-        if app_type in ["llm", "sglang_llm"]:
+        if app_type in [
+            "llm",
+            "sglang_llm",
+            "openai",
+            "metagen",
+            "sagemaker",
+            "gemini",
+            "bedrock",
+        ]:
             from matrix.client.query_llm import main as query_llm
 
             return asyncio.run(

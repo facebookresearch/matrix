@@ -228,13 +228,15 @@ def get_app_type(app):
     assert "deployments" in app
     deployment = app["deployments"][0]["name"]
     deploy_type = {
-        "HelloDeployment": "hello",
         "CodeExecutionApp": "code",
         "GrpcDeployment": "llm",
         "VLLMDeployment": "llm",
         "SglangDeployment": "sglang_llm",
     }
-    return deploy_type.get(deployment, "unknown")
+    app_type = deploy_type.get(deployment)
+    if app_type is None and deployment.endswith("Deployment"):
+        app_type = deployment.removesuffix("Deployment").lower()
+    return app_type or "unknown"
 
 
 def write_yaml_file(yaml_file, sglang_yaml_file, update_apps):
