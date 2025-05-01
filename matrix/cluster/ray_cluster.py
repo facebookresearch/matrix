@@ -202,7 +202,7 @@ class RayCluster:
                 folder=str(self._log_dir),
                 cluster=executor,
             )
-            default_params = {"cpus_per_task": 10, "timeout_min": 10080}
+            default_params = {"cpus_per_task": 20, "timeout_min": 10080}
             if add_workers == 0:
                 head_params = requirements
             else:
@@ -268,7 +268,7 @@ class RayCluster:
             )
             default_params = {
                 "ntasks_per_node": 1,
-                "cpus_per_task": 40 + 10,
+                "cpus_per_task": 96,
                 "timeout_min": 10080,
                 "gpus_per_node": 8,
             }

@@ -78,7 +78,7 @@ def run_remotely(
     input_jsonl: str,
     output_dir: str,
     working_dir: str,
-    parallelism: int,
+    max_concurrency: int,
     text_key: str,
     threshold=0.8,
 ):
@@ -87,7 +87,7 @@ def run_remotely(
 
     ds = (
         ray.data.read_json(input_jsonl)  # type: ignore[attr-defined]
-        .map(process_row, fn_kwargs={"text_key": text_key}, concurrency=parallelism)
+        .map(process_row, fn_kwargs={"text_key": text_key}, concurrency=max_concurrency)
         .filter(lambda row: row is not None)
     )
     ds.write_parquet(os.path.join(working_dir, "with_id"))
@@ -153,7 +153,7 @@ def main(
     input_jsonl: str,
     output_dir: str,
     working_dir: str,
-    parallelism: int = 40,
+    max_concurrency: int = 40,
     text_key: str = "src",
     threshold=0.8,
 ):
@@ -163,7 +163,7 @@ def main(
     input_jsonl: file or dir of input jsonl.
     output_dir: name of the output directory.
     working_dir: name of the working directory for caching and debugging.
-    parallelism: ray data concurrency.
+    max_concurrency: ray data concurrency.
     text_key: input json field for user prompt to dedup.
     threshold: dedup threshold, ie jaccard similarity
     """
@@ -174,13 +174,13 @@ def main(
     assert ":" in ray_head_url, "ray_head_url should be in the format of hostname:port"
     if not ray_head_url.startswith("ray://"):
         ray_head_url = f"ray://{ray_head_url}"
-    ray.init(address=ray_head_url)
+    ray.init(address=ray_head_url, log_to_driver=True)
     ray.get(
         run_remotely.remote(
             input_jsonl,
             output_dir,
             working_dir,
-            parallelism,
+            max_concurrency,
             text_key,
             threshold,
         )

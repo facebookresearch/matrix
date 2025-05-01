@@ -97,7 +97,7 @@ def run_remotely(
     input_jsonl: str,
     output_dir: str,
     batch_size: int,
-    num_gpus: int,
+    max_concurrency: int,
 ):
     print(f"driver hostname is {socket.gethostname()}")
     ds = ray.data.read_json(input_jsonl)  # type: ignore[attr-defined]
@@ -105,7 +105,7 @@ def run_remotely(
         TextClassification,
         batch_size=batch_size,
         num_gpus=1,
-        concurrency=num_gpus,
+        concurrency=max_concurrency,
         fn_constructor_kwargs={"config": config},
     )
 
@@ -118,7 +118,7 @@ def main(
     input_jsonl: str,
     output_dir: str,
     batch_size: int = 1024,
-    num_gpus: int = 8,
+    max_concurrency: int = 8,
     text_key: str = "src",
     **kwargs,
 ):
@@ -129,7 +129,7 @@ def main(
     input_jsonl: file or dir of input jsonl.
     model: the huggingface model name or a directory.
     batch_size: request batching.
-    num_gpus: num of gpus for inference.
+    max_concurrency: num of gpus for inference.
     """
     assert os.path.exists(input_jsonl), f"{input_jsonl} does not exist."
     assert not os.path.exists(output_dir), f"{output_dir} already exists."
@@ -150,9 +150,13 @@ def main(
 
     config = TextClassificationConfig(**config_params)
 
-    ray.init(address=ray_head_url)
+    ray.init(address=ray_head_url, log_to_driver=True)
     start_time = time.time()
-    ray.get(run_remotely.remote(config, input_jsonl, output_dir, batch_size, num_gpus))
+    ray.get(
+        run_remotely.remote(
+            config, input_jsonl, output_dir, batch_size, max_concurrency
+        )
+    )
     print(f"Time taken: {time.time() - start_time} seconds")
 
 

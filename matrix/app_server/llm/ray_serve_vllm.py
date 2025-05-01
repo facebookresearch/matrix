@@ -386,7 +386,8 @@ class GrpcDeployment(BaseDeployment):
         logger.debug(f"Request: {chat}")
         try:
             if (
-                self.openai_serving_chat.models.static_lora_modules
+                hasattr(self.openai_serving_chat, "models")
+                and self.openai_serving_chat.models.static_lora_modules
                 and len(self.openai_serving_chat.models.lora_requests) == 0
             ):
                 # only need for lora modules, at vllm >= v0.7.0
