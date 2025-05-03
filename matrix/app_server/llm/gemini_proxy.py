@@ -6,9 +6,9 @@
 
 import logging
 from argparse import ArgumentParser
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from google import genai
 from ray import serve
 from starlette.requests import Request
@@ -37,31 +37,49 @@ class GeminiDeployment:
         self.model_name = model_name
         self.client = genai.Client(api_key=api_key)
 
-    def _transform_message(
+    def _transform_messages(
         self, messages: List[Dict[str, str]]
-    ) -> List[Dict[str, Any]]:
+    ) -> tuple[List[Dict[str, Any]], Optional[str]]:
         """
-        Transform the given input messages to the format recognized by Google Gemini API.
-        The Gemini API expects messages with 'role' and 'parts' keys, where 'parts' is a list of dictionaries containing the 'text' key.
-        This function maps the input roles to either 'user' or 'model', as these are the only roles recognized by the API.
-        Args:
-            messages (List[Dict[str, str]]): A list of dictionaries containing the input messages with 'role' and 'content' keys.
-        Returns:
-            List[Dict[str, List[Dict[str, Any]]]]: A list of dictionaries containing the transformed messages in the Gemini API format.
+        Transform OpenAI-style messages to the format recognized by Google Gemini API.
+        Separates the system instruction and maps chat history.
         """
-        role_mapping: Dict[str, str] = {
-            "developer": "user",
-            "system": "user",
-            "assistant": "model",
-        }
-        transformed_contents: List[Dict[str, Any]] = [
-            {
-                "role": role_mapping.get(message["role"], message["role"]),
-                "parts": [{"text": message["content"]}],
-            }
-            for message in messages
-        ]
-        return transformed_contents
+        system_instruction_content: Optional[str] = None
+        transformed_contents: List[Dict[str, Any]] = []
+
+        for message in messages:
+            role = message["role"]
+            content = message["content"]
+
+            if role == "system":
+                if system_instruction_content is None:
+                    system_instruction_content = content
+                else:
+                    # If multiple system messages, concatenate (or choose a different strategy)
+                    system_instruction_content += "\n" + content
+            elif role == "user":
+                transformed_contents.append(
+                    {
+                        "role": "user",
+                        "parts": [{"text": content}],
+                    }
+                )
+            elif role == "assistant":
+                transformed_contents.append(
+                    {
+                        "role": "model",
+                        "parts": [{"text": content}],
+                    }
+                )
+            else:
+                logger.warning(
+                    f"Unknown role '{role}' encountered. Skipping this message."
+                )
+        if transformed_contents and transformed_contents[0]["role"] == "model":
+            logger.warning(
+                "Transformed chat history starts with 'model' role, which Gemini's generate_content might reject. Consider adjusting the input history."
+            )
+        return transformed_contents, system_instruction_content
 
     @app.post("/v1/chat/completions")
     async def create_chat_completion(
@@ -76,7 +94,7 @@ class GeminiDeployment:
         completion_request = request.model_dump(exclude_unset=True)
 
         # gemini api expects only one message as input
-        messages_transformed: List[Dict[str, Any]] = self._transform_message(
+        messages_transformed, system_instruction_content = self._transform_messages(
             completion_request.get("messages", [])
         )
 
@@ -89,6 +107,7 @@ class GeminiDeployment:
                 "max_output_tokens": completion_request.get("max_tokens", 1024),
                 "response_logprobs": completion_request.get("logprobs", False),
                 "candidate_count": completion_request.get("n", 1),
+                "system_instruction": system_instruction_content,
             },
         }
         response = await self.client.aio.models.generate_content(
@@ -97,22 +116,43 @@ class GeminiDeployment:
 
         completion_response: Dict[str, Any] = {
             "id": response.response_id,
-            "choices": [
-                {
-                    "index": 0,
-                    "finish_reason": [
-                        candidate.finish_reason.value
-                        for candidate in response.candidates
-                    ],
-                    "message": {"content": response.text, "role": "assistant"},
-                }
-            ],
             "usage": {
                 "prompt_tokens": response.usage_metadata.prompt_token_count,
                 "total_tokens": response.usage_metadata.total_token_count,
                 "completion_tokens": response.usage_metadata.candidates_token_count,
             },
         }
+        if response.candidates is None:
+            if response.prompt_feedback and response.prompt_feedback.block_reason:
+                error = {  # Adding an error field for clarity, not standard OpenAI format
+                    "message": f"Content blocked due to: {response.prompt_feedback.block_reason.name}",
+                    "type": "content_filter_error",
+                    "code": response.prompt_feedback.block_reason.value,
+                }
+            else:
+                error = {
+                    "message": "Gemini API returned an error or no valid response candidates.",
+                    "type": "api_error",
+                    "code": None,
+                }
+            raise HTTPException(status_code=400, detail=error)
+        else:
+            choices = [
+                {
+                    "index": i,
+                    "finish_reason": [candidate.finish_reason.value],
+                    "message": {
+                        "content": "".join(
+                            part.text
+                            for part in candidate.content.parts
+                            if part.text is not None
+                        ),
+                        "role": "assistant",
+                    },
+                }
+                for i, candidate in enumerate(response.candidates)
+            ]
+            completion_response["choices"] = choices
 
         return completion_response
 
