@@ -110,9 +110,12 @@ class GeminiDeployment:
                 "system_instruction": system_instruction_content,
             },
         }
-        response = await self.client.aio.models.generate_content(
-            model=self.model_name, **request_params
-        )
+        try:
+            response = await self.client.aio.models.generate_content(
+                model=self.model_name, **request_params
+            )
+        except genai.errors.APIError as e:
+            raise HTTPException(status_code=e.code, detail=str(e))
 
         completion_response: Dict[str, Any] = {
             "id": response.response_id,
