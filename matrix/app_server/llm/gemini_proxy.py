@@ -5,9 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import re
 from argparse import ArgumentParser
 from typing import Any, Dict, List, Optional
 
+import packaging
 from fastapi import FastAPI, HTTPException
 from google import genai
 from ray import serve
@@ -17,6 +19,11 @@ from vllm.entrypoints.openai.protocol import ChatCompletionRequest
 logger = logging.getLogger("ray.serve")
 
 app = FastAPI()
+
+
+def _extract_version(name: str) -> packaging.version.Version | None:
+    match = re.search(r"gemini-(\d+\.\d+)", name)
+    return packaging.version.parse(match.group(1)) if match else None
 
 
 @serve.deployment(
@@ -33,9 +40,15 @@ class GeminiDeployment:
         self,
         api_key: str,
         model_name: str,
+        thinking_budget: int,
     ):
         self.model_name = model_name
         self.client = genai.Client(api_key=api_key)
+        self.thinking_budget = thinking_budget
+        version = _extract_version(model_name)
+        self.reasoning = version is not None and version >= packaging.version.parse(
+            "2.5"
+        )
 
     def _transform_messages(
         self, messages: List[Dict[str, str]]
@@ -98,7 +111,7 @@ class GeminiDeployment:
             completion_request.get("messages", [])
         )
 
-        request_params = {
+        request_params: Dict[str, Any] = {
             "contents": messages_transformed,
             "config": {
                 "temperature": completion_request.get("temperature", 0.6),
@@ -110,6 +123,10 @@ class GeminiDeployment:
                 "system_instruction": system_instruction_content,
             },
         }
+        if self.reasoning:
+            request_params["config"]["thinking_config"] = {
+                "thinking_budget": self.thinking_budget
+            }
         try:
             response = await self.client.aio.models.generate_content(
                 model=self.model_name, **request_params
@@ -117,15 +134,25 @@ class GeminiDeployment:
         except genai.errors.APIError as e:
             raise HTTPException(status_code=e.code, detail=str(e))
 
-        completion_response: Dict[str, Any] = {
-            "id": response.response_id,
-            "usage": {
+        if response.usage_metadata:
+            usage = {
                 "prompt_tokens": response.usage_metadata.prompt_token_count,
                 "total_tokens": response.usage_metadata.total_token_count,
                 "completion_tokens": response.usage_metadata.candidates_token_count,
-            },
+            }
+        else:
+            usage = {
+                "prompt_tokens": 0,
+                "total_tokens": 0,
+                "completion_tokens": 0,
+            }
+
+        completion_response: Dict[str, Any] = {
+            "id": response.response_id,
+            "usage": usage,
         }
         if response.candidates is None:
+            error: Dict[str, Any] = {}
             if response.prompt_feedback and response.prompt_feedback.block_reason:
                 error = {  # Adding an error field for clarity, not standard OpenAI format
                     "message": f"Content blocked due to: {response.prompt_feedback.block_reason.name}",
@@ -143,17 +170,22 @@ class GeminiDeployment:
             choices = [
                 {
                     "index": i,
-                    "finish_reason": [candidate.finish_reason.value],
+                    "finish_reason": (
+                        candidate.finish_reason.value
+                        if candidate.finish_reason is not None
+                        else ""
+                    ),
                     "message": {
                         "content": "".join(
                             part.text
-                            for part in candidate.content.parts
+                            for part in (candidate.content.parts or [])
                             if part.text is not None
                         ),
                         "role": "assistant",
                     },
                 }
                 for i, candidate in enumerate(response.candidates)
+                if candidate.content
             ]
             completion_response["choices"] = choices
 
@@ -168,6 +200,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     argparse = ArgumentParser()
     argparse.add_argument("--api_key", type=str, required=True)
     argparse.add_argument("--model_name", type=str, required=True)
+    argparse.add_argument("--thinking_budget", type=int, default=1024)
 
     arg_strings = []
     for key, value in cli_args.items():
@@ -187,4 +220,5 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     ).bind(
         args.api_key,
         args.model_name,
+        args.thinking_budget,
     )

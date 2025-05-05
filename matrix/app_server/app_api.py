@@ -38,7 +38,7 @@ from matrix.app_server.deploy_utils import (
 from matrix.client.endpoint_cache import EndpointCache
 from matrix.common.cluster_info import ClusterInfo, get_head_http_host
 from matrix.utils.json import convert_to_json_compatible
-from matrix.utils.os import lock_file
+from matrix.utils.os import lock_file, run_async
 from matrix.utils.ray import (
     ACTOR_NAME_SPACE,
     Action,
@@ -335,7 +335,7 @@ class AppApi:
                 ttl=endpoint_ttl_sec,
                 serve_app=serve_app,
             )
-            workers = asyncio.run(endpoint_cache())
+            workers = run_async(endpoint_cache())
         metadata["endpoints"] = {
             "head": head,
             "workers": workers,

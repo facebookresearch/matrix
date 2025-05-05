@@ -61,6 +61,8 @@ non_model_params = [
     "aws_account",
     "aws_region",
     "endpoint_name",
+    "anthropic_version",
+    "thinking_budget",
 ]
 
 vllm_app_template = """
@@ -116,6 +118,7 @@ other_app_template = """
   args:
     model: {{ app.model_name }}
     api_key: {{ app.api_key }}
+    thinking_budget: {{ app.thinking_budget }}
   deployments:
   - name: GeminiDeployment
     max_ongoing_requests: {{ app.max_ongoing_requests }}
@@ -394,6 +397,7 @@ def get_yaml_for_deployment(
                 default_params = {
                     "name": "gemini",
                     "max_ongoing_requests": 10,
+                    "thinking_budget": 1024,
                 }
                 app.update({k: v for k, v in default_params.items() if k not in app})
                 assert "api_key" in app, "add api_key to gemini app"

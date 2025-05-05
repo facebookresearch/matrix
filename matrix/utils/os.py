@@ -4,6 +4,8 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import asyncio
+import concurrent
 import os
 import select
 import signal
@@ -233,3 +235,29 @@ def lock_file(filepath, mode, timeout=10, poll_interval=0.1):
                     f"Could not acquire lock for {filepath} within {timeout} seconds."
                 )
             time.sleep(poll_interval)
+
+
+def run_async(coro: tp.Awaitable[tp.Any]) -> tp.Any:
+    """
+    Run an async coroutine from a synchronous context.
+    Handles cases where an event loop is already running (e.g., Jupyter, FastAPI).
+    """
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    if loop.is_running():
+
+        def run_in_new_loop():
+            new_loop = asyncio.new_event_loop()
+            try:
+                return new_loop.run_until_complete(coro)
+            finally:
+                new_loop.close()
+
+        with concurrent.futures.ThreadPoolExecutor() as pool:
+            return pool.submit(run_in_new_loop).result()
+    else:
+        return loop.run_until_complete(coro)
