@@ -22,7 +22,7 @@ import tqdm
 from fire import Fire
 from google.protobuf import json_format
 from grpc import aio as grpc_aio
-from openai import APIConnectionError, APITimeoutError, RateLimitError
+from openai import NOT_GIVEN, APIConnectionError, APITimeoutError, RateLimitError
 
 from matrix.app_server.llm import openai_pb2, openai_pb2_grpc
 from matrix.client.client_utils import get_an_endpoint_url, save_to_jsonl
@@ -147,7 +147,7 @@ async def make_request(
     url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
     model: str,
     data: tp.Dict[str, tp.Any],
-    seed: int = 42,
+    seed: int | None = None,
     app_name: str = "",
     temperature: float = 0.7,
     max_tokens: int = 1024,
@@ -167,6 +167,7 @@ async def make_request(
     data["metadata"]["request_timestamp"] = time.time()
     max_retries = max(1, max_retries)
     exception: tp.Optional[Exception] = None
+    random_random_seed = random.randint(0, 2**32 - 1)
 
     for attempt in range(max_retries):
         if callable(url):
@@ -191,7 +192,7 @@ async def make_request(
                             temperature=temperature,
                             max_tokens=max_tokens,
                             top_p=top_p,
-                            seed=seed,
+                            seed=seed if seed is not None else NOT_GIVEN,
                             n=n,
                             timeout=timeout_secs,  # 10 minutes
                             logprobs=logprobs,
@@ -228,7 +229,7 @@ async def make_request(
                             temperature=temperature,
                             max_tokens=max_tokens,
                             top_p=top_p,
-                            seed=seed,
+                            seed=seed if seed is not None else NOT_GIVEN,
                             n=n,
                             timeout=timeout_secs,
                             logprobs=logprobs,
@@ -314,7 +315,7 @@ async def make_request(
                             top_p=top_p,
                             temperature=temperature,
                             n=n,
-                            seed=seed,
+                            seed=seed if seed is not None else random_random_seed,
                             max_tokens=max_tokens,
                             logprobs=logprobs,
                         )
@@ -345,7 +346,7 @@ async def make_request(
                             top_p=top_p,
                             temperature=temperature,
                             n=n,
-                            seed=seed,
+                            seed=seed if seed is not None else random_random_seed,
                             max_tokens=max_tokens,
                             logprobs=logprobs,
                             prompt_logprobs=prompt_logprobs,
