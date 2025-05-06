@@ -148,7 +148,7 @@ async def make_request(
     url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
     model: str,
     data: tp.Dict[str, tp.Any],
-    seed: int = 42,
+    seed: tp.Optional[int] = None,
     app_name: str = "",
     temperature: float = 0.7,
     max_tokens: int = 1024,
