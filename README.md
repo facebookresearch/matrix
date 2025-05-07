@@ -1,17 +1,35 @@
-# Matrix: Multi-Agent daTa geneRation Infra and eXperimentation
+<h1 align="center">
+Matrix: Multi-Agent daTa geneRation Infra and eXperimentation
+</h1>
 
-Matrix is a versatile toolkit for synthetic data generation. It is the inference engine of [Collaborative Reasoner](https://github.com/facebookresearch/collaborative-reasoner) for multi-agent conversation generation.
+<h3 align="center">
+Fast, scalable, and easy-to-use LLM-generation engine
+</h3>
 
-## Features
-Matrix runs on top of a Ray cluster. Cluster resources are acquired from Slurm or local through submitit. The main features are:
-- Run large scale inference for huggingface LLMs using vllm and sglang.
-- Proxy server to support Azure OpenAI, SageMaker, Gemini models.
-- Code execution service as a wrapper of bubblewrap.
-- Data pipelines for data quality filtering and classifications.
+---
+
+*Latest News*
+* 04/2025: 🔥 We officially released Matrix with [Collaborative Reasoner](https://github.com/facebookresearch/collaborative-reasoner), showcasing the generation of multi-agent collaborative conversation with Matrix as inference engine. 
+
+---
+
+# About
+
+Matrix is a library for fast, scalable, and easy-to-use LLM-generation engine, for use cases including model benchmarking, data processing, and data generation. 
+
+Matrix runs on top of a [Ray](https://github.com/ray-project/ray) cluster for scalability. Cluster resources are acquired from [Slurm](https://slurm.schedmd.com/documentation.html) or local through [submitit](https://github.com/facebookincubator/submitit). Matrix has following main features:
+
+**Large scale inference** for maintstream opensourced and proprietary LLMs
+- Hugging Face LLMs via seamless intergration with [vLLM](https://github.com/vllm-project/vllm) and [SGLang](https://github.com/sgl-project/sglang). Native multi-node inference support.
+- Azure OpenAI, SageMaker, Gemini models with Proxy server
+
+**Data piplines** of high-throughput data processing and quality check
+- Code execution service as a wrapper of [bubblewrap](https://github.com/containers/bubblewrap).
+- Data curation, quality filtering, and augmentation with classifiers.
 
 ### Matrix vs. Existing Frameworks
 
-Matrix is designed for scalable LLM inference on Slurm. Here is a feature comparison with other popular LLM inference solutions.
+Matrix is designed for scalable LLM inference on [Slurm](https://slurm.schedmd.com/documentation.html). Here is a feature comparison with other popular LLM inference solutions.
 
 
 | Serving Frameworks | Slurm | vLLM | HTTP | gRPC | Auto-scaling | Open-source |
@@ -23,6 +41,17 @@ Matrix is designed for scalable LLM inference on Slurm. Here is a feature compar
 | llm-swarm | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ |
 | Matrix | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
+---
+
+## Quick Links
+  - [Getting Started](#getting-started)
+  - [Advanced Deployment](#advanced-deployment)
+  - [LLM Inference](#llm-inference)
+  - [Data piplines](#data-piplines)
+  - [Contributing](#contributing)
+  - [Citation](#citation)
+
+---
 
 ## Getting Started
 
@@ -52,6 +81,8 @@ matrix check_health --app_name 8B
 ```
 matrix stop_cluster
 ```
+
+---
 
 ## Advanced Deployment
 ### Enable Grafana Dashboard
@@ -121,7 +152,10 @@ matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-S
 matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8'}]"
 ```
 
+---
+
 ## LLM Inference
+
 ### Batch Query
 ```
 // download math-500 dataset
@@ -175,7 +209,11 @@ query_llm.batch_requests(
 )
 ```
 
-## Code Execution
+---
+
+## Data piplines
+
+### Code Execution
 - Install bubblewrap
 ```
 conda install -c conda-forge bubblewrap
@@ -189,7 +227,7 @@ python -m -m matrix.scripts.hf_dataset_to_jsonl openai/openai_humaneval test hum
 matrix inference code ~/tmp/he.jsonl humaneval/test.jsonl --text_keys "[prompt, canonical_solution, test, entry_point]" --prompt_template "check({entry_point})"
 ```
 
-## Data Pipelines
+### Data filtering and augmentation
 - minhash dedup
 ```
 python  -m matrix.data_pipeline.quality.dedup_minhash $ray_head:$client_server_port input.jsonl output_dir working_dir --text_key problem
@@ -199,25 +237,26 @@ python  -m matrix.data_pipeline.quality.dedup_minhash $ray_head:$client_server_p
 python -m matrix.data_pipeline.classification.multi_label_classification $ray_head:$client_server_port  cardiffnlp/twitter-roberta-base-emotion-multilabel-latest input.jsonl output_dir --num_gpus 8 --text_key question --threshold_fname ""
 ```
 
+---
+
 ## Contributing
 We always welcome contributions to matrix! Please refer to
 [Contribution Guidelines](CONTRIBUTING.md) to learn how to format, test, and
-submit your work.
+submit your work. If you have any questions related to the code, 
+feel free to email Dong Wang (dongwang@meta.com) or Daniel Li (shangwel@meta.com).
 
-
-## Citing Matrix
+## Citation
 If you use matrix in your research and wish to refer to it, please use the
 following BibTeX entry.
 
 ```
 @software{matrix2025,
-  author = {Dong Wang and Yang Li and Ansong Ni and Youssef Emad and Xinjie Lei and Ruta Desai and Asli Celikyilmaz and Ramya Raghavendra and Leo Huang and Daniel Li},
+  author = {Dong Wang and Yang Li and Ansong Ni and Youssef Emad and Xinjie Lei and Ruta Desai and Karthik Padthe and Xian Li and Asli Celikyilmaz and Ramya Raghavendra and Leo Huang and Daniel Li},
   title = {Matrix: Multi-Agent daTa geneRation Infra and eXperimentation},
   url = {http://github.com/facebookresearch/matrix},
   year = {2025},
 }
 ```
-
 
 ## License
 This project is MIT licensed, as found in the [LICENSE](LICENSE) file.
