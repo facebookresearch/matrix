@@ -23,6 +23,7 @@ from .utils import (
     logger,
     save_model,
     xxhash128,
+    get_outputs_path
 )
 
 
@@ -360,21 +361,19 @@ def main(
 
     # Ensure artifact directory exists
     os.makedirs(artifact_dir, exist_ok=True)
-    uuid_ds_path = os.path.join(artifact_dir, f"uuid_{run_id}.parquet")
-    embeddings_path = os.path.join(artifact_dir, f"embeddings_{run_id}.parquet")
-    umap_cluster_model_path = os.path.join(
-        artifact_dir, f"umap_model_{umap_cluster_dim}D_{run_id}.pkl"
-    )
-    umap_viz_model_path = os.path.join(
-        artifact_dir, f"umap_model_{umap_viz_dim}D_{run_id}.pkl"
-    )
-    umap_embeddings_path = os.path.join(
-        artifact_dir, f"umap_embeddings_{run_id}.parquet"
-    )
-    hdbscan_model_path = os.path.join(artifact_dir, f"hdbscan_model_{run_id}.pkl")
-    kmeans_model_path = os.path.join(
-        artifact_dir, f"kmeans_model_{run_id}_{kmeans_num_clusters}.pkl"
-    )
+    outputs_path = get_outputs_path(artifact_dir, run_id, embedding_model, 
+                     enable_umap, cluster_alg,
+                     umap_cluster_dim, umap_viz_dim, sample_size=None,
+                     params={"kmeans_num_clusters": kmeans_num_clusters,
+                    "hdbscan_min_cluster_size": hdbscan_min_cluster_size,
+                    "hdbscan_min_samples": hdbscan_min_samples})
+    uuid_ds_path = outputs_path["uuid_ds_path"]
+    embeddings_path = outputs_path["embeddings_path"]
+    umap_cluster_model_path = outputs_path["umap_cluster_model_path"]
+    umap_viz_model_path = outputs_path["umap_viz_model_path"]
+    umap_embeddings_path = outputs_path["umap_embeddings_path"]
+    hdbscan_model_path = outputs_path["hdbscan_model_path"]
+    kmeans_model_path = outputs_path["kmeans_model_path"]
 
     # --- Ray Init ---
     if not ray.is_initialized():

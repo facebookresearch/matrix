@@ -27,6 +27,46 @@ logger = logging.getLogger(__name__)
 import xxhash
 
 
+def get_outputs_path(artifact_dir, run_id, embedding_model: str, 
+                     enable_umap: bool, cluster_alg,
+                     umap_cluster_dim=30, umap_viz_dim=2, sample_size=1000, params={}):
+    embedding_model = embedding_model.replace("/", "_")
+    enable_umap = "umap" if enable_umap else "no_umap"
+    if cluster_alg == "kmeans":
+        cluster_params = params["kmeans_num_clusters"]
+    else:
+        min_cluster = params["hdbscan_min_cluster_size"]
+        min_sample = params["hdbscan_min_samples"]
+        cluster_params = f"min_cluster_{min_cluster}_min_sample_{min_sample}"
+    uuid_ds_path = os.path.join(artifact_dir, f"uuid_{run_id}.parquet")
+    embeddings_path = os.path.join(artifact_dir, f"embeddings_{run_id}_{embedding_model}.parquet")
+    umap_cluster_model_path = os.path.join(
+        artifact_dir, f"umap_model_{umap_cluster_dim}D_{run_id}_{embedding_model}.pkl"
+    )
+    umap_viz_model_path = os.path.join(
+        artifact_dir, f"umap_model_{umap_viz_dim}D_{run_id}_{embedding_model}.pkl"
+    )
+    umap_embeddings_path = os.path.join(
+        artifact_dir, f"umap_model_{umap_cluster_dim}D_{run_id}_{embedding_model}.parquet"
+    )
+    umap_viz_embeddings_path = os.path.join(
+        artifact_dir, f"umap_model_{umap_viz_dim}D_{run_id}_{embedding_model}.parquet"
+    )
+    hdbscan_model_path = os.path.join(artifact_dir, f"hdbscan_model_{run_id}_{embedding_model}_{enable_umap}.pkl")
+    kmeans_model_path = os.path.join(
+        artifact_dir, f"kmeans_model_{run_id}_{cluster_params}_{embedding_model}_{enable_umap}.pkl"
+    )
+    hdbscan_path = os.path.join(artifact_dir, f"hdbscan_{run_id}_{embedding_model}_{enable_umap}.pkl")
+    kmeans_path = os.path.join(
+        artifact_dir, f"kmeans_{run_id}_{cluster_params}_{embedding_model}_{enable_umap}"
+    )
+    viz_path = os.path.join(
+        artifact_dir, f"viz_{run_id}_{embedding_model}_{enable_umap}_{cluster_alg}_{cluster_params}.pkl"
+    )
+    sample_jsonl = os.path.join(artifact_dir, f"sampled_{run_id}_{sample_size}_{embedding_model}_{enable_umap}_{cluster_alg}_{cluster_params}.jsonl")
+
+    return locals()
+
 def xxhash128(text: str) -> str:
     return xxhash.xxh3_128_hexdigest(text)
 

@@ -18,33 +18,8 @@ from .utils import (
     is_valid_pickle,
     logger,
     summarize_clustering_stats,
+    get_outputs_path,
 )
-
-# Removed parse_args function
-
-
-def find_model_path(artifact_dir, pattern, run_id):
-    """Helper to find model files based on pattern and run_id."""
-    try:
-        files = [
-            f
-            for f in os.listdir(artifact_dir)
-            if pattern in f and f"_{run_id}.pkl" in f
-        ]
-        if not files:
-            raise FileNotFoundError(
-                f"No file found matching pattern '{pattern}' and run_id '{run_id}' in {artifact_dir}"
-            )
-        assert len(files) == 1, f"More than 1 dir {files}"
-        return os.path.join(artifact_dir, files[0])
-    except FileNotFoundError:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Error finding model with pattern '{pattern}': {e}", exc_info=True
-        )
-        raise
-
 
 @ray.remote
 def run_remotely(
@@ -192,7 +167,6 @@ def main(
     ray_head_url,
     input_jsonl: str,
     artifact_dir: str,
-    output_dir: str,
     # Optional arguments
     run_id: str = "0",
     text_key: str = "src",
@@ -202,8 +176,11 @@ def main(
     umap_cluster_dim: int = 30,
     cluster_alg: str = "kmeans",
     kmeans_num_clusters: int = 1000,
+    hdbscan_min_cluster_size: int = 100,
+    hdbscan_min_samples: int = 10,
     max_concurrency: int = 8,
     batch_size: int = 1024,
+    umap_viz_dim: int=2,
     viz_sample_size: int = 100000,
 ):
     """
@@ -229,47 +206,38 @@ def main(
     logger.info(f"Starting Inference Pipeline - Run ID: {run_id}")
     logger.info(
         f"Parameters: input_path='{input_jsonl}', "
-        f"artifact_dir='{artifact_dir}', output_path='{output_dir}', ..."
+        f"artifact_dir='{artifact_dir}', ..."
     )  # Log key params
 
-    # --- Find model paths ---
-    try:
-        umap_cluster_model_path, hdbscan_model_path, kmeans_model_path = "", "", ""
-        # Find the UMAP model used for clustering (not necessarily the 2D one)
-        if enable_umap:
-            umap_cluster_model_path = find_model_path(
-                artifact_dir, f"umap_model_{umap_cluster_dim}D_", run_id
-            )
-        umap_viz_model_path = find_model_path(artifact_dir, "umap_model_2D_", run_id)
-        logger.info(f"Found UMAP cluster model: {umap_cluster_model_path}")
-        if cluster_alg == "hdbscan":
-            hdbscan_model_path = find_model_path(artifact_dir, "hdbscan_model_", run_id)
-            logger.info(f"Found HDBSCAN model: {hdbscan_model_path}")
-        elif cluster_alg == "kmeans":
-            kmeans_model_path = find_model_path(
-                artifact_dir, f"kmeans_model_{run_id}_", kmeans_num_clusters
-            )
-            logger.info(f"Found KMEANS model: {kmeans_model_path}")
-    except FileNotFoundError as e:
-        logger.error(
-            f"Could not find necessary model file: {e}. Ensure artifact_dir and run_id are correct."
-        )
-        return
+    os.makedirs(artifact_dir, exist_ok=True)
 
-    os.makedirs(output_dir, exist_ok=True)
-    embeddings_path = os.path.join(output_dir, f"embeddings_{run_id}.parquet")
-    umap_embeddings_path = os.path.join(
-        output_dir, f"umap_all_embeddings_{run_id}.parquet"
-    )
-    umap_viz_embeddings_path = os.path.join(
-        output_dir, f"umap_all_viz_embeddings_{run_id}.parquet"
-    )
-    uuid_ds_path = os.path.join(output_dir, f"uuid_{run_id}.parquet")
-    hdbscan_path = os.path.join(output_dir, f"hdbscan_{run_id}.parquet")
-    kmeans_path = os.path.join(
-        output_dir, f"kmeans_{run_id}_{kmeans_num_clusters}.parquet"
-    )
-    viz_path = os.path.join(output_dir, f"viz_{run_id}.pickle.df")
+    outputs_path = get_outputs_path(artifact_dir, run_id, embedding_model, 
+                     enable_umap, cluster_alg,
+                     umap_cluster_dim, umap_viz_dim, sample_size=None,
+                     params={"kmeans_num_clusters": kmeans_num_clusters,
+                    "hdbscan_min_cluster_size": hdbscan_min_cluster_size,
+                    "hdbscan_min_samples": hdbscan_min_samples})
+    uuid_ds_path = outputs_path["uuid_ds_path"]
+    embeddings_path = outputs_path["embeddings_path"]
+    umap_cluster_model_path = outputs_path["umap_cluster_model_path"]
+    umap_viz_model_path = outputs_path["umap_viz_model_path"]
+    umap_embeddings_path = outputs_path["umap_embeddings_path"]
+    umap_viz_embeddings_path = outputs_path["umap_viz_embeddings_path"]
+    hdbscan_model_path = outputs_path["hdbscan_model_path"]
+    kmeans_model_path = outputs_path["kmeans_model_path"]
+    hdbscan_path = outputs_path["hdbscan_path"]
+    kmeans_path = outputs_path["kmeans_path"]
+    viz_path = outputs_path["viz_path"]
+
+    if enable_umap and not os.path.exists(umap_cluster_model_path):
+        raise FileNotFoundError(f"No file found {umap_cluster_model_path}")        
+    if not os.path.exists(umap_viz_model_path):
+        raise FileNotFoundError(f"No file found {umap_viz_model_path}")        
+    if cluster_alg == "hdbscan" and not os.path.exists(hdbscan_model_path):
+        raise FileNotFoundError(f"No file found {hdbscan_model_path}")        
+    elif cluster_alg == "kmeans" and not os.path.exists(kmeans_model_path):
+        raise FileNotFoundError(f"No file found {kmeans_model_path}")        
+
 
     if not ray.is_initialized():
         ray.init(address=ray_head_url, log_to_driver=True)

@@ -1,4 +1,4 @@
-pip install cuml-cu12 sentence_transformers pandas ray[data]
+pip install cuml-cu12~=25.4.0 sentence_transformers pandas ray[data]==2.43.0
 
 python fit.py \
     --input-jsonl "/home/dongwang/workspace/backup/text_cluster/cc_100k.jsonl" \

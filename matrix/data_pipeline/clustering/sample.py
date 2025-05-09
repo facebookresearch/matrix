@@ -21,6 +21,7 @@ from .fit import generate_embeddings, generate_ump_embeddings
 from .utils import (
     inner_join,
     logger,
+    get_outputs_path
 )
 
 
@@ -98,10 +99,6 @@ def run_remotely(
             samples_per_cluster[cluster_id] += additional
 
     # Step 3: For each cluster, select diverse samples
-    def select_samples_from_cluster(cluster_df):
-
-        return selected_ids
-
     # Define a function to apply to each cluster group in parallel
     def select_sample_ids_from_cluster(cluster_df):
         cluster_id = cluster_df["cluster_label"][0]
@@ -168,9 +165,14 @@ def main(
     ray_head_url,
     inference_dir: str,
     # Optional arguments
+    embedding_model: str = "all-MiniLM-L6-v2",  # all-mpnet-base-v2
     enable_umap: bool = False,
+    umap_cluster_dim: int = 30,
+    umap_viz_dim: int = 2,
     cluster_alg: str = "kmeans",
     kmeans_num_clusters: int = 1000,
+    hdbscan_min_cluster_size: int = 100,
+    hdbscan_min_samples: int = 10,
     run_id: str = "0",
     sample_size: int = 1000,
 ):
@@ -191,16 +193,18 @@ def main(
 
     output_dir = inference_dir
     os.makedirs(output_dir, exist_ok=True)
-    umap_embeddings_path = os.path.join(
-        inference_dir, f"umap_embeddings_{run_id}.parquet"
-    )
-    embeddings_path = os.path.join(inference_dir, f"embeddings_{run_id}.parquet")
-    uuid_ds_path = os.path.join(inference_dir, f"uuid_{run_id}.parquet")
-    hdbscan_path = os.path.join(inference_dir, f"hdbscan_{run_id}.parquet")
-    kmeans_path = os.path.join(
-        inference_dir, f"kmeans_{run_id}_{kmeans_num_clusters}.parquet"
-    )
-    output_jsonl = os.path.join(output_dir, f"sampled_{run_id}_{sample_size}.jsonl")
+    outputs_path = get_outputs_path(inference_dir, run_id, embedding_model, 
+                     enable_umap, cluster_alg,
+                     umap_cluster_dim, umap_viz_dim, sample_size,
+                     params={"kmeans_num_clusters": kmeans_num_clusters,
+                    "hdbscan_min_cluster_size": hdbscan_min_cluster_size,
+                    "hdbscan_min_samples": hdbscan_min_samples})
+    uuid_ds_path = outputs_path["uuid_ds_path"]
+    embeddings_path = outputs_path["embeddings_path"]
+    umap_embeddings_path = outputs_path["umap_embeddings_path"]
+    hdbscan_path = outputs_path["hdbscan_path"]
+    kmeans_path = outputs_path["kmeans_path"]
+    sample_jsonl = outputs_path["sample_jsonl"]
 
     if not ray.is_initialized():
         ray.init(address=ray_head_url, log_to_driver=True)
@@ -208,7 +212,7 @@ def main(
 
     print("Launching remote task...")
     future_result = run_remotely.remote(
-        output_jsonl,
+        sample_jsonl,
         kmeans_path if cluster_alg == "kmeans" else hdbscan_path,
         umap_embeddings_path if enable_umap else embeddings_path,
         uuid_ds_path,
