@@ -10,6 +10,7 @@ import logging
 import math
 import os
 import pickle
+import socket
 import threading
 import time
 import traceback
@@ -79,7 +80,9 @@ def _execute_task_sequence(
     This runs as a single Ray task on a worker.
     """
     logger = ray.get_actor(ACTOR_NAME, NAMESPACE)
-    logger.log.remote(f"[{task_id}] Starting task execution sequence.")
+    logger.log.remote(
+        f"[{task_id}] Starting task execution sequence on {socket.gethostname()}"
+    )
 
     try:
         # --- Step 1: Deploy Applications ---
@@ -636,7 +639,7 @@ class JobManager:
             job_def["check_status"],
             job_def["cleanup_applications"],
             timeout,
-            task_id,
+            task_def["task_id"],
         )
         self._running_task_futures[task_id] = future
 
@@ -737,13 +740,16 @@ class JobManager:
                 )
 
             results = {}
-            for task_id in job_info["task_ids"]:
+            for index, task_id in enumerate(job_info["task_ids"]):
                 task_info = self.tasks.get(task_id)
+                task_name = job_info["job_definition"]["task_definitions"][index][
+                    "task_id"
+                ]
                 if task_info and task_info["status"] in [
                     TaskStatus.SUCCEEDED,
                     TaskStatus.FAILED,
                 ]:
-                    results[task_id] = task_info["result"]  # Store final (bool, data)
+                    results[task_name] = task_info["result"]  # Store final (bool, data)
                 else:
                     # Task not finished or info missing
                     status = (
@@ -751,9 +757,15 @@ class JobManager:
                         if task_info and task_info["status"]
                         else "UNKNOWN"
                     )
-                    results[task_id] = {
+                    if task_info and status == TaskStatus.RUNNING.value:
+                        seconds = int(time.time() - task_info["start_time"])
+                        elapsed_message = f" for {seconds} seconds"
+                    else:
+                        elapsed_message = ""
+
+                    results[task_name] = {
                         "success": False,
-                        "error": f"Task not completed (Status: {status}",
+                        "error": f"Task not completed Status: {status}{elapsed_message}",
                     }
 
             return results

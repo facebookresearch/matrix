@@ -19,6 +19,7 @@ from matrix.job.job_utils import (
     check_status_helper,
     deploy_helper,
     generate_job_id,
+    generate_task_id,
     undeploy_helper,
 )
 from matrix.utils.ray import Action, get_ray_address, get_ray_head_node
@@ -115,6 +116,7 @@ class JobApi:
           }
         task_definitions: list of dicts like:
           {
+            'task_id': str,
             'func': callable,
             'args': tuple,
             'kwargs': dict,
@@ -157,6 +159,7 @@ class JobApi:
                 "applications": [],
                 "args": (),
                 "kwargs": {},
+                "task_id": generate_task_id(job_definition["job_id"], i),
             }
             for k, v in default_params.items():
                 if k not in task_def:
