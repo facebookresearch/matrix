@@ -55,7 +55,7 @@ def convert_llama_instruct_text(text: str) -> tp.List[tp.Dict[str, str]]:
     if not messages:
         # no roles
         messages.append({"role": "user", "content": text})
-    if messages[-1]["role"] == "assistant":
+    if messages[-1]["role"] == "assistant" and not messages[-1]["content"]:
         messages = messages[:-1]
     return messages
 

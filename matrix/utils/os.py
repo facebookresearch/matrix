@@ -105,7 +105,7 @@ def create_symlinks(
     (destination / f"{job_category}.out").symlink_to(job_paths.stdout)
 
 
-def run_and_stream(logging_config, command, blocking=False):
+def run_and_stream(logging_config, command, blocking=False, env=None):
     """Runs a subprocess, streams stdout/stderr in realtime, and ensures cleanup on termination."""
     remote = logging_config.get("remote", False)
     logger = logging_config["logger"]
@@ -118,6 +118,10 @@ def run_and_stream(logging_config, command, blocking=False):
             logger.info(str)
 
     log(f"launch: {command}")
+    if env is not None:
+        extra_env = env
+        env = os.environ.copy()
+        env.update(extra_env)
 
     """Runs a subprocess, streams stdout/stderr, and ensures cleanup."""
     process = subprocess.Popen(
@@ -126,6 +130,7 @@ def run_and_stream(logging_config, command, blocking=False):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        env=env,
         preexec_fn=os.setsid,  # Run in a separate process group
     )
     pid = process.pid
