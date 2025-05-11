@@ -6,7 +6,8 @@
 
 import re
 from dataclasses import asdict
-
+import importlib
+import matrix
 
 def convert_to_json_compatible(obj):
     if isinstance(obj, dict):
@@ -69,7 +70,7 @@ def str_to_callable(dotted_path: str):
 
     if not callable(obj):
         raise ValueError(f"'{dotted_path}' resolved to a non-callable object.")
-
+    return obj
 
 def get_nested_value(d, path: str):
     """Access nested dict/list using a dotted string path like 'a.b[0].c'."""

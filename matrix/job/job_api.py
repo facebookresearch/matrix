@@ -154,7 +154,8 @@ class JobApi:
             if isinstance(task_def["func"], str):
                 task_def["func"] = str_to_callable(task_def["func"])
             if not callable(task_def["func"]):
-                raise TypeError("Provided 'func' must be callable.")
+                func = task_def["func"]
+                raise TypeError(f"Provided 'func' {str(func)} in {task_def} must be callable.")
 
             default_params = {
                 "resources": {"CPU": 1},

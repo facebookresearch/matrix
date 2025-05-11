@@ -115,7 +115,7 @@ def create_symlinks(
     (destination / f"{job_category}.out").symlink_to(job_paths.stdout)
 
 
-def run_and_stream(logging_config, command, blocking=False, env=None):
+def run_and_stream(logging_config, command, blocking=False, env=None, return_stdout_lines=10):
     """Runs a subprocess, streams stdout/stderr in realtime, and ensures cleanup on termination."""
     remote = logging_config.get("remote", False)
     logger = logging_config["logger"]
@@ -146,7 +146,7 @@ def run_and_stream(logging_config, command, blocking=False, env=None):
     pid = process.pid
 
     terminate_flag = threading.Event()
-    stdout_buffer: tp.Deque[str] = deque(maxlen=10)
+    stdout_buffer: tp.Deque[str] = deque(maxlen=return_stdout_lines)
 
     def stream_output():
         """Reads and logs the subprocess output in real-time."""

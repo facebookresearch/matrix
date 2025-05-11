@@ -64,9 +64,9 @@ class TaskDefinition(BaseModel):
 # Checkpoint evaluation models
 class CheckpointEvalRequest(BaseModel):
     checkpoint_dir: str
-    matrix_cluster: str
     eval_save_dir: str
-    model_replica: int = 8
+    min_replica: int = 8
+    max_replica: int = 8
     thinking: bool = True
     job_id: Optional[str] = None
     matrix_dir: Optional[str] = None
@@ -304,6 +304,7 @@ async def evaluate_checkpoint(
                             "command": command,
                             "blocking": True,
                             "env": env,
+                            "return_stdout_lines": 100,
                         },
                     }
                 )
@@ -317,11 +318,12 @@ async def evaluate_checkpoint(
                     "model_size": request.model_size,
                     "tokenizer": request.tokenizer,
                     "use_grpc": "true",
-                    "min_replica": request.model_replica,
+                    "min_replica": request.min_replica,
+                    "max_replica": request.max_replica,
                 }
             ],
             "task_definitions": task_definitions,
-            "timeout": 3600,
+            "timeout": request.timeout,
             "max_concurrent_tasks": request.max_concurrency,
         }
 

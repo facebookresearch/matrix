@@ -12,6 +12,7 @@ import signal
 import subprocess
 import threading
 from typing import Any, Awaitable, Dict, List, Optional, Union
+import fsspec
 
 import aiohttp
 import ray
@@ -428,7 +429,6 @@ def get_yaml_for_deployment(
 
 
 def validate_applications(applications):
-    import fsspec
 
     for app in applications:
         model = app["model_name"]
