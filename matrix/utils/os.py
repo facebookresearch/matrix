@@ -276,3 +276,29 @@ def run_async(coro: tp.Awaitable[tp.Any]) -> tp.Any:
             return pool.submit(run_in_new_loop).result()
     else:
         return loop.run_until_complete(coro)
+
+
+def download_s3_dir(s3_path: str, cache_dir: str, dir_levels=1):
+    """
+    Download contents of an S3 directory to a local cache directory.
+
+    - s3_path: full S3 path to the directory (must end with slash or be treated as a directory)
+    - cache_dir: local cache root
+    - dir_levels: how many trailing components from the S3 path to include in the subdirectory
+    """
+    if not s3_path.endswith("/"):
+        s3_path += "/"
+
+    # Remove s3:// prefix
+    if s3_path.startswith("s3://"):
+        s3_path = s3_path[len("s3://") :]
+
+    parts = s3_path.rstrip("/").split("/")
+    subdir_name = os.path.join(*parts[-dir_levels:])
+    dest_dir = os.path.join(cache_dir, subdir_name)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    downloaded = run_subprocess(
+        f"aws s3 cp s3://{s3_path} {dest_dir} --recursive".split(" ")
+    )
+    return downloaded, dest_dir

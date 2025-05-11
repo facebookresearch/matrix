@@ -38,7 +38,7 @@ from matrix.app_server.deploy_utils import (
 from matrix.client.endpoint_cache import EndpointCache
 from matrix.common.cluster_info import ClusterInfo, get_head_http_host
 from matrix.utils.basics import convert_to_json_compatible
-from matrix.utils.os import lock_file, run_async
+from matrix.utils.os import download_s3_dir, lock_file, run_async
 from matrix.utils.ray import (
     ACTOR_NAME_SPACE,
     Action,
@@ -104,6 +104,19 @@ class AppApi:
             raise ValueError(
                 f"Invalid action '{action}', expected one of {[a.value for a in Action]}"
             )
+        if action in [Action.ADD, Action.REPLACE]:
+            for app in applications or []:
+                if app["model_name"].startswith("s3://"):
+                    cache_dir = os.environ.get(
+                        "MATRIX_CACHE", os.path.expanduser("~/.cache/matrix")
+                    )
+                    cache_dir = os.path.join(cache_dir, "models")
+                    s3_dir = app["model_name"]
+                    logger.info(f"Download {s3_dir} under {cache_dir}")
+                    downloaded, dest_dir = download_s3_dir(s3_dir, cache_dir, 3)
+                    if not downloaded:
+                        raise ValueError(f"Can not read {s3_dir}")
+                    app["model"] = dest_dir
 
         with lock_file(yaml_filepath, "a+", timeout=10) as yaml_file:
             with lock_file(sglang_yaml_filepath, "a+", timeout=10) as sglang_yaml_file:

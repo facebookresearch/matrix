@@ -4,12 +4,12 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import os
 import re
 import threading
 import time
 from collections import defaultdict
-import logging
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -52,7 +52,13 @@ def extract_benchmark_data(data_dict, metric_pattern):
     Extract benchmark information from the provided dictionary.
     """
     results = defaultdict(
-        lambda: {"successes": 0, "pending": 0, "failures": 0, "metric_values": [], "metric_avg": 0.0}
+        lambda: {
+            "successes": 0,
+            "pending": 0,
+            "failures": 0,
+            "metric_values": [],
+            "metric_avg": 0.0,
+        }
     )
 
     # Compile regex patterns
@@ -80,7 +86,7 @@ def extract_benchmark_data(data_dict, metric_pattern):
             metric_value = float(metric_match.group(1))
             results[benchmark]["successes"] += 1
             results[benchmark]["metric_values"].append(metric_value)
-        elif "Task not completed" in value.get("error", ""):
+        elif value.get("status", "UNKNOWN") not in ["FAILED", "SUCCEEDED"]:
             results[benchmark]["pending"] += 1
         else:
             results[benchmark]["failures"] += 1
@@ -96,7 +102,7 @@ def extract_benchmark_data(data_dict, metric_pattern):
 def run_eval_script(
     pythonpath: str,
     eval_script: str,
-    eval_save_prefix: str,
+    eval_save_dir: str,
     checkpoint_dir: str,
     benchmark: str,
     seed: int,
@@ -106,13 +112,25 @@ def run_eval_script(
     app_name: str,
 ):
     """Generate environment and command for evaluation script."""
-    env = {"PYTHONPATH": pythonpath} 
+    env = {"PYTHONPATH": pythonpath}
+    if eval_save_dir.startswith("s3://"):
+        cache_dir = os.environ.get(
+            "MATRIX_CACHE", os.path.expanduser("~/.cache/matrix")
+        )
+        upload_eval_dir = eval_save_dir
+        eval_save_dir = os.path.join(
+            cache_dir, "evaluation", eval_save_dir[len("s3://") :]
+        )
+    else:
+        upload_eval_dir = ""
     command = (
         [
             "python",
             eval_script,
-            "--eval_save_prefix",
-            eval_save_prefix,
+            "--eval_save_dir",
+            eval_save_dir,
+            "--upload_eval_dir",
+            upload_eval_dir,
             "--ext_model",
             checkpoint_dir,
             "--seed",

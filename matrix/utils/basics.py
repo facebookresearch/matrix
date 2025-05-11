@@ -70,6 +70,7 @@ def str_to_callable(dotted_path: str):
     if not callable(obj):
         raise ValueError(f"'{dotted_path}' resolved to a non-callable object.")
 
+
 def get_nested_value(d, path: str):
     """Access nested dict/list using a dotted string path like 'a.b[0].c'."""
     tokens = re.findall(r"[^[\].]+|\[\d+\]", path)

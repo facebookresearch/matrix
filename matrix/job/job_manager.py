@@ -749,24 +749,34 @@ class JobManager:
                     TaskStatus.SUCCEEDED,
                     TaskStatus.FAILED,
                 ]:
-                    results[task_name] = task_info["result"]  # Store final (bool, data)
+                    result = task_info["result"].copy()
                 else:
-                    # Task not finished or info missing
-                    status = (
-                        task_info["status"].value
-                        if task_info and task_info["status"]
-                        else "UNKNOWN"
-                    )
-                    if task_info and status == TaskStatus.RUNNING.value:
-                        seconds = int(time.time() - task_info["start_time"])
-                        elapsed_message = f" for {seconds} seconds"
-                    else:
-                        elapsed_message = ""
-
-                    results[task_name] = {
+                    result = {
                         "success": False,
-                        "error": f"Task not completed Status: {status}{elapsed_message}",
+                        "error": f"Task not completed Status",
                     }
+                # Task not finished or info missing
+                status = (
+                    task_info["status"].value
+                    if task_info and task_info["status"]
+                    else "UNKNOWN"
+                )
+                if task_info and task_info.get("start_time"):
+                    if task_info.get("end_time"):
+                        running_time = int(
+                            task_info["end_time"] - task_info["start_time"]
+                        )
+                    else:
+                        running_time = int(time.time() - task_info["start_time"])
+                else:
+                    running_time = 0
+                result.update(
+                    {
+                        "status": status,
+                        "running_time": running_time,
+                    }
+                )
+                results[task_name] = result
 
             return results
 

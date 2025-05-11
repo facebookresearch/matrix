@@ -311,7 +311,7 @@ class RayCluster:
 
         status["cluster_info"] = self.cluster_info()
         return status
-    
+
     def stop(self):
         """
         Shuts down the Ray cluster.

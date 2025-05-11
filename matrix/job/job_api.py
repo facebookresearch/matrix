@@ -11,6 +11,7 @@ import ray
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 import matrix
+from matrix.app_server.deploy_utils import validate_applications
 from matrix.job.job_manager import ACTOR_NAME, NAMESPACE, JobManager
 from matrix.job.job_utils import (
     ActorUnavailableError,
@@ -22,8 +23,8 @@ from matrix.job.job_utils import (
     generate_task_id,
     undeploy_helper,
 )
-from matrix.utils.ray import Action, get_ray_address, get_ray_head_node
 from matrix.utils.basics import str_to_callable
+from matrix.utils.ray import Action, get_ray_address, get_ray_head_node
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +145,7 @@ class JobApi:
         task_definitions = job_definition["task_definitions"]
         if not isinstance(task_definitions, list):
             raise TypeError("task_definitions must be a list")
+        validate_applications(job_definition["applications"])
         for i, task_def in enumerate(task_definitions):
             if not isinstance(task_def, dict):
                 raise TypeError(f"Item {i} not dict")
@@ -164,6 +166,7 @@ class JobApi:
             for k, v in default_params.items():
                 if k not in task_def:
                     task_def[k] = v
+            validate_applications(task_def["applications"])
 
         job_id = job_definition["job_id"]
         logger.info(f"Submitting job {job_id} via API.")

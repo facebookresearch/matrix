@@ -16,9 +16,9 @@ from pydantic import BaseModel, Field
 
 import matrix
 from matrix import Cli
+from matrix.job.eval_utils import *
 from matrix.job.job_api import JobApi
 from matrix.utils.os import find_free_ports, is_port_available
-from matrix.job.eval_utils import *
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -29,19 +29,28 @@ app = FastAPI(title="Job API Service", description="HTTP Service for Matrix Job 
 global_cluster_id = None
 global_matrix_dir = None
 
+
 # Models for request/response
 class StartClusterRequest(BaseModel):
     """Request model for starting a cluster"""
+
     add_workers: int = Field(0, description="Number of workers to add")
-    slurm: Optional[Dict[str, Union[str, int]]] = Field(None, description="Slurm configuration")
-    local: Optional[Dict[str, Union[str, int]]] = Field(None, description="Local configuration")
+    slurm: Optional[Dict[str, Union[str, int]]] = Field(
+        None, description="Slurm configuration"
+    )
+    local: Optional[Dict[str, Union[str, int]]] = Field(
+        None, description="Local configuration"
+    )
     enable_grafana: bool = Field(False, description="Enable Grafana")
     force_new_head: bool = Field(False, description="Force creation of new head node")
 
+
 class StartClusterResponse(BaseModel):
     """Response model for starting a cluster"""
+
     workers: List[str]
     cluster_info: Dict[str, Any]
+
 
 class TaskDefinition(BaseModel):
     task_id: Optional[str] = None
@@ -56,7 +65,7 @@ class TaskDefinition(BaseModel):
 class CheckpointEvalRequest(BaseModel):
     checkpoint_dir: str
     matrix_cluster: str
-    eval_save_prefix: str
+    eval_save_dir: str
     model_replica: int = 8
     thinking: bool = True
     job_id: Optional[str] = None
@@ -65,7 +74,7 @@ class CheckpointEvalRequest(BaseModel):
     num_seeds: Optional[int] = None
     max_concurrency: int = 3
     model_size: str = "8B"
-    tokenizer: str = "/datasets/pretrained-llms/Llama-3.1-8B-Instruct"
+    tokenizer: str = "meta-llama/Llama-3.1-8B-Instruct"
 
 
 class BenchmarkStatus(BaseModel):
@@ -105,6 +114,7 @@ class JobStatus(BaseModel):
     tasks_active: int
     submit_time: Optional[float] = None
 
+
 class JobResult(BaseModel):
     task_results: Dict[str, Dict[str, Any]]
 
@@ -122,6 +132,7 @@ def get_matrix_cli():
     cli = matrix.Cli(cluster_id=global_cluster_id, matrix_dir=global_matrix_dir)
     return cli
 
+
 def get_job_api():
     cli = matrix.Cli(cluster_id=global_cluster_id, matrix_dir=global_matrix_dir)
     return cli.job
@@ -129,24 +140,27 @@ def get_job_api():
 
 @app.post("/start-cluster", response_model=StartClusterResponse)
 async def start_cluster_endpoint(
-    request: StartClusterRequest,
-    cli: Cli = Depends(get_matrix_cli)
+    request: StartClusterRequest, cli: Cli = Depends(get_matrix_cli)
 ):
     """Create a cluster"""
     try:
-        return cli.start_cluster(request.add_workers, request.slurm, request.local,
-                                 request.enable_grafana, request.force_new_head)
+        return cli.start_cluster(
+            request.add_workers,
+            request.slurm,
+            request.local,
+            request.enable_grafana,
+            request.force_new_head,
+        )
     except Exception as e:
         logger.error(f"Error start cluster: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-    
+
+
 @app.post("/stop-cluster")
-async def stop_cluster_endpoint(
-    cli: Cli = Depends(get_matrix_cli)
-):
+async def stop_cluster_endpoint(cli: Cli = Depends(get_matrix_cli)):
     """
     Stop the currently running cluster.
-    
+
     Returns:
         No content on success
     """
@@ -238,6 +252,7 @@ async def clear_jobs(job_api: JobApi = Depends(get_job_api)):
         logger.error(f"Error clearing jobs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/checkpoint-eval", response_model=CheckpointEvalMetrics)
 async def evaluate_checkpoint(
     request: CheckpointEvalRequest, job_api: JobApi = Depends(get_job_api)
@@ -249,9 +264,13 @@ async def evaluate_checkpoint(
     on various benchmarks.
     """
     if os.environ.get("CHECKPOINT_EVAL_SCRIPT") is None:
-        raise HTTPException(status_code=400, detail="Need to set environment CHECKPOINT_EVAL_SCRIPT")
+        raise HTTPException(
+            status_code=400, detail="Need to set environment CHECKPOINT_EVAL_SCRIPT"
+        )
     if os.environ.get("CHECKPOINT_EVAL_PYTHONPATH") is None:
-        raise HTTPException(status_code=400, detail="Need to set environment CHECKPOINT_EVAL_PYTHONPATH")
+        raise HTTPException(
+            status_code=400, detail="Need to set environment CHECKPOINT_EVAL_PYTHONPATH"
+        )
 
     try:
         benchmarks = request.benchmarks or list(BENCHMARK_CONFIG.keys())
@@ -268,7 +287,7 @@ async def evaluate_checkpoint(
                 env, command = run_eval_script(
                     os.environ["CHECKPOINT_EVAL_PYTHONPATH"],
                     os.environ["CHECKPOINT_EVAL_SCRIPT"],
-                    request.eval_save_prefix,
+                    request.eval_save_dir,
                     request.checkpoint_dir,
                     benchmark,
                     seed,

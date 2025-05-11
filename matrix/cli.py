@@ -113,7 +113,6 @@ class Cli:
         )
         return convert_to_json_compatible(status)
 
-
     def stop_cluster(self):
         """
         Shuts down the Ray cluster.
