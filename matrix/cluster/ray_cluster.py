@@ -26,7 +26,7 @@ from matrix.cluster.ray_dashboard_job import RayDashboardJob
 from matrix.cluster.ray_head_job import RayHeadJob
 from matrix.cluster.ray_worker_job import RayWorkerJob
 from matrix.common.cluster_info import ClusterInfo
-from matrix.utils.json import convert_to_json_compatible
+from matrix.utils.basics import convert_to_json_compatible
 from matrix.utils.os import (
     create_symlinks,
     kill_proc_tree,
@@ -182,6 +182,7 @@ class RayCluster:
                                           for monitoring (default: True).
             force_new_head (bool): force to remove head.json if haven't run 'matrix stop_cluster'.
         """
+        status = {}
         common_params = {"account", "partition", "qos", "exclusive"}
         start_wait_time_seconds = 60
         worker_wait_timeout_seconds = 60
@@ -304,11 +305,13 @@ class RayCluster:
             for j in jobs:
                 create_symlinks(self._log_dir, f"worker", j.paths, True)
             print("workers slurm job ids:", [job.job_id for job in jobs])
+            status["workers"] = [job.job_id for job in jobs]
             for j in jobs:
                 self._add_job(j)
 
-            return self
-
+        status["cluster_info"] = self.cluster_info()
+        return status
+    
     def stop(self):
         """
         Shuts down the Ray cluster.

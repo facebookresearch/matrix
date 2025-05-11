@@ -37,6 +37,16 @@ def kill_proc_tree(pid, including_parent=True):
         parent.wait(5)
 
 
+def is_port_available(port):
+    """Check if a port is available on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("localhost", port))
+            return True
+        except OSError:
+            return False
+
+
 def find_free_ports(n):
     free_ports: set[int] = set()
 

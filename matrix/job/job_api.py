@@ -23,7 +23,7 @@ from matrix.job.job_utils import (
     undeploy_helper,
 )
 from matrix.utils.ray import Action, get_ray_address, get_ray_head_node
-from matrix.utils.str import str_to_callable
+from matrix.utils.basics import str_to_callable
 
 logger = logging.getLogger(__name__)
 

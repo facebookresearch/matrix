@@ -19,7 +19,7 @@ import fire
 from matrix.app_server import app_api
 from matrix.client import query_llm
 from matrix.cluster.ray_cluster import RayCluster
-from matrix.utils.json import convert_to_json_compatible
+from matrix.utils.basics import convert_to_json_compatible
 from matrix.utils.os import run_subprocess
 
 
@@ -82,7 +82,7 @@ class Cli:
         local: tp.Dict[str, tp.Union[str, int]] | None = None,
         enable_grafana: bool = False,
         force_new_head: bool = False,
-    ):
+    ) -> tp.Dict[str, tp.Any]:
         """
         Starts the Ray cluster with additional keyword arguments. Only do this for new clusters.
 
@@ -104,13 +104,15 @@ class Cli:
         Returns:
             None
         """
-        self.cluster.start(
+        status = self.cluster.start(
             add_workers,
             slurm,
             local,
             enable_grafana=enable_grafana,
             force_new_head=force_new_head,
         )
+        return convert_to_json_compatible(status)
+
 
     def stop_cluster(self):
         """

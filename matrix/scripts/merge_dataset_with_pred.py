@@ -7,18 +7,7 @@
 import json
 
 import fire
-
-
-def get_nested_value(data, field):
-    """Retrieve a nested value from a dictionary using dot-separated keys."""
-    keys = field.split(".")
-    for key in keys:
-        if key in data:
-            data = data[key]
-        else:
-            return None  # Return None if any key in the path is missing
-    return data
-
+from matrix.utils.basics import get_nested_value
 
 def load_and_dump_dataset(
     dataset_jsonl: str,

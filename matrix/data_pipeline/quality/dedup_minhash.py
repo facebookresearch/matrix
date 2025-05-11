@@ -21,7 +21,7 @@ import tqdm
 from datasketch import LeanMinHash, MinHash, MinHashLSH
 from fire import Fire
 
-from matrix.utils.json import get_user_prompt
+from matrix.utils.basics import get_user_prompt
 
 num_perm = 128
 

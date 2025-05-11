@@ -37,7 +37,7 @@ from matrix.app_server.deploy_utils import (
 )
 from matrix.client.endpoint_cache import EndpointCache
 from matrix.common.cluster_info import ClusterInfo, get_head_http_host
-from matrix.utils.json import convert_to_json_compatible
+from matrix.utils.basics import convert_to_json_compatible
 from matrix.utils.os import lock_file, run_async
 from matrix.utils.ray import (
     ACTOR_NAME_SPACE,
