@@ -106,14 +106,14 @@ class AppApi:
             )
         if action in [Action.ADD, Action.REPLACE]:
             for app in applications or []:
-                if app["model_name"].startswith("s3://"):
+                if str(app["model_name"]).startswith("s3://"):
                     cache_dir = os.environ.get(
                         "MATRIX_CACHE", os.path.expanduser("~/.cache/matrix")
                     )
                     cache_dir = os.path.join(cache_dir, "models")
                     s3_dir = app["model_name"]
                     logger.info(f"Download {s3_dir} under {cache_dir}")
-                    downloaded, dest_dir = download_s3_dir(s3_dir, cache_dir, 3)
+                    downloaded, dest_dir = download_s3_dir(str(s3_dir), cache_dir, 3)
                     if not downloaded:
                         raise ValueError(f"Can not read {s3_dir}")
                     app["model"] = dest_dir

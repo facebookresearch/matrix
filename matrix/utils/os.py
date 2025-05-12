@@ -115,7 +115,9 @@ def create_symlinks(
     (destination / f"{job_category}.out").symlink_to(job_paths.stdout)
 
 
-def run_and_stream(logging_config, command, blocking=False, env=None, return_stdout_lines=10):
+def run_and_stream(
+    logging_config, command, blocking=False, env=None, return_stdout_lines=10
+):
     """Runs a subprocess, streams stdout/stderr in realtime, and ensures cleanup on termination."""
     remote = logging_config.get("remote", False)
     logger = logging_config["logger"]

@@ -4,28 +4,30 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import os
+import re
 import runpy
 import sys
 import time
 import types
-from pathlib import Path
 from collections import defaultdict
-import re
-import logging
+from pathlib import Path
 
 from fire import Fire
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-import requests
 import time
 import uuid
 from urllib.parse import urljoin
 
+import requests
+
+
 def main(
-    matrix_http_server: str, 
+    matrix_http_server: str,
     checkpoint_dir: str,
     eval_save_dir: str,
     model_replica: int = 8,
@@ -33,21 +35,25 @@ def main(
     job_id: str | None = None,
     benchmarks: list[str] | None = None,
     num_seeds: int | None = None,
-    max_concurrency: int = 3,
+    max_concurrent_tasks: int = 3,
+    timeout: int = 36000,
     model_size: str = "8B",
     tokenizer: str = "meta-llama/Llama-3.1-8B-Instruct",
 ):
-    job_id = job_id or f"{checkpoint_dir.strip('/').split('/')[-1]}-{uuid.uuid4().hex[:8]}"
+    job_id = (
+        job_id or f"{checkpoint_dir.strip('/').split('/')[-1]}-{uuid.uuid4().hex[:8]}"
+    )
     post_url = urljoin(matrix_http_server, "/checkpoint-eval")
 
     payload = {
         "checkpoint_dir": checkpoint_dir,
         "eval_save_dir": eval_save_dir,
         "model_replica": model_replica,
-        "max_concurrency": max_concurrency,
+        "max_concurrent_tasks": max_concurrent_tasks,
         "model_size": model_size,
         "tokenizer": tokenizer,
         "thinking": thinking,
+        "timeout": timeout,
     }
     if job_id:
         payload["job_id"] = job_id
@@ -80,6 +86,7 @@ def main(
     data = resp.json()  # parse first
     assert resp.ok, f"Request failed: {data.get('detail', data)}"
     print(data)
+
 
 if __name__ == "__main__":
     Fire(main)

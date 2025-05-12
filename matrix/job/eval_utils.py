@@ -51,7 +51,7 @@ def extract_benchmark_data(data_dict, metric_pattern):
     """
     Extract benchmark information from the provided dictionary.
     """
-    results = defaultdict(
+    results: defaultdict[str, dict] = defaultdict(
         lambda: {
             "successes": 0,
             "pending": 0,

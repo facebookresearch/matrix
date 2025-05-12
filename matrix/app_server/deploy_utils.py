@@ -12,9 +12,9 @@ import signal
 import subprocess
 import threading
 from typing import Any, Awaitable, Dict, List, Optional, Union
-import fsspec
 
 import aiohttp
+import fsspec
 import ray
 import yaml
 from jinja2 import Template
@@ -445,7 +445,7 @@ def validate_applications(applications):
                     and "Fairseq2LlamaForCausalLM" in config["architectures"]
                 ):
                     model_pt = os.path.join(model, "model.pt")
-                    if not fs.exists(model_pt):
+                    if not os.path.exists(model_pt):
                         raise FileNotFoundError(f"{model_pt} does not exists")
         elif model.startswith("s3://"):
             model_config = os.path.join(model, "config.json")

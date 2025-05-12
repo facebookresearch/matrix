@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Job API Service", description="HTTP Service for Matrix Job API")
 
-global_cluster_id = None
-global_matrix_dir = None
+global_cluster_id: str | None = None
+global_matrix_dir: str | None = None
 
 
 # Models for request/response
@@ -72,7 +72,8 @@ class CheckpointEvalRequest(BaseModel):
     matrix_dir: Optional[str] = None
     benchmarks: Optional[List[str]] = None
     num_seeds: Optional[int] = None
-    max_concurrency: int = 3
+    max_concurrent_tasks: int = 3
+    timeout: int = 36000
     model_size: str = "8B"
     tokenizer: str = "meta-llama/Llama-3.1-8B-Instruct"
 
@@ -281,6 +282,7 @@ async def evaluate_checkpoint(
             app_name = "-".join(request.checkpoint_dir.split("/")[-3:])
 
         task_definitions = []
+        assert global_cluster_id is not None and global_matrix_dir is not None
         for benchmark in benchmarks:
             num_seeds = request.num_seeds or DEFAULT_NUM_SEEDS[benchmark]
             for seed in range(1, 1 + num_seeds):
@@ -324,7 +326,7 @@ async def evaluate_checkpoint(
             ],
             "task_definitions": task_definitions,
             "timeout": request.timeout,
-            "max_concurrent_tasks": request.max_concurrency,
+            "max_concurrent_tasks": request.max_concurrent_tasks,
         }
 
         job_id = job_api.submit(job_def)
