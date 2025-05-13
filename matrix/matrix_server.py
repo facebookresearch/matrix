@@ -52,6 +52,16 @@ class StartClusterResponse(BaseModel):
     cluster_info: Dict[str, Any]
 
 
+class DeployApplicationsRequest(BaseModel):
+    """Request model for deploying applications"""
+
+    action: str = Field(default="replace", description="Deployment action")
+    applications: Optional[List[Dict[str, Union[str, int]]]] = Field(
+        None, description="Application configurations"
+    )
+    yaml_config: Optional[str] = Field(None, description="YAML configuration string")
+
+
 class TaskDefinition(BaseModel):
     task_id: Optional[str] = None
     func: str  # Function name as string, will be converted to callable
@@ -66,7 +76,7 @@ class CheckpointEvalRequest(BaseModel):
     checkpoint_dir: str
     eval_save_dir: str
     min_replica: int = 8
-    max_replica: int = 8
+    max_replica: int = 64
     thinking: bool = True
     job_id: Optional[str] = None
     matrix_dir: Optional[str] = None
@@ -171,6 +181,41 @@ async def stop_cluster_endpoint(cli: Cli = Depends(get_matrix_cli)):
         return {}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to stop cluster: {str(e)}")
+
+
+@app.get("/status")
+async def status_endpoint(cli: Cli = Depends(get_matrix_cli)):
+    try:
+        return {"status": cli.status()}
+    except Exception as e:
+        logger.error(f"Error getting status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/deploy-applications")
+async def deploy_applications_endpoint(
+    request: DeployApplicationsRequest, cli: Cli = Depends(get_matrix_cli)
+):
+    try:
+        app_names = cli.deploy_applications(
+            request.action,
+            request.applications,
+            request.yaml_config,
+        )
+        return {"applications": app_names}
+    except Exception as e:
+        logger.error(f"Error deploy applications: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/app-status")
+async def app_status(app_name: str, cli: Cli = Depends(get_matrix_cli)):
+    try:
+        status = cli.app.app_status(app_name)
+        return {"name": app_name, "app_status": status}
+    except Exception as e:
+        logger.error(f"Error app status: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/jobs", response_model=JobIdResponse)
@@ -289,7 +334,7 @@ async def evaluate_checkpoint(
                 env, command = run_eval_script(
                     os.environ["CHECKPOINT_EVAL_PYTHONPATH"],
                     os.environ["CHECKPOINT_EVAL_SCRIPT"],
-                    request.eval_save_dir,
+                    os.path.join(request.eval_save_dir, benchmark, app_name),
                     request.checkpoint_dir,
                     benchmark,
                     seed,
@@ -397,16 +442,16 @@ async def health_check():
     return {"status": "ok"}
 
 
-def main(cluster_id: str, matrix_dir: str | None = None):
+def main(cluster_id: str, matrix_dir: str | None = None, port: int | None = 6289):
     global global_cluster_id, global_matrix_dir
     global_cluster_id = cluster_id
     if matrix_dir is not None:
         global_matrix_dir = matrix_dir
     else:
         global_matrix_dir = os.path.expanduser("~/.matrix")
-    port = 6289
-    if not is_port_available(port):
+    if port is None or not is_port_available(port):
         port = find_free_ports(1)[0]
+    assert port is not None
     uvicorn.run(app, host="0.0.0.0", port=port)
 
 

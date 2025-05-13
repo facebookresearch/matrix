@@ -25,6 +25,10 @@ dependencies = [
   "boto3",
   "google-genai>=1.13.0",
   "datasketch",
+  "s3fs",
+  "datasets",
+  "iopath",
+  "jsonlines",
 ]
 # zip_safe = false
 classifiers=[
@@ -56,7 +60,7 @@ classifiers=[
       "types-PyYAML",
       "types-requests",
       # Release
-      "flit>=3.5.1"
+      "flit>=3.5.1",
   ]
   vllm_066 = [
       "vllm==v0.6.6.post1",

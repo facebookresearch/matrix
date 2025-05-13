@@ -129,8 +129,6 @@ def run_eval_script(
             eval_script,
             "--eval_save_dir",
             eval_save_dir,
-            "--upload_eval_dir",
-            upload_eval_dir,
             "--ext_model",
             checkpoint_dir,
             "--seed",
@@ -140,6 +138,14 @@ def run_eval_script(
             matrix_dir,
             app_name,
         ]
+        + (
+            [
+                "--upload_eval_dir",
+                upload_eval_dir,
+            ]
+            if upload_eval_dir
+            else []
+        )
         + DEFAULT_CONFIG
         + BENCHMARK_CONFIG[benchmark]
         + (["--thinking"] if thinking else [])

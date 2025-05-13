@@ -38,7 +38,7 @@ from matrix.app_server.deploy_utils import (
 from matrix.client.endpoint_cache import EndpointCache
 from matrix.common.cluster_info import ClusterInfo, get_head_http_host
 from matrix.utils.basics import convert_to_json_compatible
-from matrix.utils.os import download_s3_dir, lock_file, run_async
+from matrix.utils.os import download_s3_dir, lock_file, run_and_stream, run_async
 from matrix.utils.ray import (
     ACTOR_NAME_SPACE,
     Action,
@@ -59,6 +59,7 @@ class AppApi:
     def __init__(self, cluster_dir, cluster_info):
         self._cluster_dir = cluster_dir
         self._cluster_info = cluster_info
+        self._cluster_id = os.path.basename(cluster_dir)
 
     def deploy(
         self,
@@ -110,7 +111,7 @@ class AppApi:
                     cache_dir = os.environ.get(
                         "MATRIX_CACHE", os.path.expanduser("~/.cache/matrix")
                     )
-                    cache_dir = os.path.join(cache_dir, "models")
+                    cache_dir = os.path.join(cache_dir, self._cluster_id, "models")
                     s3_dir = app["model_name"]
                     logger.info(f"Download {s3_dir} under {cache_dir}")
                     downloaded, dest_dir = download_s3_dir(str(s3_dir), cache_dir, 3)
@@ -227,30 +228,49 @@ class AppApi:
     def status(self, replica):
         """Print out Serve applications and matrix actors."""
 
+        results = []
         ray_dashboard_url = get_ray_dashboard_address(self._cluster_info)
-        subprocess.run(["serve", "status", "--address", ray_dashboard_url])
-        subprocess.run(
-            [
-                "ray",
-                "list",
-                "actors",
-                "--address",
-                ray_dashboard_url,
-                "--filter",
-                "ray_namespace=matrix",
-                "--filter",
-                "state!=DEAD",
-                "--limit",
-                "10000",
-            ]
+        serve_status = run_and_stream(
+            {},
+            " ".join(["serve", "status", "--address", ray_dashboard_url]),
+            blocking=True,
+            return_stdout_lines=1000,
+        )
+        results.extend(
+            serve_status.get("stdout", serve_status.get("error", "")).split("\n")
+        )
+
+        actor_status = run_and_stream(
+            {},
+            " ".join(
+                [
+                    "ray",
+                    "list",
+                    "actors",
+                    "--address",
+                    ray_dashboard_url,
+                    "--filter",
+                    "ray_namespace=matrix",
+                    "--filter",
+                    "state!=DEAD",
+                    "--limit",
+                    "10000",
+                ]
+            ),
+            blocking=True,
+            return_stdout_lines=1000,
+        )
+        results.extend(
+            actor_status.get("stdout", actor_status.get("error", "")).split("\n")
         )
         if replica:
-            print("\n\nReplica: " + "-" * 8)
+            results.append("\n\nReplica: " + "-" * 8)
             os.environ["RAY_ADDRESS"] = get_ray_address(self._cluster_info)
             _client = _get_global_client()
             replicas = ray.get(_client._controller._all_running_replicas.remote())  # type: ignore[union-attr]
             json_compatible_replicas = convert_to_json_compatible(replicas)
-            print(json.dumps(json_compatible_replicas, indent=2))
+            results.append((json.dumps(replicas, indent=2)))
+        return results
 
     def _read_deployment(self, app_name, deployment_file, model_name=None):
 

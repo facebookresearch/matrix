@@ -120,13 +120,13 @@ def run_and_stream(
 ):
     """Runs a subprocess, streams stdout/stderr in realtime, and ensures cleanup on termination."""
     remote = logging_config.get("remote", False)
-    logger = logging_config["logger"]
+    logger = logging_config.get("logger")
     pid = None
 
     def log(str):
         if remote:
             logger.log.remote(f"[{pid}]" + str)
-        else:
+        elif logger is not None:
             logger.info(str)
 
     log(f"launch: {command}")

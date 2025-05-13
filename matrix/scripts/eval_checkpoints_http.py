@@ -30,7 +30,8 @@ def main(
     matrix_http_server: str,
     checkpoint_dir: str,
     eval_save_dir: str,
-    model_replica: int = 8,
+    min_replica: int = 8,
+    max_replica: int = 64,
     thinking: bool = True,
     job_id: str | None = None,
     benchmarks: list[str] | None = None,
@@ -40,15 +41,13 @@ def main(
     model_size: str = "8B",
     tokenizer: str = "meta-llama/Llama-3.1-8B-Instruct",
 ):
-    job_id = (
-        job_id or f"{checkpoint_dir.strip('/').split('/')[-1]}-{uuid.uuid4().hex[:8]}"
-    )
     post_url = urljoin(matrix_http_server, "/checkpoint-eval")
 
     payload = {
         "checkpoint_dir": checkpoint_dir,
         "eval_save_dir": eval_save_dir,
-        "model_replica": model_replica,
+        "min_replica": min_replica,
+        "max_replica": max_replica,
         "max_concurrent_tasks": max_concurrent_tasks,
         "model_size": model_size,
         "tokenizer": tokenizer,
