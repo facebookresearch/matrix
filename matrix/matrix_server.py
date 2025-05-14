@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -18,7 +19,8 @@ import matrix
 from matrix import Cli
 from matrix.job.eval_utils import *
 from matrix.job.job_api import JobApi
-from matrix.utils.os import find_free_ports, is_port_available
+from matrix.utils.os import download_s3_dir, find_free_ports, is_port_available
+from matrix.utils.ray import get_ray_address
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -82,10 +84,11 @@ class CheckpointEvalRequest(BaseModel):
     matrix_dir: Optional[str] = None
     benchmarks: Optional[List[str]] = None
     num_seeds: Optional[int] = None
-    max_concurrent_tasks: int = 3
+    max_concurrent_tasks: int = 8
     timeout: int = 36000
     model_size: str = "8B"
     tokenizer: str = "meta-llama/Llama-3.1-8B-Instruct"
+    use_ray_data: bool = True
 
 
 class BenchmarkStatus(BaseModel):
@@ -301,7 +304,9 @@ async def clear_jobs(job_api: JobApi = Depends(get_job_api)):
 
 @app.post("/checkpoint-eval", response_model=CheckpointEvalMetrics)
 async def evaluate_checkpoint(
-    request: CheckpointEvalRequest, job_api: JobApi = Depends(get_job_api)
+    request: CheckpointEvalRequest,
+    cli: Cli = Depends(get_matrix_cli),
+    job_api: JobApi = Depends(get_job_api),
 ):
     """
     Start a checkpoint evaluation job and return the job ID.
@@ -319,6 +324,22 @@ async def evaluate_checkpoint(
         )
 
     try:
+        checkpoint_dir = request.checkpoint_dir
+        if checkpoint_dir.startswith("s3://"):
+            cache_dir = os.environ.get(
+                "MATRIX_CACHE", os.path.expanduser("~/.cache/matrix")
+            )
+            assert cli.cluster_id is not None
+            cache_dir = os.path.join(cache_dir, cli.cluster_id, "models")
+            s3_dir = checkpoint_dir
+            logger.info(f"Download {s3_dir} under {cache_dir}")
+            downloaded, dest_dir = await asyncio.to_thread(
+                lambda: download_s3_dir(s3_dir, cache_dir, 3, "*rank_*.pt")
+            )
+            if not downloaded:
+                raise ValueError(f"Can not read {s3_dir}")
+            request.checkpoint_dir = dest_dir
+
         benchmarks = request.benchmarks or list(BENCHMARK_CONFIG.keys())
 
         if request.job_id:
@@ -327,10 +348,13 @@ async def evaluate_checkpoint(
             app_name = "-".join(request.checkpoint_dir.split("/")[-3:])
 
         task_definitions = []
+        cluster_info = cli.cluster.cluster_info()
+        assert cluster_info is not None
         assert global_cluster_id is not None and global_matrix_dir is not None
         for benchmark in benchmarks:
             num_seeds = request.num_seeds or DEFAULT_NUM_SEEDS[benchmark]
-            for seed in range(1, 1 + num_seeds):
+            start_seed = 1 if num_seeds > 1 else 42
+            for seed in range(start_seed, start_seed + num_seeds):
                 env, command = run_eval_script(
                     os.environ["CHECKPOINT_EVAL_PYTHONPATH"],
                     os.environ["CHECKPOINT_EVAL_SCRIPT"],
@@ -342,6 +366,9 @@ async def evaluate_checkpoint(
                     global_cluster_id,
                     global_matrix_dir,
                     app_name,
+                    request.use_ray_data,
+                    get_ray_address(cluster_info),
+                    request.tokenizer,
                 )
                 task_definitions.append(
                     {
@@ -352,23 +379,28 @@ async def evaluate_checkpoint(
                             "blocking": True,
                             "env": env,
                             "return_stdout_lines": 100,
+                            "skip_logging": " INFO:",
                         },
                     }
                 )
 
         job_def = {
             "job_id": request.job_id or app_name,
-            "applications": [
-                {
-                    "name": app_name,
-                    "model_name": request.checkpoint_dir,
-                    "model_size": request.model_size,
-                    "tokenizer": request.tokenizer,
-                    "use_grpc": "true",
-                    "min_replica": request.min_replica,
-                    "max_replica": request.max_replica,
-                }
-            ],
+            "applications": (
+                [
+                    {
+                        "name": app_name,
+                        "model_name": request.checkpoint_dir,
+                        "model_size": request.model_size,
+                        "tokenizer": request.tokenizer,
+                        "use_grpc": "true",
+                        "min_replica": request.min_replica,
+                        "max_replica": request.max_replica,
+                    }
+                ]
+                if not request.use_ray_data
+                else []
+            ),
             "task_definitions": task_definitions,
             "timeout": request.timeout,
             "max_concurrent_tasks": request.max_concurrent_tasks,

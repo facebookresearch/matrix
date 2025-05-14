@@ -30,13 +30,14 @@ def main(
     matrix_http_server: str,
     checkpoint_dir: str,
     eval_save_dir: str,
+    use_ray_data: bool = True,
     min_replica: int = 8,
     max_replica: int = 64,
     thinking: bool = True,
     job_id: str | None = None,
     benchmarks: list[str] | None = None,
     num_seeds: int | None = None,
-    max_concurrent_tasks: int = 3,
+    max_concurrent_tasks: int = 8,
     timeout: int = 36000,
     model_size: str = "8B",
     tokenizer: str = "meta-llama/Llama-3.1-8B-Instruct",
@@ -53,6 +54,7 @@ def main(
         "tokenizer": tokenizer,
         "thinking": thinking,
         "timeout": timeout,
+        "use_ray_data": use_ray_data,
     }
     if job_id:
         payload["job_id"] = job_id

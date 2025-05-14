@@ -116,7 +116,12 @@ def create_symlinks(
 
 
 def run_and_stream(
-    logging_config, command, blocking=False, env=None, return_stdout_lines=10
+    logging_config,
+    command,
+    blocking=False,
+    env=None,
+    return_stdout_lines=10,
+    skip_logging: str | None = None,
 ):
     """Runs a subprocess, streams stdout/stderr in realtime, and ensures cleanup on termination."""
     remote = logging_config.get("remote", False)
@@ -158,7 +163,7 @@ def run_and_stream(
                     ready_to_read, _, _ = select.select([process.stdout], [], [], 0.1)
                     if ready_to_read:
                         line = process.stdout.readline()
-                        if line:
+                        if line and (skip_logging is None or not skip_logging in line):
                             log(line.strip())
                             stdout_buffer.append(line)
         except Exception as e:
@@ -280,7 +285,9 @@ def run_async(coro: tp.Awaitable[tp.Any]) -> tp.Any:
         return loop.run_until_complete(coro)
 
 
-def download_s3_dir(s3_path: str, cache_dir: str, dir_levels=1):
+def download_s3_dir(
+    s3_path: str, cache_dir: str, dir_levels=1, exclude: str | None = None
+):
     """
     Download contents of an S3 directory to a local cache directory.
 
@@ -300,7 +307,9 @@ def download_s3_dir(s3_path: str, cache_dir: str, dir_levels=1):
     dest_dir = os.path.join(cache_dir, subdir_name)
     os.makedirs(dest_dir, exist_ok=True)
 
-    downloaded = run_subprocess(
-        f"aws s3 cp s3://{s3_path} {dest_dir} --recursive".split(" ")
-    )
+    cmd = ["aws", "s3", "cp", f"s3://{s3_path}", dest_dir, "--recursive"]
+    if exclude is not None:
+        cmd.extend(["--exclude", exclude])
+    print(cmd)
+    downloaded = run_subprocess(cmd)
     return downloaded, dest_dir

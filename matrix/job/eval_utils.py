@@ -110,6 +110,9 @@ def run_eval_script(
     cluster_id: str,
     matrix_dir: str,
     app_name: str,
+    use_ray_data: bool,
+    ray_head_address: str,
+    tokenizer: str,
 ):
     """Generate environment and command for evaluation script."""
     env = {"PYTHONPATH": pythonpath}
@@ -133,11 +136,17 @@ def run_eval_script(
             checkpoint_dir,
             "--seed",
             str(seed),
-            "--matrix",
-            cluster_id,
-            matrix_dir,
-            app_name,
         ]
+        + (
+            [
+                "--matrix",
+                cluster_id,
+                matrix_dir,
+                app_name,
+            ]
+            if not use_ray_data
+            else ["--ray_data", ray_head_address]
+        )
         + (
             [
                 "--upload_eval_dir",
@@ -149,6 +158,7 @@ def run_eval_script(
         + DEFAULT_CONFIG
         + BENCHMARK_CONFIG[benchmark]
         + (["--thinking"] if thinking else [])
+        + ["--model", tokenizer]
     )
 
     return env, " ".join(command)

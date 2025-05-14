@@ -114,7 +114,9 @@ class AppApi:
                     cache_dir = os.path.join(cache_dir, self._cluster_id, "models")
                     s3_dir = app["model_name"]
                     logger.info(f"Download {s3_dir} under {cache_dir}")
-                    downloaded, dest_dir = download_s3_dir(str(s3_dir), cache_dir, 3)
+                    downloaded, dest_dir = download_s3_dir(
+                        str(s3_dir), cache_dir, 3, "*rank_*.pt"
+                    )
                     if not downloaded:
                         raise ValueError(f"Can not read {s3_dir}")
                     app["model"] = dest_dir
