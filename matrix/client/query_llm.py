@@ -55,7 +55,10 @@ def convert_llama_instruct_text(text: str) -> tp.List[tp.Dict[str, str]]:
     if not messages:
         # no roles
         messages.append({"role": "user", "content": text})
-    if messages[-1]["role"] == "assistant" and not messages[-1]["content"]:
+    if messages[-1]["role"] == "assistant":
+        assert not messages[-1][
+            "content"
+        ], "Last message in chat should not be assistant."
         messages = messages[:-1]
     return messages
 

@@ -19,7 +19,7 @@ def main(
     src_key: str = "request.messages[0].content",
     target_key: str = "response.text[0]",
     src_template: str = "<|start_header_id|>user<|end_header_id|>\n\n{text}<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n",
-    target_template: str = "<think>\n{text}",
+    target_template: str = "{text}",
 ):
     with open(input_jsonl) as inf:
         with open(output_jsonl, "w") as outf:

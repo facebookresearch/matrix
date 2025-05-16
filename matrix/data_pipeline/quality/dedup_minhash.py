@@ -21,7 +21,7 @@ import tqdm
 from datasketch import LeanMinHash, MinHash, MinHashLSH
 from fire import Fire
 
-from matrix.utils.basics import get_user_prompt
+from matrix.utils.basics import get_user_message_from_llama3_prompt
 
 num_perm = 128
 
@@ -51,7 +51,7 @@ def normalize_text(s):
 def process_row(row, text_key):
     """Extract text and compute MinHash with index"""
     src_data = row[text_key]
-    text = get_user_prompt(src_data)
+    text = get_user_message_from_llama3_prompt(src_data)
     text = normalize_text(text)
     tokens = text.split()
 

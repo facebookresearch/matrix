@@ -24,7 +24,7 @@ def convert_to_json_compatible(obj):
         return str(obj)
 
 
-def get_user_prompt(text: str) -> str:
+def get_user_message_from_llama3_prompt(text: str) -> str:
     PATTERN = re.compile(
         r"<\|start_header_id\|>user<\|end_header_id\|>\n\n(.*?)<\|eot_id\|>", re.DOTALL
     )

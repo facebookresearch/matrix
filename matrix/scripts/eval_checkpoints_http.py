@@ -30,6 +30,7 @@ def main(
     matrix_http_server: str,
     checkpoint_dir: str,
     eval_save_dir: str,
+    tokenizer: str,
     use_ray_data: bool = True,
     min_replica: int = 8,
     max_replica: int = 64,
@@ -40,7 +41,6 @@ def main(
     max_concurrent_tasks: int = 8,
     timeout: int = 36000,
     model_size: str = "8B",
-    tokenizer: str = "meta-llama/Llama-3.1-8B-Instruct",
 ):
     post_url = urljoin(matrix_http_server, "/checkpoint-eval")
 
