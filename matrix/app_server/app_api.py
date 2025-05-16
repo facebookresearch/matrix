@@ -140,6 +140,13 @@ class AppApi:
                 assert applications is not None
                 for _i in range(len(applications) - 1, -1, -1):
                     app = applications[_i]
+                    if action == Action.ADD and app.get("name") is None:
+                        hex_hash = hashlib.sha256(
+                            (str(app.get("model_name")) + str(time.time())).encode()
+                        ).digest()
+                        name = base64.b32encode(hex_hash).decode()[:8]
+                        app["name"] = name
+
                     found = app.get("name") in existing_app_names
                     if found and action == Action.ADD:
                         logger.warning(
