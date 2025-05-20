@@ -141,7 +141,6 @@ def main(
         runtime_env={
             "env_vars": {
                 "VLLM_WORKER_MULTIPROC_METHOD": "spawn",
-                "VLLM_USE_V1": "0",
                 "VLLM_CONFIGURE_LOGGING": "0",
             }
         },
