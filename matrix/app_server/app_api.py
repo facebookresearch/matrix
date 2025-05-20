@@ -107,7 +107,7 @@ class AppApi:
             )
         if action in [Action.ADD, Action.REPLACE]:
             for app in applications or []:
-                if str(app["model_name"]).startswith("s3://"):
+                if str(app.get("model_name", "")).startswith("s3://"):
                     cache_dir = os.environ.get(
                         "MATRIX_CACHE", os.path.expanduser("~/.cache/matrix")
                     )
@@ -119,7 +119,7 @@ class AppApi:
                     )
                     if not downloaded:
                         raise ValueError(f"Can not read {s3_dir}")
-                    app["model"] = dest_dir
+                    app["model_name"] = dest_dir
 
         with lock_file(yaml_filepath, "a+", timeout=10) as yaml_file:
             with lock_file(sglang_yaml_filepath, "a+", timeout=10) as sglang_yaml_file:

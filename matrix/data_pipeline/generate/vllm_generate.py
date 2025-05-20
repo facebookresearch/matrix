@@ -115,7 +115,7 @@ def main(
     sampling_params: dict[str, tp.Any] = {},
     prompt_template: str = "",
     min_concurrency: int = 1,
-    output_key: str = 'response',
+    output_key: str = "response",
 ):
     """Run llm generate on input jsonl prompt.
     params:
