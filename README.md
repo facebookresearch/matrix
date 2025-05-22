@@ -47,6 +47,7 @@ Matrix is designed for scalable LLM inference on [Slurm](https://slurm.schedmd.c
   - [Getting Started](#getting-started)
   - [Advanced Deployment](#advanced-deployment)
   - [LLM Inference](#llm-inference)
+  - [Job Manager](#job-manager)
   - [Data piplines](#data-piplines)
   - [Contributing](#contributing)
   - [Citation](#citation)
@@ -69,7 +70,10 @@ matrix start_cluster --add_workers 1 --slurm "{'account': $SLURM_ACCOUNT, 'qos':
 
 - Deploy Model
 ```
-matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-3.1-8B-Instruct', 'min_replica': 8}]"
+// login to access huggingface hub
+huggingface-cli login
+
+matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-3.1-8B-Instruct', 'min_replica': 8, 'name': '8B'}]"
 ```
 
 - LLM Inference
@@ -105,7 +109,7 @@ matrix start_cluster --add_workers 4 --slurm "{'account': $SLURM_ACCOUNT, 'qos':
 
 - Add/Remove Applications
 ```
-matrix deploy_applications --action add --applications "[{'model_name': 'meta-llama/Llama-3.1-405B-Instruct', 'min_replica': 2}]"
+matrix deploy_applications --action add --applications "[{'model_name': 'meta-llama/Llama-3.1-405B-Instruct', 'min_replica': 2, 'name': '405B'}]"
 ```
 
 - Remove All Applications
@@ -116,7 +120,7 @@ matrix deploy_applications --applications ''
 vLLM Engine [Aruments](https://docs.vllm.ai/en/latest/serving/engine_args.html) can be specified in the deploy_applications arguments. The default values for popular models are in [llm_config.py](matrix/app_server/llm/llm_config.py). Other useful args
 * `model_name`: a huggingface model name or a directory containing checkpoints.
 * `name`: the default app_name.
-* `model_size`: map a non huggingface model to the defaults in the config file.
+* `model_size`: template to apply when model is from a directory, such as 8B, 70B, 405B etc, templates are from the llm_config.py file.
 * `max_ongoing_requests`: the max concurrent requests to each replica.
 * `min_replia` and `max_replica`: the num of replicas ranges auto-scaled based on num of Ray workers.
 * `use_grpc`: enable grpc by adding `{'use_grpc':  'true'}`.
@@ -141,15 +145,13 @@ vLLM >=0.8.3 supports DS R1. An alternative backend is sglang.
 // install sglang
 pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[sglang_045]'
 
-matrix deploy_applications --applications "[{'model_name': 'deepseek-ai/DeepSeek-R1', 'pipeline-parallel-size': 2, 'app_type': sglang_llm}]"
+matrix deploy_applications --applications "[{'model_name': 'deepseek-ai/DeepSeek-R1', 'pipeline-parallel-size': 2, 'app_type': sglang_llm, 'name': 'r1'}]"
 ```
 ### Llama 4
 ```
-pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[vllm_083]'
+matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-Scout-17B-16E-Instruct', 'name': 'scout'}]"
 
-matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-Scout-17B-16E-Instruct'}]"
-
-matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8'}]"
+matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8', 'name': 'maverick'}]"
 ```
 
 ---
@@ -162,7 +164,8 @@ matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-M
 python -m matrix.scripts.hf_dataset_to_jsonl HuggingFaceH4/MATH-500 test test.jsonl
 
 // query math-500
-matrix inference --app_name maverick-fp8 --input_jsonls test.jsonl --output_jsonl response.jsonl --batch_size=64 --system_prompt "Please reason step by step, and put your final answer within \boxed{}." --max_tokens 30000 --text_key problem --timeout_secs 1800
+matrix inference --app_name maverick-fp8 --input_jsonls test.jsonl --output_jsonl response.jsonl --batch_size=64 \
+  --system_prompt "Please reason step by step, and put your final answer within \boxed{}." --max_tokens 30000 --text_key problem --timeout_secs 1800
 ```
 
 #### Input Format
@@ -211,6 +214,12 @@ query_llm.batch_requests(
 
 ---
 
+## Job manager
+
+Job manager allows users to submit tasks for distributed execution on Ray. More details are in [here](matrix/job/README.md).
+
+---
+
 ## Data piplines
 
 ### Code Execution
@@ -234,9 +243,18 @@ python  -m matrix.data_pipeline.quality.dedup_minhash $ray_head:$client_server_p
 ```
 - multilabel classification
 ```
-python -m matrix.data_pipeline.classification.multi_label_classification $ray_head:$client_server_port  cardiffnlp/twitter-roberta-base-emotion-multilabel-latest input.jsonl output_dir --num_gpus 8 --text_key question --threshold_fname ""
+python -m matrix.data_pipeline.classification.multi_label_classification $ray_head:$client_server_port  \
+  cardiffnlp/twitter-roberta-base-emotion-multilabel-latest input.jsonl output_dir \
+  --num_gpus 8 --text_key question --threshold_fname ""
 ```
-
+- Offline batch inference
+```
+python -m matrix.data_pipeline.generate.vllm_generate $ray_head:$client_server_port ./math-500/test.jsonl math-500/response  \
+  --prompt_template "<|start_header_id|>system<|end_header_id|>\n\nPlease reason step by step, and put your final answer within \boxed{}.<|eot_id|><|start_header_id|>user<|end_header_id|>\n\n<user_message><|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n" \
+  --model_args "{'model': 'meta-llama/Llama-3.3-70B-Instruct', 'seed': 42, 'max_model_len': 20480, 'tensor_parallel_size': 4}" \
+  --sampling_params "{'n': 1, 'temperature': 0.6, 'top_p': 0.95, 'max_tokens': 16384}" \
+  --min_concurrency 32 --output_key pred --batch_size=32
+```
 ---
 
 ## Contributing
