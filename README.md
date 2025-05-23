@@ -60,7 +60,7 @@ Matrix is designed for scalable LLM inference on [Slurm](https://slurm.schedmd.c
 ```
 conda create --name matrix python=3.10
 conda activate matrix
-pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[vllm_083]'
+pip install fair-matrix[vllm_083]
 ```
 
 - Launch ray cluster
@@ -143,7 +143,7 @@ matrix deploy_applications --applications "[{'app_type': 'gemini', 'name': "gemi
 vLLM >=0.8.3 supports DS R1. An alternative backend is sglang.
 ```
 // install sglang
-pip install 'git+ssh://git@github.com/facebookresearch/matrix.git#egg=matrix[sglang_045]'
+pip install fair-matrix[sglang_045]
 
 matrix deploy_applications --applications "[{'model_name': 'deepseek-ai/DeepSeek-R1', 'pipeline-parallel-size': 2, 'app_type': sglang_llm, 'name': 'r1'}]"
 ```

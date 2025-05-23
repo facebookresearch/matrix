@@ -3,7 +3,7 @@ requires = ["flit_core >=3.2,<4", "setuptools"]
 build-backend = "flit_core.buildapi"
 
 [project]
-name = "matrix"
+name = "fair-matrix"
 readme = "README.md"
 authors = [{name = "Facebook AI Research"}]
 requires-python = ">=3.10"
@@ -104,5 +104,5 @@ files = [
   "matrix/"
 ]
 
-[tool.flit.sdist]
-exclude = [".generated_deployment.yaml"]
+[tool.flit.module]
+name = "matrix"
