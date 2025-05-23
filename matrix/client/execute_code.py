@@ -33,7 +33,6 @@ class CodeExcutionClient:
     def __init__(
         self,
         url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
-        batch_size: int = 32,
         timeout_secs: int = 120,
         limit: int = 0,
     ):
@@ -47,7 +46,6 @@ class CodeExcutionClient:
             limit: max num of inputs to take (0 means all inputs).
         """
         self.url = url
-        self.batch_size = batch_size
         self.timeout_secs = timeout_secs
         self.limit = limit
 
@@ -76,30 +74,25 @@ class CodeExcutionClient:
                 num_lines = 0
                 for line_number, line in enumerate(f, start=1):
                     line_json = json.loads(line)
-                    print("line json", line_json)
                     fields = {}
                     if text_keys is not None:
                         for text_key in text_keys:
-                            print("text_key", text_key)
                             text = get_request(text_key, line_json)
                             assert text is not None, f"Missing field {text_key}"
                             fields[text_key] = text
-                    print("fields", fields)
                     if prompt_template is not None:
                         prompt = prompt_template.format(**fields)
                     else:
                         prompt = ""
-                    print("prompt", prompt)
                     code = "\n".join(list(fields.values()) + [prompt])
-                    print("code", code)
                     item = {
                         "code": code,
                         "metadata": {"filename": file_name, "line": line_number},
                     }
-                    print(item)
                     max_length = max(len(item["code"]), max_length)
                     # Add metadata to the dictionary
                     data.append(item)
+                    num_lines += 1
                 print(
                     f"Loaded {num_lines} lines from {file_name}, max text length {max_length}"
                 )
@@ -175,6 +168,7 @@ class CodeExcutionClient:
         self,
         output_file: str,
         input_jsonls: str,
+        batch_size: int = 32,
         text_keys: tp.Optional[list[str]] = None,
         prompt_template: tp.Optional[str] = None,
     ):
@@ -193,9 +187,8 @@ class CodeExcutionClient:
         """
 
         logger.info(
-            f"Starting code execution with url: {self.url}, batch_size: {self.batch_size}, timeout: {self.timeout_secs}s"
+            f"Starting code execution with url: {self.url}, batch_size: {batch_size}, timeout: {self.timeout_secs}s"
         )
-        print("HEY")
 
         save_dir = os.path.dirname(output_file)
         if save_dir:
@@ -209,7 +202,6 @@ class CodeExcutionClient:
         if not input_files:
             logger.error(f"No input files found matching pattern: {input_jsonls}")
             return
-        print("input files", input_files)
 
         lines = self.load_from_jsonl(
             tuple(input_files),
@@ -219,7 +211,6 @@ class CodeExcutionClient:
         if self.limit <= 0:
             limit = len(lines)
         lines = lines[:limit]
-        print("lines", lines)
 
         pbar = tqdm.tqdm(total=len(lines), desc="Send request")
 
@@ -259,7 +250,7 @@ class CodeExcutionClient:
             )
             pending_tasks.add(task)
             # If we have reached the batch size, wait for at least one task to complete
-            if len(pending_tasks) >= self.batch_size:
+            if len(pending_tasks) >= batch_size:
                 await save_outputs()
         while pending_tasks:
             await save_outputs()
@@ -271,4 +262,5 @@ class CodeExcutionClient:
 
 if __name__ == "__main__":
     # Fire runs the main function with command line arguments
-    Fire(CodeExcutionClient)
+    client = CodeExcutionClient("http://localhost:8001/code")
+    Fire(client.execute_code)

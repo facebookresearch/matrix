@@ -436,11 +436,11 @@ class AppApi:
                 )
             )
         elif app_type == "code":
-            from matrix.client.execute_code import main as execute_code
+            from matrix.client.execute_code import CodeExcutionClient
 
+            client = CodeExcutionClient(get_one_endpoint)
             return asyncio.run(
-                execute_code(
-                    get_one_endpoint,
+                client.execute_code(
                     output_jsonl,
                     input_jsonls,
                     **kwargs,
