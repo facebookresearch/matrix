@@ -37,6 +37,16 @@ def kill_proc_tree(pid, including_parent=True):
         parent.wait(5)
 
 
+def is_port_available(port):
+    """Check if a port is available on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("localhost", port))
+            return True
+        except OSError:
+            return False
+
+
 def find_free_ports(n):
     free_ports: set[int] = set()
 
@@ -105,19 +115,30 @@ def create_symlinks(
     (destination / f"{job_category}.out").symlink_to(job_paths.stdout)
 
 
-def run_and_stream(logging_config, command, blocking=False):
+def run_and_stream(
+    logging_config,
+    command,
+    blocking=False,
+    env=None,
+    return_stdout_lines=10,
+    skip_logging: str | None = None,
+):
     """Runs a subprocess, streams stdout/stderr in realtime, and ensures cleanup on termination."""
     remote = logging_config.get("remote", False)
-    logger = logging_config["logger"]
+    logger = logging_config.get("logger")
     pid = None
 
     def log(str):
         if remote:
             logger.log.remote(f"[{pid}]" + str)
-        else:
+        elif logger is not None:
             logger.info(str)
 
     log(f"launch: {command}")
+    if env is not None:
+        extra_env = env
+        env = os.environ.copy()
+        env.update(extra_env)
 
     """Runs a subprocess, streams stdout/stderr, and ensures cleanup."""
     process = subprocess.Popen(
@@ -126,12 +147,13 @@ def run_and_stream(logging_config, command, blocking=False):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        env=env,
         preexec_fn=os.setsid,  # Run in a separate process group
     )
     pid = process.pid
 
     terminate_flag = threading.Event()
-    stdout_buffer: tp.Deque[str] = deque(maxlen=10)
+    stdout_buffer: tp.Deque[str] = deque(maxlen=return_stdout_lines)
 
     def stream_output():
         """Reads and logs the subprocess output in real-time."""
@@ -141,7 +163,7 @@ def run_and_stream(logging_config, command, blocking=False):
                     ready_to_read, _, _ = select.select([process.stdout], [], [], 0.1)
                     if ready_to_read:
                         line = process.stdout.readline()
-                        if line:
+                        if line and (skip_logging is None or not skip_logging in line):
                             log(line.strip())
                             stdout_buffer.append(line)
         except Exception as e:
@@ -261,3 +283,33 @@ def run_async(coro: tp.Awaitable[tp.Any]) -> tp.Any:
             return pool.submit(run_in_new_loop).result()
     else:
         return loop.run_until_complete(coro)
+
+
+def download_s3_dir(
+    s3_path: str, cache_dir: str, dir_levels=1, exclude: str | None = None
+):
+    """
+    Download contents of an S3 directory to a local cache directory.
+
+    - s3_path: full S3 path to the directory (must end with slash or be treated as a directory)
+    - cache_dir: local cache root
+    - dir_levels: how many trailing components from the S3 path to include in the subdirectory
+    """
+    if not s3_path.endswith("/"):
+        s3_path += "/"
+
+    # Remove s3:// prefix
+    if s3_path.startswith("s3://"):
+        s3_path = s3_path[len("s3://") :]
+
+    parts = s3_path.rstrip("/").split("/")
+    subdir_name = os.path.join(*parts[-dir_levels:])
+    dest_dir = os.path.join(cache_dir, subdir_name)
+    os.makedirs(dest_dir, exist_ok=True)
+
+    cmd = ["aws", "s3", "cp", f"s3://{s3_path}", dest_dir, "--recursive"]
+    if exclude is not None:
+        cmd.extend(["--exclude", exclude])
+    print(cmd)
+    downloaded = run_subprocess(cmd)
+    return downloaded, dest_dir

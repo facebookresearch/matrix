@@ -14,6 +14,7 @@ import threading
 from typing import Any, Awaitable, Dict, List, Optional, Union
 
 import aiohttp
+import fsspec
 import ray
 import yaml
 from jinja2 import Template
@@ -425,3 +426,41 @@ def get_yaml_for_deployment(
                 http_port=cluster_info.http_port, grpc_port=cluster_info.grpc_port
             )
     return yaml_str
+
+
+def validate_applications(applications):
+
+    for app in applications:
+        model = app["model_name"]
+        if model.startswith("/"):
+            if not os.path.exists(model):
+                raise FileNotFoundError(f"{model} does not exists")
+            model_config = os.path.join(model, "config.json")
+            if not os.path.exists(model_config):
+                raise FileNotFoundError(f"{model_config} does not exists")
+            with open(model_config, "r", encoding="utf-8") as f:
+                config = json.load(f)
+                if (
+                    app.get("model_size") == "8B"
+                    and "Fairseq2LlamaForCausalLM" in config["architectures"]
+                ):
+                    model_pt = os.path.join(model, "model.pt")
+                    if not os.path.exists(model_pt):
+                        raise FileNotFoundError(f"{model_pt} does not exists")
+        elif model.startswith("s3://"):
+            model_config = os.path.join(model, "config.json")
+            fs, path = fsspec.core.url_to_fs(model_config)
+            if not fs.exists(path):
+                raise FileNotFoundError(f"{model_config} does not exists")
+            with fsspec.open(model_config, "r", encoding="utf-8") as f:
+                # Use the json module to load data from the file-like object
+                config = json.load(f)
+                if (
+                    app.get("model_size") == "8B"
+                    and "Fairseq2LlamaForCausalLM" in config["architectures"]
+                ):
+                    model_pt = os.path.join(model, "model.pt")
+                    fs, path = fsspec.core.url_to_fs(model_pt)
+                    if not fs.exists(path):
+                        raise FileNotFoundError(f"{model_pt} does not exists")
+    return True

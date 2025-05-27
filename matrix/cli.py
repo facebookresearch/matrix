@@ -19,8 +19,8 @@ import fire
 from matrix.app_server import app_api
 from matrix.client import query_llm
 from matrix.cluster.ray_cluster import RayCluster
-from matrix.utils.json import convert_to_json_compatible
-from matrix.utils.os import run_subprocess
+from matrix.utils.basics import convert_to_json_compatible
+from matrix.utils.os import run_and_stream, run_subprocess
 
 
 class Cli:
@@ -82,7 +82,7 @@ class Cli:
         local: tp.Dict[str, tp.Union[str, int]] | None = None,
         enable_grafana: bool = False,
         force_new_head: bool = False,
-    ):
+    ) -> tp.Dict[str, tp.Any]:
         """
         Starts the Ray cluster with additional keyword arguments. Only do this for new clusters.
 
@@ -104,13 +104,14 @@ class Cli:
         Returns:
             None
         """
-        self.cluster.start(
+        status = self.cluster.start(
             add_workers,
             slurm,
             local,
             enable_grafana=enable_grafana,
             force_new_head=force_new_head,
         )
+        return convert_to_json_compatible(status)
 
     def stop_cluster(self):
         """
@@ -124,7 +125,7 @@ class Cli:
         """
         self.cluster.stop()
 
-    def status(self, replica=False):
+    def status(self, replica=False) -> tp.List[str]:
         """
         Prints the status of the Ray cluster and deployed applications.
 
@@ -141,24 +142,31 @@ class Cli:
         """
         head = self.cluster.cluster_info()
         if not head:
-            print("head not started")
-            return
+            return ["head not started"]
         else:
             assert head.hostname
-
-            print(
-                f"ssh to head node:\nssh -L {head.dashboard_port}:localhost:{head.dashboard_port} -L {head.prometheus_port}:localhost:{head.prometheus_port} -L {head.grafana_port}:localhost:{head.grafana_port} {head.hostname}"  # type: ignore[union-attr]
-            )
+            results = []
+            results.append(
+                f"ssh to head node:\nssh -L {head.dashboard_port}:localhost:{head.dashboard_port} -L {head.prometheus_port}:localhost:{head.prometheus_port} -L {head.grafana_port}:localhost:{head.grafana_port} {head.hostname}"
+            )  # type: ignore[union-attr]
             cluster_info = convert_to_json_compatible(head)
-            print("\nHead Info:")
-            print(json.dumps(cluster_info, indent=2))
+            results.append(f"Head Info: {json.dumps(cluster_info, indent=2)}")
 
-            print("\nRay status: --------")
-            subprocess.run(
-                ["ray", "status", "--address", f"{head.hostname}:{head.port}"]
+            results.append("\nRay status: --------")
+            ray_status = run_and_stream(
+                {},
+                " ".join(
+                    ["ray", "status", "--address", f"{head.hostname}:{head.port}"]
+                ),
+                blocking=True,
+                return_stdout_lines=1000,
             )
-            print("\n\nServe status: --------")
-            self.app.status(replica)
+            results.extend(
+                ray_status.get("stdout", ray_status.get("error", "")).split("\n")
+            )
+            results.append("\n\nServe status: --------")
+            results.extend(self.app.status(replica))
+        return results
 
     def deploy_applications(
         self,
@@ -183,7 +191,7 @@ class Cli:
         Returns:
             The deployed application names.
         """
-        self.app.deploy(
+        return self.app.deploy(
             action,
             applications,
             yaml_config,

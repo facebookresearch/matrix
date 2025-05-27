@@ -56,6 +56,9 @@ def convert_llama_instruct_text(text: str) -> tp.List[tp.Dict[str, str]]:
         # no roles
         messages.append({"role": "user", "content": text})
     if messages[-1]["role"] == "assistant":
+        assert not messages[-1][
+            "content"
+        ], "Last message in chat should not be assistant."
         messages = messages[:-1]
     return messages
 
@@ -148,7 +151,7 @@ async def make_request(
     url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
     model: str,
     data: tp.Dict[str, tp.Any],
-    seed: int = 42,
+    seed: tp.Optional[int] = None,
     app_name: str = "",
     temperature: float = 0.7,
     max_tokens: int = 1024,

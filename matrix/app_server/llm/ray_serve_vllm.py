@@ -94,6 +94,8 @@ def use_ray_executor(cls, engine_config):
 
 
 class BaseDeployment:
+    lora_modules: Optional[List[LoRAModulePath]] = None
+
     def __init__(
         self,
         engine_args: AsyncEngineArgs,
@@ -407,6 +409,9 @@ class GrpcDeployment(BaseDeployment):
                 exclude_unset=True,
                 exclude_none=True,
             )
+            for choice in response_dict["choices"]:
+                if "stop_reason" in choice:
+                    choice["stop_reason"] = str(choice["stop_reason"])
             json_format.ParseDict(response_dict, response)
             return response
         except AsyncEngineDeadError as e:
@@ -463,6 +468,8 @@ class GrpcDeployment(BaseDeployment):
                 exclude_none=True,
             )
             for choice in response_dict["choices"]:
+                if "stop_reason" in choice:
+                    choice["stop_reason"] = str(choice["stop_reason"])
                 if "logprobs" in choice and "top_logprobs" in choice["logprobs"]:
                     choice["logprobs"].pop("top_logprobs")
                 if "prompt_logprobs" in choice:
