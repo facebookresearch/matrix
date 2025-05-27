@@ -261,6 +261,4 @@ class CodeExcutionClient:
 
 
 if __name__ == "__main__":
-    # Fire runs the main function with command line arguments
-    client = CodeExcutionClient("http://localhost:8001/code")
-    Fire(client.execute_code)
+    Fire(CodeExcutionClient)
