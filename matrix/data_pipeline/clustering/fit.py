@@ -140,7 +140,7 @@ def generate_ump_embeddings(
     return umap_embedding_ds
 
 
-@ray.remote
+@ray.remote  # type: ignore[arg-type]
 def run_remotely(
     umap_cluster_model_path: str,
     umap_viz_model_path: str,
@@ -204,7 +204,7 @@ def run_remotely(
         logger.info("Scheduling UMAP fitting tasks...")
         umap_tasks = []
         if enable_umap and not is_valid_pickle(umap_cluster_model_path):
-            umap_cluster_task = fit_umap_on_worker_gpu.remote(
+            umap_cluster_task = fit_umap_on_worker_gpu.remote(  # type: ignore[call-arg]
                 umap_fit_ds_ref,
                 umap_cluster_dim,
                 umap_cluster_model_path,
@@ -213,7 +213,7 @@ def run_remotely(
             )
             umap_tasks.append(umap_cluster_task)
         if not is_valid_pickle(umap_viz_model_path):
-            umap_viz_task = fit_umap_on_worker_gpu.remote(
+            umap_viz_task = fit_umap_on_worker_gpu.remote(  # type: ignore[call-arg]
                 umap_fit_ds_ref,
                 umap_viz_dim,
                 umap_viz_model_path,
@@ -257,7 +257,7 @@ def run_remotely(
 
         # --- 7. Fit HDBSCAN ---
         logger.info("Scheduling HDBSCAN fitting task...")
-        hdbscan_task = fit_hdbscan_on_worker_gpu.remote(
+        hdbscan_task = fit_hdbscan_on_worker_gpu.remote(  # type: ignore[call-arg]
             hdbscan_fit_ds_ref,
             hdbscan_model_path,
             hdbscan_min_cluster_size,
@@ -287,7 +287,7 @@ def run_remotely(
 
         # --- 7. Fit kmeans ---
         logger.info("Scheduling kmeans fitting task...")
-        kmeans_task = fit_kmeans_on_worker_gpu.remote(
+        kmeans_task = fit_kmeans_on_worker_gpu.remote(  # type: ignore[call-arg]
             kmeans_fit_ds_ref,
             kmeans_model_path,
             kmeans_num_clusters,
@@ -390,7 +390,7 @@ def main(
     logger.info(f"Ray Initialized: {ray.cluster_resources()}")
 
     print("Launching remote task...")
-    future_result = run_remotely.remote(
+    future_result = run_remotely.remote(  # type: ignore[call-arg]
         umap_cluster_model_path,
         umap_viz_model_path,
         hdbscan_model_path,

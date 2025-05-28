@@ -179,7 +179,9 @@ class SentenceEmbedder:
     def __call__(self, batch: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         # Assumes 'id' and 'text' columns in the input batch (numpy format)
         ids = batch["id"]
-        texts = [get_user_message_from_llama3_prompt(text) for text in batch[self.text_key]]
+        texts = [
+            get_user_message_from_llama3_prompt(text) for text in batch[self.text_key]
+        ]
         try:
             embeddings = self.model.encode(
                 texts, convert_to_numpy=True, show_progress_bar=False

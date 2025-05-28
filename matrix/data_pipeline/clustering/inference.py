@@ -22,7 +22,7 @@ from .utils import (
 )
 
 
-@ray.remote
+@ray.remote  # type: ignore[arg-type]
 def run_remotely(
     message_key: str,
     enable_umap: bool,
@@ -253,7 +253,7 @@ def main(
     logger.info(f"Ray Initialized: {ray.cluster_resources()}")
 
     print("Launching remote task...")
-    future_result = run_remotely.remote(
+    future_result = run_remotely.remote(  # type: ignore[call-arg]
         message_key,
         enable_umap,
         cluster_alg,
