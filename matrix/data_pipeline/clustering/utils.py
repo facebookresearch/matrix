@@ -13,7 +13,7 @@ import ray
 import torch
 from sentence_transformers import SentenceTransformer
 
-from matrix.utils.json import get_user_prompt
+from matrix.utils.basics import get_user_message_from_llama3_prompt
 
 # Basic Logging Setup
 logging.basicConfig(
@@ -27,11 +27,19 @@ logger = logging.getLogger(__name__)
 import xxhash
 
 
-def get_outputs_path(artifact_dir, run_id, embedding_model: str, 
-                     enable_umap: bool, cluster_alg,
-                     umap_cluster_dim=30, umap_viz_dim=2, sample_size=1000, params={}):
+def get_outputs_path(
+    artifact_dir,
+    run_id,
+    embedding_model: str,
+    enable_umap: bool,
+    cluster_alg,
+    umap_cluster_dim=30,
+    umap_viz_dim=2,
+    sample_size=1000,
+    params={},
+):
     embedding_model = embedding_model.replace("/", "_")
-    enable_umap = "umap" if enable_umap else "no_umap"
+    umap_name = "umap" if enable_umap else "no_umap"
     if cluster_alg == "kmeans":
         cluster_params = params["kmeans_num_clusters"]
     else:
@@ -39,7 +47,9 @@ def get_outputs_path(artifact_dir, run_id, embedding_model: str,
         min_sample = params["hdbscan_min_samples"]
         cluster_params = f"min_cluster_{min_cluster}_min_sample_{min_sample}"
     uuid_ds_path = os.path.join(artifact_dir, f"uuid_{run_id}.parquet")
-    embeddings_path = os.path.join(artifact_dir, f"embeddings_{run_id}_{embedding_model}.parquet")
+    embeddings_path = os.path.join(
+        artifact_dir, f"embeddings_{run_id}_{embedding_model}.parquet"
+    )
     umap_cluster_model_path = os.path.join(
         artifact_dir, f"umap_model_{umap_cluster_dim}D_{run_id}_{embedding_model}.pkl"
     )
@@ -47,25 +57,37 @@ def get_outputs_path(artifact_dir, run_id, embedding_model: str,
         artifact_dir, f"umap_model_{umap_viz_dim}D_{run_id}_{embedding_model}.pkl"
     )
     umap_embeddings_path = os.path.join(
-        artifact_dir, f"umap_model_{umap_cluster_dim}D_{run_id}_{embedding_model}.parquet"
+        artifact_dir,
+        f"umap_model_{umap_cluster_dim}D_{run_id}_{embedding_model}.parquet",
     )
     umap_viz_embeddings_path = os.path.join(
         artifact_dir, f"umap_model_{umap_viz_dim}D_{run_id}_{embedding_model}.parquet"
     )
-    hdbscan_model_path = os.path.join(artifact_dir, f"hdbscan_model_{run_id}_{embedding_model}_{enable_umap}.pkl")
-    kmeans_model_path = os.path.join(
-        artifact_dir, f"kmeans_model_{run_id}_{cluster_params}_{embedding_model}_{enable_umap}.pkl"
+    hdbscan_model_path = os.path.join(
+        artifact_dir, f"hdbscan_model_{run_id}_{embedding_model}_{umap_name}.pkl"
     )
-    hdbscan_path = os.path.join(artifact_dir, f"hdbscan_{run_id}_{embedding_model}_{enable_umap}.pkl")
+    kmeans_model_path = os.path.join(
+        artifact_dir,
+        f"kmeans_model_{run_id}_{cluster_params}_{embedding_model}_{umap_name}.pkl",
+    )
+    hdbscan_path = os.path.join(
+        artifact_dir, f"hdbscan_{run_id}_{embedding_model}_{umap_name}.pkl"
+    )
     kmeans_path = os.path.join(
-        artifact_dir, f"kmeans_{run_id}_{cluster_params}_{embedding_model}_{enable_umap}"
+        artifact_dir,
+        f"kmeans_{run_id}_{cluster_params}_{embedding_model}_{umap_name}",
     )
     viz_path = os.path.join(
-        artifact_dir, f"viz_{run_id}_{embedding_model}_{enable_umap}_{cluster_alg}_{cluster_params}.pkl"
+        artifact_dir,
+        f"viz_{run_id}_{embedding_model}_{umap_name}_{cluster_alg}_{cluster_params}.pkl",
     )
-    sample_jsonl = os.path.join(artifact_dir, f"sampled_{run_id}_{sample_size}_{embedding_model}_{enable_umap}_{cluster_alg}_{cluster_params}.jsonl")
+    sample_jsonl = os.path.join(
+        artifact_dir,
+        f"sampled_{run_id}_{sample_size}_{embedding_model}_{umap_name}_{cluster_alg}_{cluster_params}.jsonl",
+    )
 
     return locals()
+
 
 def xxhash128(text: str) -> str:
     return xxhash.xxh3_128_hexdigest(text)
@@ -157,7 +179,7 @@ class SentenceEmbedder:
     def __call__(self, batch: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         # Assumes 'id' and 'text' columns in the input batch (numpy format)
         ids = batch["id"]
-        texts = [get_user_prompt(text) for text in batch[self.text_key]]
+        texts = [get_user_message_from_llama3_prompt(text) for text in batch[self.text_key]]
         try:
             embeddings = self.model.encode(
                 texts, convert_to_numpy=True, show_progress_bar=False
@@ -184,6 +206,14 @@ class LLMEmbedder:
         self.model = AutoModel.from_pretrained(
             model_name,
         ).to("cuda")
+        self.has_cls = any(
+            [
+                base
+                for base in ["bert", "roberta"]
+                if base in type(self.model).__name__.lower()
+            ]
+        )
+
         self.model.eval()
         self.text_key = text_key
         logger.info(f"Embedder actor initialized with model {model_name} on GPU.")
@@ -199,14 +229,19 @@ class LLMEmbedder:
             inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
 
             with torch.no_grad():
-                outputs = self.model(**inputs, output_hidden_states=True)
-                last_hidden = outputs.hidden_states[-1]  # (batch, seq_len, hidden_size)
-                attention_mask = inputs["attention_mask"].unsqueeze(
-                    -1
-                )  # (batch, seq_len, 1)
-                summed = (last_hidden * attention_mask).sum(dim=1)
-                counts = attention_mask.sum(dim=1)
-                embeddings = summed / counts  # mean pooling
+                outputs = self.model(**inputs)
+                if self.has_cls:
+                    embeddings = outputs.last_hidden_state[:, 0, :]
+                else:
+                    last_hidden = (
+                        outputs.last_hidden_state
+                    )  # (batch, seq_len, hidden_size)
+                    attention_mask = inputs["attention_mask"].unsqueeze(
+                        -1
+                    )  # (batch, seq_len, 1)
+                    summed = (last_hidden * attention_mask).sum(dim=1)
+                    counts = attention_mask.sum(dim=1)
+                    embeddings = summed / counts  # mean pooling
                 embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
                 embeddings = embeddings.detach().cpu().numpy()
 
@@ -371,6 +406,9 @@ def fit_hdbscan_on_worker_gpu(
         gen_min_span_tree=False,  # saves memory
         verbose=True,
         metric="euclidean",
+        # reduce noisy points
+        # cluster_selection_epsilon=0.1,
+        # alpha=0.8,
     ).fit(embeddings_np)
 
     logger.info(
@@ -532,6 +570,13 @@ def summarize_clustering_stats(label_ds: ray.data.Dataset) -> None:
     top_clusters = cluster_sizes_list[:5]
 
     logger.info(f"Top 5 clusters (label, size): {top_clusters}")
+    logger.info(f"Smallest 5 clusters (label, size): {cluster_sizes_list[-5:]}")
+
+    percentiles = [1, 5, 10, 25, 50, 75, 90, 95, 99]
+    perc_values = np.percentile(
+        np.array([s[1] for s in cluster_sizes_list]), percentiles
+    )
+    logger.info(f"Percentile sizes of clusters: {list(zip(percentiles, perc_values))}")
 
     logger.info("-----------------------------")
 

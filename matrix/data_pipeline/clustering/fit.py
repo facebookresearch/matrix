@@ -18,12 +18,12 @@ from .utils import (
     fit_kmeans_on_worker_gpu,
     fit_umap_on_worker_gpu,
     get_nested_value,
+    get_outputs_path,
     is_valid_parquet,
     is_valid_pickle,
     logger,
     save_model,
     xxhash128,
-    get_outputs_path
 )
 
 
@@ -74,16 +74,16 @@ def generate_embeddings(
 
     # --- 2. Embedding ---
     if not is_valid_parquet(embeddings_path):
-        logger.info("Starting embedding...")
+        logger.info(f"Starting embedding {embeddings_path}... ")
         start_time = time.time()
-        is_llama = "llama" in embedding_model.lower()
+        is_llm = "/" in embedding_model.lower()
         embedded_ds = ds.select_columns(["id", "_text"]).map_batches(
-            LLMEmbedder if is_llama else SentenceEmbedder,
+            LLMEmbedder if is_llm else SentenceEmbedder,
             fn_constructor_kwargs={
                 "model_name": embedding_model,
                 "text_key": "_text",
             },
-            batch_size=min(64, batch_size_embed) if is_llama else batch_size_embed,
+            batch_size=min(64, batch_size_embed) if is_llm else batch_size_embed,
             concurrency=max_concurrency,
             num_gpus=1,  # embedding model is very small
             batch_format="numpy",
@@ -235,7 +235,7 @@ def run_remotely(
             umap_embeddings_path,
             max_concurrency,
             batch_size,
-        ).rename({"umap_embedding": "embedding"})
+        ).rename_columns({"umap_embedding": "embedding"})
     else:
         cluster_embedding_ds = embedded_ds
 
@@ -361,12 +361,21 @@ def main(
 
     # Ensure artifact directory exists
     os.makedirs(artifact_dir, exist_ok=True)
-    outputs_path = get_outputs_path(artifact_dir, run_id, embedding_model, 
-                     enable_umap, cluster_alg,
-                     umap_cluster_dim, umap_viz_dim, sample_size=None,
-                     params={"kmeans_num_clusters": kmeans_num_clusters,
-                    "hdbscan_min_cluster_size": hdbscan_min_cluster_size,
-                    "hdbscan_min_samples": hdbscan_min_samples})
+    outputs_path = get_outputs_path(
+        artifact_dir,
+        run_id,
+        embedding_model,
+        enable_umap,
+        cluster_alg,
+        umap_cluster_dim,
+        umap_viz_dim,
+        sample_size=None,
+        params={
+            "kmeans_num_clusters": kmeans_num_clusters,
+            "hdbscan_min_cluster_size": hdbscan_min_cluster_size,
+            "hdbscan_min_samples": hdbscan_min_samples,
+        },
+    )
     uuid_ds_path = outputs_path["uuid_ds_path"]
     embeddings_path = outputs_path["embeddings_path"]
     umap_cluster_model_path = outputs_path["umap_cluster_model_path"]

@@ -13,13 +13,14 @@ from .fit import generate_embeddings, generate_ump_embeddings
 from .utils import (
     CumlClusteringPredictor,
     UmapTransformer,
+    get_outputs_path,
     inner_join,
     is_valid_parquet,
     is_valid_pickle,
     logger,
     summarize_clustering_stats,
-    get_outputs_path,
 )
+
 
 @ray.remote
 def run_remotely(
@@ -61,7 +62,7 @@ def run_remotely(
             umap_embeddings_path,
             max_concurrency,
             batch_size,
-        ).rename({"umap_embedding": "embedding"})
+        ).rename_columns({"umap_embedding": "embedding"})
     else:
         cluster_embedding_ds = embedded_ds
 
@@ -136,7 +137,7 @@ def run_remotely(
     summarize_clustering_stats(labels_ds)
 
     # --- 4. Join Labels and 2D Coords ---
-    if not is_valid_pickle(viz_path):
+    if viz_sample_size > 0 and not is_valid_pickle(viz_path):
         # ray does not support join yet https://github.com/ray-project/ray/issues/18911
         logger.info("Joining labels and visualization coordinates...")
         start_time = time.time()
@@ -180,8 +181,8 @@ def main(
     hdbscan_min_samples: int = 10,
     max_concurrency: int = 8,
     batch_size: int = 1024,
-    umap_viz_dim: int=2,
-    viz_sample_size: int = 100000,
+    umap_viz_dim: int = 2,
+    viz_sample_size: int = 0,
 ):
     """
     Apply fitted UMAP and HDBSCAN models for text clustering inference.
@@ -211,12 +212,21 @@ def main(
 
     os.makedirs(artifact_dir, exist_ok=True)
 
-    outputs_path = get_outputs_path(artifact_dir, run_id, embedding_model, 
-                     enable_umap, cluster_alg,
-                     umap_cluster_dim, umap_viz_dim, sample_size=None,
-                     params={"kmeans_num_clusters": kmeans_num_clusters,
-                    "hdbscan_min_cluster_size": hdbscan_min_cluster_size,
-                    "hdbscan_min_samples": hdbscan_min_samples})
+    outputs_path = get_outputs_path(
+        artifact_dir,
+        run_id,
+        embedding_model,
+        enable_umap,
+        cluster_alg,
+        umap_cluster_dim,
+        umap_viz_dim,
+        sample_size=None,
+        params={
+            "kmeans_num_clusters": kmeans_num_clusters,
+            "hdbscan_min_cluster_size": hdbscan_min_cluster_size,
+            "hdbscan_min_samples": hdbscan_min_samples,
+        },
+    )
     uuid_ds_path = outputs_path["uuid_ds_path"]
     embeddings_path = outputs_path["embeddings_path"]
     umap_cluster_model_path = outputs_path["umap_cluster_model_path"]
@@ -230,14 +240,13 @@ def main(
     viz_path = outputs_path["viz_path"]
 
     if enable_umap and not os.path.exists(umap_cluster_model_path):
-        raise FileNotFoundError(f"No file found {umap_cluster_model_path}")        
+        raise FileNotFoundError(f"No file found {umap_cluster_model_path}")
     if not os.path.exists(umap_viz_model_path):
-        raise FileNotFoundError(f"No file found {umap_viz_model_path}")        
+        raise FileNotFoundError(f"No file found {umap_viz_model_path}")
     if cluster_alg == "hdbscan" and not os.path.exists(hdbscan_model_path):
-        raise FileNotFoundError(f"No file found {hdbscan_model_path}")        
+        raise FileNotFoundError(f"No file found {hdbscan_model_path}")
     elif cluster_alg == "kmeans" and not os.path.exists(kmeans_model_path):
-        raise FileNotFoundError(f"No file found {kmeans_model_path}")        
-
+        raise FileNotFoundError(f"No file found {kmeans_model_path}")
 
     if not ray.is_initialized():
         ray.init(address=ray_head_url, log_to_driver=True)
@@ -264,7 +273,7 @@ def main(
         embedding_model,
         max_concurrency,
         batch_size,
-        viz_sample_size=viz_sample_size,
+        viz_sample_size,
     )
 
     # --- Get the result and observe logs ---

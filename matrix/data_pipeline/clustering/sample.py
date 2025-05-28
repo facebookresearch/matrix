@@ -19,9 +19,10 @@ from .fit import generate_embeddings, generate_ump_embeddings
 
 # Import shared utilities
 from .utils import (
+    get_outputs_path,
     inner_join,
     logger,
-    get_outputs_path
+    summarize_clustering_stats,
 )
 
 
@@ -32,6 +33,9 @@ def run_remotely(
     embeddings_path: str,
     uuid_ds_path: str,
     sample_size: int,
+    same_samples_per_cluster: bool,
+    random_sample_within_cluster: bool,
+    seed: int = 42,
 ):
     uuid_ds = ray.data.read_parquet(uuid_ds_path)
     embedding_ds = ray.data.read_parquet(embeddings_path)
@@ -40,12 +44,19 @@ def run_remotely(
     labels_ds = ray.data.read_parquet(cluster_path)
     labels_ds = labels_ds.filter(lambda row: row["cluster_label"] != -1)
 
-    label_embedding_ds = inner_join(
-        labels_ds,
-        embedding_ds,
-        key="id",
-    )
+    summarize_clustering_stats(labels_ds)
 
+    if random_sample_within_cluster:
+        label_embedding_ds = labels_ds
+    else:
+        label_embedding_ds = inner_join(
+            labels_ds,
+            embedding_ds,
+            key="id",
+        )
+
+    np.random.seed(seed)
+    random.seed(seed)
     # Step 1: Group by cluster_label to get cluster sizes
     cluster_counts = label_embedding_ds.groupby("cluster_label").count()
     cluster_sizes = {
@@ -58,10 +69,12 @@ def run_remotely(
     remaining_samples = sample_size
 
     # First, ensure we have at least one sample from each cluster if possible
-    if sample_size <= num_clusters:
-        # Random sample some clusters
-        selected_clusters = random.sample(list(cluster_sizes.keys()), sample_size)
-        samples_per_cluster = {cluster_id: 1 for cluster_id in selected_clusters}
+    if same_samples_per_cluster or sample_size <= num_clusters:
+        samples = np.random.choice(
+            list(cluster_sizes.keys()), size=sample_size, replace=True
+        )
+        # Count occurrences of each item
+        samples_per_cluster = dict(collections.Counter(samples))
     else:
         # At least one sample from each cluster
         samples_per_cluster = {cluster_id: 1 for cluster_id in cluster_sizes.keys()}
@@ -112,33 +125,36 @@ def run_remotely(
         k = min(k, len(cluster_df["id"]))
 
         ids = np.array(cluster_df["id"])
-        embeddings = np.vstack(cluster_df["embedding"])
-        centroid = np.mean(embeddings, axis=0)
-        logger.info(embeddings.shape, centroid.shape)
-        distances_to_centroid = np.linalg.norm(embeddings - centroid, axis=1)
+        if random_sample_within_cluster:
+            selected_ids = np.random.choice(ids, size=k, replace=False)
+        else:
+            embeddings = np.vstack(cluster_df["embedding"])
+            centroid = np.mean(embeddings, axis=0)
+            logger.info(embeddings.shape, centroid.shape)
+            distances_to_centroid = np.linalg.norm(embeddings - centroid, axis=1)
 
-        # First pick the closest point to centroid
-        selected_indices = [np.argmin(distances_to_centroid)]
-        selected_ids = [ids[selected_indices[0]]]
+            # First pick the closest point to centroid
+            selected_indices = [np.argmin(distances_to_centroid)]
+            selected_ids = [ids[selected_indices[0]]]
 
-        if k > 1:
-            distance_matrix = squareform(pdist(embeddings))
+            if k > 1:
+                distance_matrix = squareform(pdist(embeddings))
 
-            while len(selected_indices) < k:
-                if len(selected_indices) == 1:
-                    min_distances = distance_matrix[selected_indices[0]]
-                else:
-                    min_distances = np.min(
-                        [distance_matrix[idx] for idx in selected_indices], axis=0
-                    )
+                while len(selected_indices) < k:
+                    if len(selected_indices) == 1:
+                        min_distances = distance_matrix[selected_indices[0]]
+                    else:
+                        min_distances = np.min(
+                            [distance_matrix[idx] for idx in selected_indices], axis=0
+                        )
 
-                for idx in selected_indices:
-                    min_distances[idx] = -1
+                    for idx in selected_indices:
+                        min_distances[idx] = -1
 
-                # Select the point with maximum minimum distance
-                next_idx = np.argmax(min_distances)
-                selected_indices.append(next_idx)
-                selected_ids.append(ids[next_idx])
+                    # Select the point with maximum minimum distance
+                    next_idx = np.argmax(min_distances)
+                    selected_indices.append(next_idx)
+                    selected_ids.append(ids[next_idx])
 
         return pd.DataFrame(selected_ids, columns=["selected_id"])
 
@@ -175,6 +191,9 @@ def main(
     hdbscan_min_samples: int = 10,
     run_id: str = "0",
     sample_size: int = 1000,
+    same_samples_per_cluster: bool = True,
+    random_sample_within_cluster: bool = True,
+    seed: int = 42,
 ):
     """
     Sample from the clustered results.
@@ -193,18 +212,31 @@ def main(
 
     output_dir = inference_dir
     os.makedirs(output_dir, exist_ok=True)
-    outputs_path = get_outputs_path(inference_dir, run_id, embedding_model, 
-                     enable_umap, cluster_alg,
-                     umap_cluster_dim, umap_viz_dim, sample_size,
-                     params={"kmeans_num_clusters": kmeans_num_clusters,
-                    "hdbscan_min_cluster_size": hdbscan_min_cluster_size,
-                    "hdbscan_min_samples": hdbscan_min_samples})
+    outputs_path = get_outputs_path(
+        inference_dir,
+        run_id,
+        embedding_model,
+        enable_umap,
+        cluster_alg,
+        umap_cluster_dim,
+        umap_viz_dim,
+        sample_size,
+        params={
+            "kmeans_num_clusters": kmeans_num_clusters,
+            "hdbscan_min_cluster_size": hdbscan_min_cluster_size,
+            "hdbscan_min_samples": hdbscan_min_samples,
+        },
+    )
     uuid_ds_path = outputs_path["uuid_ds_path"]
     embeddings_path = outputs_path["embeddings_path"]
     umap_embeddings_path = outputs_path["umap_embeddings_path"]
     hdbscan_path = outputs_path["hdbscan_path"]
     kmeans_path = outputs_path["kmeans_path"]
     sample_jsonl = outputs_path["sample_jsonl"]
+    name, ext = os.path.splitext(sample_jsonl)
+    sample_jsonl = (
+        f"{name}_{same_samples_per_cluster}_{random_sample_within_cluster}{ext}"
+    )
 
     if not ray.is_initialized():
         ray.init(address=ray_head_url, log_to_driver=True)
@@ -217,6 +249,9 @@ def main(
         umap_embeddings_path if enable_umap else embeddings_path,
         uuid_ds_path,
         sample_size,
+        same_samples_per_cluster,
+        random_sample_within_cluster,
+        seed,
     )
 
     print("Waiting for remote task to complete...")

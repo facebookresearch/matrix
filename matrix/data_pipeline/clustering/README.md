@@ -1,30 +1,39 @@
-pip install cuml-cu12~=25.4.0 sentence_transformers pandas ray[data]==2.43.0
+# Matrix Embedding based Clustering
 
-python fit.py \
-    --input-jsonl "/home/dongwang/workspace/backup/text_cluster/cc_100k.jsonl" \
-    --artifact-dir ./pipeline_artifacts \
-    --umap-fit-sample-frac 0.1 \
-    --hdbscan-fit-sample-frac 0.2 \
-    --save-embeddings # Optional: if you want to save embeddings
+## Installation
+```
+pip install cuml-cu12~=25.4.0 sentence_transformers~=4.1.0 pandas~=2.2.3
+```
 
+## Examples
 
-# Replace 'YOUR_RUN_ID' with the actual ID from the fit step
-python infer.py \
-    --input-path "./pipeline_artifacts/embeddings_YOUR_RUN_ID.parquet" \
-    --input-type embeddings \
-    --artifact-dir ./pipeline_artifacts \
-    --run-id YOUR_RUN_ID \
-    --output-path ./pipeline_artifacts/inference_results_YOUR_RUN_ID.parquet \
-    # Add resource/batch size args if needed
+### K-means
+- fit
+```
+python -m matrix.data_pipeline.clustering.fit $RAY_HEAD $INPUT_JSONL $OUTPUT_DIR --max_concurrency 16 --text_key '' --message_key "request.messages[0].content" --embedding_model princeton-nlp/sup-simcse-roberta-large --kmeans_num_clusters 100
+```
+- inference
+```
+python -m matrix.data_pipeline.clustering.inference $RAY_HEAD $INPUT_JSONL $OUTPUT_DIR --max_concurrency 16 --embedding_model princeton-nlp/sup-simcse-roberta-large --kmeans_num_clusters 100 
+```
 
+- sample
+```
+python -m matrix.data_pipeline.clustering.sample  $RAY_HEAD $OUTPUT_DIR --embedding_model princeton-nlp/sup-simcse-roberta-large --kmeans_num_clusters 100 --sample_size 10000
+```
 
-# Replace 'YOUR_RUN_ID' with the actual ID
-python visualize.py \
-    --input-path "./pipeline_artifacts/embeddings_YOUR_RUN_ID.parquet" \
-    --input-type embeddings \
-    --artifact-dir ./pipeline_artifacts \
-    --inference-results-path ./pipeline_artifacts/inference_results_YOUR_RUN_ID.parquet \
-    --run-id YOUR_RUN_ID \
-    --output-plot-path ./cluster_visualization_YOUR_RUN_ID.png \
-    --viz-sample-size 50000 \
-    # Add resource/batch size args if needed
+### HDBSCAM
+- fit
+```
+python -m matrix.data_pipeline.clustering.fit $RAY_HEAD $INPUT_JSONL $OUTPUT_DIR --max_concurrency 16 --text_key '' --message_key "request.messages[0].content" --embedding_model meta-llama/Llama-3.1-8B-Instruct --enable_umap True --cluster_alg hdbscan --hdbscan_min_cluster_size 100
+```
+
+- inference
+```
+python -m matrix.data_pipeline.clustering.inference $RAY_HEAD $INPUT_JSONL $OUTPUT_DIR --max_concurrency 16 --embedding_model meta-llama/Llama-3.1-8B-Instruct --enable_umap True --cluster_alg hdbscan --hdbscan_min_cluster_size 100
+```
+
+- sample
+```
+python -m matrix.data_pipeline.clustering.sample  $RAY_HEAD $OUTPUT_DIR --max_concurrency 16 --embedding_model meta-llama/Llama-3.1-8B-Instruct --enable_umap True --cluster_alg hdbscan --hdbscan_min_cluster_size 100 --sample_size 10000
+```
