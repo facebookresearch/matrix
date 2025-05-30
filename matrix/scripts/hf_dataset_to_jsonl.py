@@ -12,7 +12,10 @@ from datasets import load_dataset
 
 
 def load_and_dump_dataset(
-    dataset_name: str, split: str = "train", output_file: str = "dataset.jsonl"
+    dataset_name: str, split: str = "train", 
+    output_file: str = "dataset.jsonl",
+    text_key: str|None = None,
+    prompt_template: str|None = None,
 ):
     """
     Load dataset splits and dump them into a JSONL file.
@@ -28,6 +31,9 @@ def load_and_dump_dataset(
     # Write dataset to JSONL file
     with open(output_file, "w", encoding="utf-8") as f:
         for sample in tqdm.tqdm(dataset):  # Iterate over each row
+            if prompt_template and text_key:
+                # If a prompt template is provided, format the text
+                sample[text_key] = prompt_template.replace("<user_message>", sample[text_key])
             f.write(json.dumps(sample, ensure_ascii=False) + "\n")
 
     print(f"Dataset saved to {output_file}")

@@ -89,6 +89,7 @@ class CheckpointEvalRequest(BaseModel):
     model_size: str = "8B"
     tokenizer: str = "meta-llama/Llama-3.1-8B-Instruct"
     use_ray_data: bool = True
+    top_k: int = -1
 
 
 class BenchmarkStatus(BaseModel):
@@ -369,6 +370,7 @@ async def evaluate_checkpoint(
                     request.use_ray_data,
                     get_ray_address(cluster_info),
                     request.tokenizer,
+                    request.top_k,
                 )
                 task_definitions.append(
                     {

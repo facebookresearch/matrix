@@ -113,6 +113,7 @@ def run_eval_script(
     use_ray_data: bool,
     ray_head_address: str,
     tokenizer: str,
+    top_K: int = -1,
 ):
     """Generate environment and command for evaluation script."""
     env = {"PYTHONPATH": pythonpath}
@@ -158,7 +159,7 @@ def run_eval_script(
         + DEFAULT_CONFIG
         + BENCHMARK_CONFIG[benchmark]
         + (["--thinking"] if thinking else [])
-        + ["--model", tokenizer]
+        + ["--model", tokenizer, "--top_k", str(top_K)]
     )
 
     return env, " ".join(command)
