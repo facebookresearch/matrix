@@ -41,6 +41,7 @@ def main(
     max_concurrent_tasks: int = 8,
     timeout: int = 36000,
     model_size: str = "8B",
+    top_k: int = -1,
 ):
     post_url = urljoin(matrix_http_server, "/checkpoint-eval")
 
@@ -55,6 +56,7 @@ def main(
         "thinking": thinking,
         "timeout": timeout,
         "use_ray_data": use_ray_data,
+        "top_k": top_k,
     }
     if job_id:
         payload["job_id"] = job_id
