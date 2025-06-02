@@ -36,24 +36,35 @@ class EndpointCache:
     async def __call__(self, force_update=False):
         if time.time() - (self.timestamp or 0) > self.ttl or force_update:
             async with self.lock:
-                if time.time() - (self.timestamp or 0) > self.ttl or force_update:
-                    try:
-                        if self.serve_app:
-                            self.timestamp = time.time()
-                            status, content = await fetch_url(
-                                self.ray_address + "/api/serve/applications/",
-                                headers={"Accept": "application/json"},
+                try:
+                    if self.serve_app:
+                        self.timestamp = time.time()
+                        status, content = await fetch_url(
+                            self.ray_address + "/api/serve/applications/",
+                            headers={"Accept": "application/json"},
+                        )
+                        if status is not None and status == 200:
+                            ray_query_result = json.loads(content)
+                            # note here we did not loop deployment, assuming there is only one deployment (but multiple replicas) for an app
+                            self.ips = set(
+                                [
+                                    replica["node_ip"]
+                                    for replica in next(
+                                        iter(
+                                            ray_query_result["applications"][
+                                                self.app_name
+                                            ]["deployments"].values()
+                                        )
+                                    )["replicas"]
+                                    if replica["node_ip"] is not None
+                                ]
                             )
-                            if status is not None and status == 200:
-                                ray_query_result = json.loads(content)
-                                head_ip = ray_query_result["controller_info"]["node_ip"]
-                                self.ips = set([y["node_ip"] for x, y in ray_query_result["proxies"].items() if y["status"] == "HEALTHY" and y["node_ip"] != head_ip])  # type: ignore[attr-defined]
-                            else:
-                                raise Exception(f"status: {status}, {content}")
                         else:
-                            self.ips = {self.http_host}
+                            raise Exception(f"status: {status}, {content}")
+                    else:
+                        self.ips = {self.http_host}
 
-                    except Exception as e:
-                        logger.warning(f"Error fetching endpoints: {e}")
+                except Exception as e:
+                    logger.warning(f"Error fetching endpoints: {e}")
 
         return [self.endpoint_template.format(host=ip) for ip in self.ips if ip]
