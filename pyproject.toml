@@ -80,6 +80,10 @@ classifiers=[
       "ray[serve]==2.43.0",
       "torch>=2.6.0",
   ]
+  vllm_085 = [
+      "vllm==v0.8.5.post1",
+      "ray[serve]==2.46.0",
+  ]
 
 [project.scripts]
 matrix="matrix.cli:main"
