@@ -61,6 +61,11 @@ classifiers=[
       "types-requests",
       # Release
       "flit>=3.5.1",
+      # Doc
+      "sphinx",
+      "furo",
+      "myst-parser",
+      "sphinx-autodoc-typehints",
   ]
   vllm_066 = [
       "vllm==v0.6.6.post1",
