@@ -66,6 +66,7 @@ classifiers=[
       "furo",
       "myst-parser",
       "sphinx-autodoc-typehints",
+      "ghp-import",
   ]
   vllm_066 = [
       "vllm==v0.6.6.post1",
