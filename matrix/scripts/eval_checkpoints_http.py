@@ -41,6 +41,8 @@ def main(
     max_concurrent_tasks: int = 8,
     timeout: int = 36000,
     model_size: str = "8B",
+    temperature: float = 0.6,
+    top_p: float = 0.95,
     top_k: int = -1,
 ):
     post_url = urljoin(matrix_http_server, "/checkpoint-eval")
@@ -56,6 +58,8 @@ def main(
         "thinking": thinking,
         "timeout": timeout,
         "use_ray_data": use_ray_data,
+        "top_p": top_p,
+        "temperature": temperature,
         "top_k": top_k,
     }
     if job_id:

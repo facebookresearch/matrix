@@ -11,6 +11,8 @@ import threading
 import time
 from collections import defaultdict
 
+import numpy as np
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -26,10 +28,6 @@ DEFAULT_CONFIG = [
     "--tag",
     "--cot",
     "direct",
-    "--temp",
-    "0.6",
-    "--top_p",
-    "0.95",
 ]
 
 BENCHMARK_CONFIG = {
@@ -58,6 +56,7 @@ def extract_benchmark_data(data_dict, metric_pattern):
             "failures": 0,
             "metric_values": [],
             "metric_avg": 0.0,
+            "metric_stderr": 0.0,
         }
     )
 
@@ -95,6 +94,9 @@ def extract_benchmark_data(data_dict, metric_pattern):
     for benchmark, data in results.items():
         if data["metric_values"]:
             data["metric_avg"] = sum(data["metric_values"]) / len(data["metric_values"])
+            data["metric_stderr"] = np.std(data["metric_values"]) / np.sqrt(
+                len(data["metric_values"])
+            )
 
     return dict(results)
 
@@ -113,10 +115,12 @@ def run_eval_script(
     use_ray_data: bool,
     ray_head_address: str,
     tokenizer: str,
-    top_K: int = -1,
+    top_p: float = 0.95,
+    temperature: float = 0.6,
+    top_k: int = -1,
 ):
     """Generate environment and command for evaluation script."""
-    env = {"PYTHONPATH": pythonpath}
+    env = {"PYTHONPATH": pythonpath} if pythonpath else {}
     if eval_save_dir.startswith("s3://"):
         cache_dir = os.environ.get(
             "MATRIX_CACHE", os.path.expanduser("~/.cache/matrix")
@@ -159,7 +163,16 @@ def run_eval_script(
         + DEFAULT_CONFIG
         + BENCHMARK_CONFIG[benchmark]
         + (["--thinking"] if thinking else [])
-        + ["--model", tokenizer, "--top_k", str(top_K)]
+        + [
+            "--tokenizer",
+            tokenizer,
+            "--temp",
+            str(temperature),
+            "--top_p",
+            str(top_p),
+            "--top_k",
+            str(top_k),
+        ]
     )
 
     return env, " ".join(command)

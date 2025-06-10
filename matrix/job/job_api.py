@@ -12,6 +12,7 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 import matrix
 from matrix.app_server.deploy_utils import validate_applications
+from matrix.common import JOB_MANAGER_STORE
 from matrix.job.job_manager import ACTOR_NAME, NAMESPACE, JobManager
 from matrix.job.job_utils import (
     ActorUnavailableError,
@@ -77,7 +78,7 @@ class JobApi:
 
                 # Create remotely with constructor args
                 self._job_manager = JobManager.options(**actor_options).remote(  # type: ignore[attr-defined]
-                    checkpoint_path=(self._cluster_dir / "job_manager_checkpoint.pkl")
+                    checkpoint_path=(self._cluster_dir / JOB_MANAGER_STORE)
                 )
 
                 # Ping the actor to ensure it started okay

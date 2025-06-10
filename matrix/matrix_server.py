@@ -89,6 +89,8 @@ class CheckpointEvalRequest(BaseModel):
     model_size: str = "8B"
     tokenizer: str = "meta-llama/Llama-3.1-8B-Instruct"
     use_ray_data: bool = True
+    top_p: float = 0.95
+    temperature: float = 0.6
     top_k: int = -1
 
 
@@ -98,6 +100,7 @@ class BenchmarkStatus(BaseModel):
     pending: int
     metric_values: List[float]
     metric_avg: float
+    metric_stderr: float
 
 
 class CheckpointEvalMetrics(BaseModel):
@@ -370,6 +373,8 @@ async def evaluate_checkpoint(
                     request.use_ray_data,
                     get_ray_address(cluster_info),
                     request.tokenizer,
+                    request.top_p,
+                    request.temperature,
                     request.top_k,
                 )
                 task_definitions.append(
@@ -407,6 +412,7 @@ async def evaluate_checkpoint(
             "timeout": request.timeout,
             "max_concurrent_tasks": request.max_concurrent_tasks,
         }
+        logger.info(f"Submitting checkpoint evaluation job: {job_def}")
 
         job_id = job_api.submit(job_def)
         logger.info(f"Submitted checkpoint evaluation job: {job_id}")

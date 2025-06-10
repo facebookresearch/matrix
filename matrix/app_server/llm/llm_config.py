@@ -162,7 +162,7 @@ llm_model_default_parameters = {
         "max_ongoing_requests": 100,
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
-    },    
+    },
     "Qwen3-8B": {
         "name": "Qwen3-8B",
         "tensor-parallel-size": 1,
@@ -180,7 +180,7 @@ llm_model_default_parameters = {
         "max_ongoing_requests": 150,
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
-    },    
+    },
     "Qwen/Qwen3-235B-A22B": {
         "name": "Qwen3-235B-A22B",
         "tensor-parallel-size": 8,

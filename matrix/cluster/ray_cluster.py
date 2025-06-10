@@ -25,6 +25,7 @@ from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 from matrix.cluster.ray_dashboard_job import RayDashboardJob
 from matrix.cluster.ray_head_job import RayHeadJob
 from matrix.cluster.ray_worker_job import RayWorkerJob
+from matrix.common import JOB_MANAGER_STORE
 from matrix.common.cluster_info import ClusterInfo
 from matrix.utils.basics import convert_to_json_compatible
 from matrix.utils.os import (
@@ -337,6 +338,11 @@ class RayCluster:
                     run_subprocess(["pkill", "-f", pattern, "-9"])
         if os.path.exists(self._cluster_dir):
             shutil.rmtree(self._cluster_dir)
+        for name in os.listdir(self._cluster_dir):
+            if name == JOB_MANAGER_STORE:
+                continue
+            path = os.path.join(self._cluster_dir, name)
+            (shutil.rmtree if os.path.isdir(path) else os.remove)(path)
         print(f"cluster {self.cluster_id} shutdown")
 
     def __enter__(self):
