@@ -336,8 +336,6 @@ class RayCluster:
             for pattern in [cluster_info.temp_dir, f":{cluster_info.port}"]:
                 if pattern:
                     run_subprocess(["pkill", "-f", pattern, "-9"])
-        if os.path.exists(self._cluster_dir):
-            shutil.rmtree(self._cluster_dir)
         for name in os.listdir(self._cluster_dir):
             if name == JOB_MANAGER_STORE:
                 continue

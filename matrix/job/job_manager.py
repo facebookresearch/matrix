@@ -721,7 +721,7 @@ class JobManager:
                     ]
                 ),
                 "tasks_active": len(
-                    self._running_task_futures
+                    set(self._running_task_futures.keys()) & set(task_ids)
                 ),  # Number of Ray futures launched for the current job
             }
 
