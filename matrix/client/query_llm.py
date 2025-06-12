@@ -53,7 +53,7 @@ def convert_llama_instruct_text(
         next_start_index = text.find(eot_id, end_index)
         if next_start_index == -1:
             next_start_index = len(text)
-        content = text[end_index:next_start_index].strip()
+        content = text[end_index:next_start_index].lstrip()
         next_start_index += len(eot_id)
         messages.append({"role": role, "content": content})
         text = text[next_start_index:]
