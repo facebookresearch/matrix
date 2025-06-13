@@ -25,6 +25,21 @@ from urllib.parse import urljoin
 
 import requests
 
+DEFAULT_SAMPLING_PARAMS = {
+    "temperature": 0.6,
+    "top_p": 0.95,
+    "top_k": -1,
+    "max_tokens": 16384,
+    "repetition_penalty": 1.0,
+}
+QWEN_SAMPLING_PARAMS = {
+    "temperature": 0.7,
+    "top_p": 0.8,
+    "top_k": 20,
+    "max_tokens": 16384,
+    "repetition_penalty": 1.05,
+}
+
 
 def main(
     matrix_http_server: str,
@@ -41,11 +56,20 @@ def main(
     max_concurrent_tasks: int = 8,
     timeout: int = 36000,
     model_size: str = "8B",
-    temperature: float = 0.6,
-    top_p: float = 0.95,
-    top_k: int = -1,
+    sampling_params: dict | None = None,
 ):
     post_url = urljoin(matrix_http_server, "/checkpoint-eval")
+
+    sampling_params = sampling_params or {}
+    defaults = {}
+    if "llama" in tokenizer.lower():
+        defaults = DEFAULT_SAMPLING_PARAMS
+    elif "qwen" in tokenizer.lower():
+        defaults = QWEN_SAMPLING_PARAMS
+    for key, value in defaults.items():
+        if key not in sampling_params:
+            sampling_params[key] = value
+    print(f'[INFO] Using sampling params: --sampling_params "{sampling_params}"')
 
     payload = {
         "checkpoint_dir": checkpoint_dir,
@@ -58,9 +82,7 @@ def main(
         "thinking": thinking,
         "timeout": timeout,
         "use_ray_data": use_ray_data,
-        "top_p": top_p,
-        "temperature": temperature,
-        "top_k": top_k,
+        "sampling_params": sampling_params,
     }
     if job_id:
         payload["job_id"] = job_id

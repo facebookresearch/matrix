@@ -4,9 +4,11 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import json
 import logging
 import os
 import re
+import shlex
 import threading
 import time
 from collections import defaultdict
@@ -21,10 +23,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_CONFIG = [
     "--shot",
     "0",
-    "--size",
-    "8B",
-    "--max_tokens",
-    "16384",
     "--tag",
     "--cot",
     "direct",
@@ -115,9 +113,7 @@ def run_eval_script(
     use_ray_data: bool,
     ray_head_address: str,
     tokenizer: str,
-    top_p: float = 0.95,
-    temperature: float = 0.6,
-    top_k: int = -1,
+    sampling_params: dict | None = None,
 ):
     """Generate environment and command for evaluation script."""
     env = {"PYTHONPATH": pythonpath} if pythonpath else {}
@@ -145,9 +141,7 @@ def run_eval_script(
         + (
             [
                 "--matrix",
-                cluster_id,
-                matrix_dir,
-                app_name,
+                '{"cluster_id": cluster_id, "matrix_dir": matrix_dir, "app_name": app_name}',
             ]
             if not use_ray_data
             else ["--ray_data", ray_head_address]
@@ -166,13 +160,15 @@ def run_eval_script(
         + [
             "--tokenizer",
             tokenizer,
-            "--temp",
-            str(temperature),
-            "--top_p",
-            str(top_p),
-            "--top_k",
-            str(top_k),
         ]
+        + (
+            [
+                "--sampling_params",
+                shlex.quote(json.dumps(sampling_params)),
+            ]
+            if sampling_params
+            else []
+        )
     )
 
     return env, " ".join(command)
