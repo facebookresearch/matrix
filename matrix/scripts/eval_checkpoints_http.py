@@ -37,7 +37,7 @@ QWEN_SAMPLING_PARAMS = {
     "top_p": 0.8,
     "top_k": 20,
     "max_tokens": 16384,
-    "repetition_penalty": 1.05,
+    "repetition_penalty": 1.0,
 }
 
 
