@@ -90,6 +90,7 @@ class CheckpointEvalRequest(BaseModel):
     tokenizer: str = "meta-llama/Llama-3.1-8B-Instruct"
     use_ray_data: bool = True
     sampling_params: Dict[str, Any] | None = None
+    skip_generation: bool = False
 
 
 class BenchmarkStatus(BaseModel):
@@ -348,6 +349,12 @@ async def evaluate_checkpoint(
             app_name = request.job_id.replace("/", "-")
         else:
             app_name = "-".join(request.checkpoint_dir.split("/")[-3:])
+        job_id = request.job_id or app_name
+        if request.skip_generation:
+            job_ids = job_api.list()
+            if job_id in job_ids:
+                logger.info(f"Delete the existing job: {job_id}")
+                job_api.delete(job_id)
 
         task_definitions = []
         cluster_info = cli.cluster.cluster_info()
@@ -372,6 +379,7 @@ async def evaluate_checkpoint(
                     get_ray_address(cluster_info),
                     request.tokenizer,
                     request.sampling_params,
+                    request.skip_generation,
                 )
                 task_definitions.append(
                     {
@@ -388,7 +396,7 @@ async def evaluate_checkpoint(
                 )
 
         job_def = {
-            "job_id": request.job_id or app_name,
+            "job_id": job_id,
             "applications": (
                 [
                     {

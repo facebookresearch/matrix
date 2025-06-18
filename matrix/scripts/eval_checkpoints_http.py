@@ -57,6 +57,7 @@ def main(
     timeout: int = 36000,
     model_size: str = "8B",
     sampling_params: dict | None = None,
+    skip_generation = False,
 ):
     post_url = urljoin(matrix_http_server, "/checkpoint-eval")
 
@@ -83,6 +84,7 @@ def main(
         "timeout": timeout,
         "use_ray_data": use_ray_data,
         "sampling_params": sampling_params,
+        "skip_generation": skip_generation,
     }
     if job_id:
         payload["job_id"] = job_id

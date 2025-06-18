@@ -114,6 +114,7 @@ def run_eval_script(
     ray_head_address: str,
     tokenizer: str,
     sampling_params: dict | None = None,
+    skip_generation = False,
 ):
     """Generate environment and command for evaluation script."""
     env = {"PYTHONPATH": pythonpath} if pythonpath else {}
@@ -167,6 +168,13 @@ def run_eval_script(
                 shlex.quote(json.dumps(sampling_params)),
             ]
             if sampling_params
+            else []
+        )
+        + (
+            [
+                "--skip_generation",
+            ]
+            if skip_generation
             else []
         )
     )
