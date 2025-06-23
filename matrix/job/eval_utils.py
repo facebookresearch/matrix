@@ -114,7 +114,7 @@ def run_eval_script(
     ray_head_address: str,
     tokenizer: str,
     sampling_params: dict | None = None,
-    skip_generation = False,
+    skip_generation=False,
 ):
     """Generate environment and command for evaluation script."""
     env = {"PYTHONPATH": pythonpath} if pythonpath else {}

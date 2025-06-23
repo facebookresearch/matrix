@@ -57,7 +57,7 @@ def main(
     timeout: int = 36000,
     model_size: str = "8B",
     sampling_params: dict | None = None,
-    skip_generation = False,
+    skip_generation=False,
 ):
     post_url = urljoin(matrix_http_server, "/checkpoint-eval")
 
