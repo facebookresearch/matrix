@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import asyncio
+import getpass
 import logging
 import os
 from pathlib import Path
@@ -486,8 +487,16 @@ async def health_check():
     return {"status": "ok"}
 
 
-def main(cluster_id: str, matrix_dir: str | None = None, port: int | None = 6289):
+def main(
+    cluster_id: str | None = None,
+    matrix_dir: str | None = None,
+    port: int | None = 6289,
+):
     global global_cluster_id, global_matrix_dir
+    cluster_id = (
+        cluster_id or os.getenv("MATRIX_CLUSTER_ID") or (getpass.getuser() + "_cluster")
+    )
+
     global_cluster_id = cluster_id
     if matrix_dir is not None:
         global_matrix_dir = matrix_dir
