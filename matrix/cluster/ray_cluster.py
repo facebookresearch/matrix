@@ -184,7 +184,7 @@ class RayCluster:
             force_new_head (bool): force to remove head.json if haven't run 'matrix stop_cluster'.
         """
         status: tp.Dict[str, tp.Any] = {}
-        common_params = {"account", "partition", "qos", "exclusive"}
+        common_params = {"account", "partition", "qos", "exclusive", "timeout_min"}
         start_wait_time_seconds = 60
         worker_wait_timeout_seconds = 60
         requirements = slurm or local or {}
