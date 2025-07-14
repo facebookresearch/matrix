@@ -74,8 +74,8 @@ class TextClassification:
         for prediction in predictions:
             _valid_labels: tp.List[tp.Tuple[str, float]] = []
             for label_score in prediction:
-                label = label_score["label"]
-                score = label_score["score"]
+                label = label_score["label"]  # type: ignore[index]
+                score = float(label_score["score"])  # type: ignore[index]
                 if score >= self.thresholds.get(label, 0):
                     _valid_labels.append((label, score))
             if _valid_labels:
