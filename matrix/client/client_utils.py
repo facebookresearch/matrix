@@ -21,10 +21,19 @@ async def get_an_endpoint_url(
 ) -> str:
     urls = await endpoint_cache(force_update)
     start_time = time.time()
+
+    i = 0
     while not urls:
         # explicitly use synchronous sleep to block the whole event loop
-        await asyncio.sleep(60)
-        print(f"no worker is available, waited {time.time() - start_time}s..")
+        # using exponential sleep time
+        await asyncio.sleep(min(2**i, 60))
+
+        if (i := i + 1) > 4:
+            print(
+                f"worker unavail or cache locked, waited {time.time() - start_time}s..",
+                flush=True,
+            )
+
         urls = await endpoint_cache(force_update)
 
     if multiplexed_model_id:
