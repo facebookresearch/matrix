@@ -60,6 +60,14 @@ def find_free_ports(n):
     return list(free_ports)
 
 
+def is_port_open(host, port, timeout=2):
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return False
+
+
 def read_stdout_lines(proc: subprocess.Popen):
     """
     Yield lines from a subprocess's stdout without blocking.
@@ -143,7 +151,7 @@ def run_and_stream(
     """Runs a subprocess, streams stdout/stderr, and ensures cleanup."""
     process = subprocess.Popen(
         command,
-        shell=True,
+        shell=True if isinstance(command, str) else False,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

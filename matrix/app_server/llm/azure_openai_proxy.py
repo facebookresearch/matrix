@@ -65,6 +65,7 @@ class OpenaiDeployment:
         """
         logger.debug(f"Request: {request}")
         completion_request = request.model_dump(exclude_unset=True)
+        completion_request.pop("guided_json", None)
         if self.is_o1:
             for key in ["temperature", "max_tokens", "top_p"]:
                 if key in completion_request:
@@ -80,6 +81,7 @@ class OpenaiDeployment:
         """
         logger.debug(f"Request: {request}")
         completion_request = request.model_dump(exclude_unset=True)
+        completion_request.pop("guided_json", None)
         return await self.client.completions.create(**completion_request)
 
 
