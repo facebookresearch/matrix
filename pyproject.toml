@@ -10,25 +10,17 @@ requires-python = ">=3.10"
 dynamic = ["version", "description"]
 
 dependencies = [
-  "submitit>=1.5.2",
   "psutil",
-  "torch>=2.5.1",
-  "transformers>=4.45.2",
-  "vllm>=v0.6.6.post1",
-  "ray[serve]>=2.40.0",
   "grpcio==1.70.0",
   "grpcio-tools==1.70.0",
   "fire",
   "jinja2",
   "pyyaml",
   "portalocker",
-  "boto3",
-  "google-genai>=1.13.0",
-  "datasketch",
-  "s3fs",
-  "datasets",
-  "iopath",
-  "jsonlines",
+  "aiohttp~=3.12",
+  "requests~=2.32",
+  "httpx~=0.28",
+  "openai~=1.96",
 ]
 # zip_safe = false
 classifiers=[
@@ -69,28 +61,76 @@ classifiers=[
       "ghp-import",
   ]
   vllm_066 = [
+      "submitit>=1.5.2",
+      "transformers>=4.45.2",
+      "torch>=2.5.1",
       "vllm==v0.6.6.post1",
       "ray[serve]==2.40.0",
+      "boto3",
+      "google-genai>=1.13.0",
+      "datasketch",
+      "s3fs",
+      "datasets",
+      "iopath",
+      "jsonlines",
   ]
   vllm_073 = [
+      "submitit>=1.5.2",
+      "transformers>=4.45.2",
+      "torch>=2.5.1",
       "vllm==v0.7.3",
       "ray[serve]==2.40.0",
+      "boto3",
+      "google-genai>=1.13.0",
+      "datasketch",
+      "s3fs",
+      "datasets",
+      "iopath",
+      "jsonlines",
   ]
   # SGLang for DS R1
   sglang_045 = [
+      "submitit>=1.5.2",
+      "transformers>=4.45.2",
+      "torch>=2.5.1",
       "sglang[all]==0.4.5.post1",
       "sglang-router",
+      "boto3",
+      "google-genai>=1.13.0",
+      "datasketch",
+      "s3fs",
+      "datasets",
+      "iopath",
+      "jsonlines",
   ]
   vllm_083 = [
+      "submitit>=1.5.2",
+      "transformers>=4.45.2",
       "vllm==v0.8.3",
       "ray[serve]==2.43.0",
       "torch>=2.6.0",
+      "boto3",
+      "google-genai>=1.13.0",
+      "datasketch",
+      "s3fs",
+      "datasets",
+      "iopath",
+      "jsonlines",
   ]
   vllm_085 = [
+      "submitit>=1.5.2",
+      "transformers>=4.45.2",
+      "torch>=2.6.0",
       "vllm==v0.8.5.post1",
       "ray[serve]==2.46.0",
+      "boto3",
+      "google-genai>=1.13.0",
+      "datasketch",
+      "s3fs",
+      "datasets",
+      "iopath",
+      "jsonlines",
   ]
-
 [project.scripts]
 matrix="matrix.cli:main"
 

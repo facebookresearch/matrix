@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 import packaging
 from fastapi import FastAPI, HTTPException
 from google import genai
+from packaging import version
 from ray import serve
 from starlette.requests import Request
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest
@@ -21,9 +22,9 @@ logger = logging.getLogger("ray.serve")
 app = FastAPI()
 
 
-def _extract_version(name: str) -> packaging.version.Version | None:
+def _extract_version(name: str) -> version.Version | None:
     match = re.search(r"gemini-(\d+\.\d+)", name)
-    return packaging.version.parse(match.group(1)) if match else None
+    return version.parse(match.group(1)) if match else None
 
 
 @serve.deployment(

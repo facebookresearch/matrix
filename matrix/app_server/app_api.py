@@ -20,13 +20,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Awaitable, Dict, List, Optional, Tuple, Union
 
-import ray
 import yaml
-from ray.serve import scripts
-from ray.serve._private.common import DeploymentID
-from ray.serve.context import _get_global_client
-from ray.serve.schema import ApplicationStatusOverview, ServeStatus
-from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 from matrix.app_server.deploy_utils import (
     delete_apps,
@@ -78,6 +72,8 @@ class AppApi:
         Return:
         list of app names.
         """
+        import ray
+        from ray.serve import scripts
 
         yaml_filepath = str(self._cluster_dir / DEPLOYMENT_YAML)
         sglang_yaml_filepath = str(self._cluster_dir / DEPLOYMENT_SGLANG_YAML)
@@ -236,6 +232,8 @@ class AppApi:
 
     def status(self, replica):
         """Print out Serve applications and matrix actors."""
+        import ray
+        from ray.serve.context import _get_global_client
 
         results = []
         ray_dashboard_url = get_ray_dashboard_address(self._cluster_info)
@@ -461,6 +459,8 @@ class AppApi:
             UNHEALTHY = "UNHEALTHY"
             DELETING = "DELETING"
         """
+        import ray
+
         app, _full_json = self._read_deployment(app_name, DEPLOYMENT_YAML)
         if app is None:
             serve_app = False

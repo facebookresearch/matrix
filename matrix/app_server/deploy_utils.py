@@ -14,11 +14,8 @@ import threading
 from typing import Any, Awaitable, Dict, List, Optional, Union
 
 import aiohttp
-import fsspec
-import ray
 import yaml
 from jinja2 import Template
-from ray import serve
 
 from matrix.app_server.llm.llm_config import llm_model_default_parameters
 from matrix.common.cluster_info import ClusterInfo
@@ -276,6 +273,8 @@ def write_yaml_file(yaml_file, sglang_yaml_file, update_apps):
 
 def delete_apps(cluster_info, apps_list: List[Dict[str, Union[str, int]]] | None):
     """delete given apps or everything if None"""
+    from ray import serve
+
     app_names = None if not apps_list else [app["name"] for app in apps_list]
     os.environ["RAY_ADDRESS"] = get_ray_address(cluster_info)
     apps = list(serve.status().applications.keys())
@@ -429,6 +428,7 @@ def get_yaml_for_deployment(
 
 
 def validate_applications(applications):
+    import fsspec
 
     for app in applications:
         model = app["model_name"]

@@ -22,7 +22,6 @@ from pathlib import Path
 
 import portalocker
 import psutil
-import submitit
 
 
 def kill_proc_tree(pid, including_parent=True):
@@ -86,10 +85,15 @@ def read_stdout_lines(proc: subprocess.Popen):
 def create_symlinks(
     destination: Path,
     job_category: str,
-    job_paths: submitit.core.utils.JobPaths,
+    job_paths,
     increment_index: bool = False,
 ):
-    """Generate symbolic links for job's stdout and stderr in the specified directory with a formatted name."""
+    """
+    Generate symbolic links for job's stdout and stderr in the specified directory with a formatted name.
+
+    Args:
+        job_paths (submitit.core.utils.JobPaths): paths to the job's stdout and stderr files.
+    """
 
     def get_next_index(directory: Path, prefix: str) -> int:
         """Determine the next available index for symlink naming."""

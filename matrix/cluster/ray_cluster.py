@@ -18,13 +18,6 @@ import time
 import typing as tp
 from pathlib import Path
 
-import ray
-import submitit
-from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
-
-from matrix.cluster.ray_dashboard_job import RayDashboardJob
-from matrix.cluster.ray_head_job import RayHeadJob
-from matrix.cluster.ray_worker_job import RayWorkerJob
 from matrix.common import JOB_MANAGER_STORE
 from matrix.common.cluster_info import ClusterInfo
 from matrix.utils.basics import convert_to_json_compatible
@@ -104,7 +97,7 @@ class RayCluster:
             print(f"failed to load head info: {ex}. Maybe it's not ready yet?")
             return None
 
-    def _add_job(self, job: submitit.Job):
+    def _add_job(self, job):
         """
         Records a submitted Slurm job's ID to the cluster's job list.
 
@@ -121,6 +114,10 @@ class RayCluster:
 
     def start_grafana(self, force: bool):
         """Start Prometheus and Grafana dashboard."""
+        import ray
+        from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
+
+        from matrix.cluster.ray_dashboard_job import RayDashboardJob
 
         cluster_info = self.cluster_info()
         assert cluster_info is not None, "Head is not ready"
@@ -183,6 +180,11 @@ class RayCluster:
                                           for monitoring (default: True).
             force_new_head (bool): force to remove head.json if haven't run 'matrix stop_cluster'.
         """
+        import submitit
+
+        from matrix.cluster.ray_head_job import RayHeadJob
+        from matrix.cluster.ray_worker_job import RayWorkerJob
+
         status: tp.Dict[str, tp.Any] = {}
         common_params = {"account", "partition", "qos", "exclusive", "timeout_min"}
         start_wait_time_seconds = 60
@@ -317,6 +319,8 @@ class RayCluster:
         """
         Shuts down the Ray cluster.
         """
+        import ray
+
         cluster_info = self.cluster_info()
         assert cluster_info is not None, "Head is not ready"
         init_ray_if_necessary(cluster_info)
