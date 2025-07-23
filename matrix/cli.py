@@ -351,7 +351,7 @@ class Cli:
                         **kwargs,
                     )[0]
                     print(response)
-                    return "error" not in response["response"]  # type: ignore[[index]]
+                    return "error" not in response["response"]  # type: ignore[index]
 
     @property
     def app(self):

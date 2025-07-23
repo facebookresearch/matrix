@@ -153,7 +153,7 @@ def _convert_token_log_probs(token_log_probs):
 
 
 def make_error_response(
-    request: tp.Dict[str, tp.Any], exception: Exception|None
+    request: tp.Dict[str, tp.Any], exception: Exception | None
 ) -> tp.Dict[str, tp.Any]:
     return {
         "request": request,
