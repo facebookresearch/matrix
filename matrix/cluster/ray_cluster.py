@@ -268,7 +268,7 @@ class RayCluster:
                         break
 
             if head_start_timeout:
-                print(f"Fairray did not detect head started, check manually!")
+                print(f"head may not have started, check manually!")
             else:
                 print(f"Job {head_job.job_id} has started.")
 
