@@ -10,7 +10,6 @@ import subprocess
 from enum import Enum
 
 import aiohttp
-import ray
 
 from matrix.common.cluster_info import ClusterInfo
 from matrix.utils.http import fetch_url_sync
@@ -66,6 +65,8 @@ def get_matrix_actors(cluster_info, prefix=None, include_pending=False):
 
 
 def get_ray_head_node():
+    import ray
+
     for node in ray.nodes():
         if node["Alive"] and node["Resources"].get("node:__internal_head__"):
             return node
@@ -74,6 +75,8 @@ def get_ray_head_node():
 
 def kill_matrix_actors(cluster_info, prefix: str | None = None):
     # todo: also delete task?
+    import ray
+
     changed = True
     deleted = []
     while changed:
@@ -95,6 +98,8 @@ def kill_matrix_actors(cluster_info, prefix: str | None = None):
 
 
 def init_ray_if_necessary(cluster_info: ClusterInfo):
+    import ray
+
     ray_address = get_ray_address(cluster_info)
     if not ray.is_initialized():
         ray.init(

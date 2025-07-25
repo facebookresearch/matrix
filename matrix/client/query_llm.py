@@ -152,6 +152,18 @@ def _convert_token_log_probs(token_log_probs):
     return result
 
 
+def make_error_response(
+    request: tp.Dict[str, tp.Any], exception: Exception | None
+) -> tp.Dict[str, tp.Any]:
+    return {
+        "request": request,
+        "response": {
+            "error": str(exception or "unknown error"),
+            "response_timestamp": time.time(),
+        },
+    }
+
+
 async def make_request(
     url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
     model: str,
@@ -170,6 +182,8 @@ async def make_request(
     timeout_secs: int = 600,
     prompt_logprobs: tp.Optional[int] = None,
     endpoint_cache: tp.Optional[EndpointCache] = None,
+    top_k: int = -1,
+    guided_decoding: tp.Optional[tp.Dict[str, tp.Any]] = None,
 ) -> tp.Dict[str, tp.Any]:
     if "metadata" not in data:
         data["metadata"] = {}
@@ -177,6 +191,26 @@ async def make_request(
     max_retries = max(1, max_retries)
     exception: tp.Optional[Exception] = None
 
+    extra_body = {}
+    if top_k != -1:
+        extra_body["top_k"] = top_k
+    if guided_decoding:
+        if "json" in guided_decoding:
+            extra_body["guided_json"] = guided_decoding["json"]
+        if "regex" in guided_decoding:
+            extra_body["guided_regex"] = guided_decoding["regex"]
+        if "choice" in guided_decoding:
+            extra_body["guided_choice"] = guided_decoding["choice"]
+        if "grammar" in guided_decoding:
+            extra_body["guided_grammar"] = guided_decoding["grammar"]
+    if prompt_logprobs:
+        extra_body["prompt_logprobs"] = prompt_logprobs
+    if len(extra_body) == 0:
+        extra_body = None  # type: ignore[assignment]
+    if multiplexed_model_id:
+        extra_headers = {"serve_multiplexed_model_id": multiplexed_model_id}
+    else:
+        extra_headers = None
     for attempt in range(max_retries):
         if callable(url):
             base_url = await url()
@@ -204,9 +238,8 @@ async def make_request(
                             n=n,
                             timeout=timeout_secs,  # 10 minutes
                             logprobs=logprobs,
-                            extra_headers=(
-                                {"serve_multiplexed_model_id": multiplexed_model_id}
-                            ),
+                            extra_headers=extra_headers,
+                            extra_body=extra_body,
                         )
                         result = {
                             "request": data,
@@ -241,12 +274,8 @@ async def make_request(
                             n=n,
                             timeout=timeout_secs,
                             logprobs=logprobs,
-                            extra_headers=(
-                                {"serve_multiplexed_model_id": multiplexed_model_id}
-                            ),
-                            extra_body={
-                                "prompt_logprobs": prompt_logprobs,
-                            },
+                            extra_headers=extra_headers,
+                            extra_body=extra_body,
                         )
                         result = {
                             "request": data,
@@ -302,6 +331,9 @@ async def make_request(
         else:
             # it is grpc
             assert app_name, "app_name is required for grpc"
+            assert (
+                top_k == -1 and not guided_decoding
+            ), "top_k and guided_decoding are not supported for grpc"
             async with grpc.aio.insecure_channel(base_url) as channel:
                 try:
                     stub = openai_pb2_grpc.OpenaiServiceStub(channel)
@@ -434,31 +466,71 @@ async def make_request(
                             )
                 except Exception as e:
                     exception = e
-    return {
-        "request": data,
-        "response": {
-            "error": str(exception or "unknown error"),
-            "response_timestamp": time.time(),
-        },
-    }
+    return make_error_response(data, exception)
 
 
 def batch_requests(
     url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
     model: str,
     requests: tp.List[tp.Dict[str, tp.Any]],
+    batch_size: int | None = None,
+    text_response_only: bool = False,
     **kwargs,
-) -> tp.List[tp.Dict[str, tp.Any]]:
+) -> tp.List[tp.Dict[str, tp.Any] | str]:
     """
-    Process multiple requests by calling make_request for each.
+    Process multiple requests by calling make_request for each. Return the list in the same order as the requests.
     This function works whether called from sync or async context.
+
+    Args:
+        requests: list of request, each request can be different format:
+          a. {"messages": [{"role": "user", "content": "hi"}]}
+          b. {"prompt": "<|start_header_id|>user<|end_header_id|>\n\n<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"}
+        text_response_only: if True, return the response as a list of text. otherwise return eg
+        [{"request": {...}, "response": {"text": ["..."], "finish_reason": ["..."], "response_timestamp": ..., "usage": ...}}]
     """
 
     async def _process_requests():
         """Helper function to process all requests concurrently."""
-        return await asyncio.gather(
-            *[make_request(url, model, request, **kwargs) for request in requests]
-        )
+
+        semaphore = asyncio.Semaphore(batch_size or len(requests))  # Max concurrency
+
+        async def process_prompt(index, request):
+            async with semaphore:
+                try:
+                    response = await make_request(url, model, request, **kwargs)
+                    return {"index": index, "response": response}
+                except Exception as e:
+                    logger.error(
+                        f"Error processing prompt {index}: {str(e)}", exc_info=True
+                    )
+                    return {"index": index, "response": make_error_response(request, e)}
+
+        # Process all prompts concurrently
+        tasks = [process_prompt(i, prompt) for i, prompt in enumerate(requests)]
+        results = []
+
+        pbar = tqdm.tqdm(total=len(requests), desc="Processing async tasks")
+        for coro in asyncio.as_completed(tasks):
+            result = await coro
+            results.append(result)
+            pbar.update(1)
+        pbar.close()
+
+        # Extract outputs in correct order
+        outputs = [""] * len(requests)
+        num_error = 0
+
+        for result in results:
+            index = result["index"]
+            outputs[index] = result["response"]
+            if text_response_only:
+                if result["response"]["response"].get("error") is None:
+                    outputs[index] = result["response"]["response"]["text"][0]
+                else:
+                    outputs[index] = ""
+
+        logger.info(f"complete {len(outputs)} samples, {num_error} request errors")
+        return outputs
 
     return run_async(_process_requests())
 
