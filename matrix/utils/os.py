@@ -192,7 +192,12 @@ def run_and_stream(
     output_thread = threading.Thread(target=stream_output, daemon=True)
     output_thread.start()
 
-    log(f"Launch proces {pid} with group {os.getpgid(pid)}")
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        pgid = "<terminated>"
+
+    log(f"Launch process {pid} with group {pgid}")
     if not blocking:
         return process
     else:

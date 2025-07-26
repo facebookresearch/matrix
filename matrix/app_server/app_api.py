@@ -31,7 +31,7 @@ from matrix.app_server.deploy_utils import (
 )
 from matrix.client.endpoint_cache import EndpointCache
 from matrix.common.cluster_info import ClusterInfo, get_head_http_host
-from matrix.utils.basics import convert_to_json_compatible
+from matrix.utils.basics import convert_to_json_compatible, sanitize_app_name
 from matrix.utils.os import download_s3_dir, lock_file, run_and_stream, run_async
 from matrix.utils.ray import (
     ACTOR_NAME_SPACE,
@@ -142,6 +142,14 @@ class AppApi:
                         ).digest()
                         name = base64.b32encode(hex_hash).decode()[:8]
                         app["name"] = name
+
+                    if app.get("name") is not None:
+                        sanitized = sanitize_app_name(str(app["name"]))
+                        if sanitized != app["name"]:
+                            logger.info(
+                                f"Sanitize app name {app['name']} -> {sanitized}"
+                            )
+                            app["name"] = sanitized
 
                     found = app.get("name") in existing_app_names
                     if found and action == Action.ADD:
