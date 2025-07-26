@@ -24,6 +24,16 @@ def convert_to_json_compatible(obj):
         return str(obj)
 
 
+def sanitize_app_name(app_name: str) -> str:
+    """Return a Ray Serve compatible application name.
+
+    This helper removes leading and trailing slashes and replaces any remaining ``/`` characters
+    with ``-`` so that user provided names can be used safely.
+    """
+
+    return app_name.strip("/").replace("/", "-")
+
+
 def get_user_message_from_llama3_prompt(text: str) -> str:
     PATTERN = re.compile(
         r"<\|start_header_id\|>user<\|end_header_id\|>\n\n(.*?)<\|eot_id\|>", re.DOTALL
