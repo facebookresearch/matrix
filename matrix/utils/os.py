@@ -194,10 +194,11 @@ def run_and_stream(
 
     try:
         pgid = os.getpgid(pid)
+        group = str(pgid)
     except ProcessLookupError:
-        pgid = "<terminated>"
+        group = "<terminated>"
 
-    log(f"Launch process {pid} with group {pgid}")
+    log(f"Launch process {pid} with group {group}")
     if not blocking:
         return process
     else:

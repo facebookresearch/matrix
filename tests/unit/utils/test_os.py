@@ -77,5 +77,13 @@ def test_stop_process():
         mock_killpg.assert_called_once_with(1234, signal.SIGTERM)
 
 
+def test_run_and_stream_handles_process_lookup_error():
+    """run_and_stream should handle ProcessLookupError when logging."""
+    logger = Mock()
+    with patch("os.getpgid", side_effect=ProcessLookupError):
+        process = run_and_stream({"logger": logger}, "echo hi")
+        assert process is not None
+        assert isinstance(process, subprocess.Popen)
+
 if __name__ == "__main__":
     pytest.main()

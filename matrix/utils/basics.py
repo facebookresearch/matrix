@@ -27,7 +27,8 @@ def convert_to_json_compatible(obj):
 def sanitize_app_name(app_name: str) -> str:
     """Return a Ray Serve compatible application name.
 
-    This helper removes leading and trailing slashes and replaces any remaining ``/`` characters
+    Ray Serve does not allow slashes in application names. This helper removes
+    leading and trailing slashes and replaces any remaining ``/`` characters
     with ``-`` so that user provided names can be used safely.
     """
 
