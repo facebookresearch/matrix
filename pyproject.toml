@@ -20,7 +20,7 @@ dependencies = [
   "aiohttp~=3.12",
   "requests~=2.32",
   "httpx~=0.28",
-  "openai~=1.96",
+  "openai~=1.90",
 ]
 # zip_safe = false
 classifiers=[
@@ -123,6 +123,20 @@ classifiers=[
       "torch>=2.6.0",
       "vllm==v0.8.5.post1",
       "ray[serve]==2.46.0",
+      "boto3",
+      "google-genai>=1.13.0",
+      "datasketch",
+      "s3fs",
+      "datasets",
+      "iopath",
+      "jsonlines",
+  ]
+  vllm_0100 = [
+      "submitit>=1.5.2",
+      "transformers>=4.45.2",
+      "torch>=2.7.1",
+      "vllm==v0.10.0",
+      "ray[serve]==2.48.0",
       "boto3",
       "google-genai>=1.13.0",
       "datasketch",
