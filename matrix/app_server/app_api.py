@@ -149,7 +149,7 @@ class AppApi:
                             logger.info(
                                 f"Sanitize app name {app['name']} -> {sanitized}"
                             )
-                            app["name"] = sanitized
+                        app["name"] = sanitized
 
                     found = app.get("name") in existing_app_names
                     if found and action == Action.ADD:
