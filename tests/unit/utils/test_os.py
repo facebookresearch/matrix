@@ -85,5 +85,6 @@ def test_run_and_stream_handles_process_lookup_error():
         assert process is not None
         assert isinstance(process, subprocess.Popen)
 
+
 if __name__ == "__main__":
     pytest.main()
