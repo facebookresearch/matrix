@@ -11,6 +11,7 @@ import math
 import os
 import pickle
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -93,13 +94,15 @@ def _execute_task_sequence(
                 f"[{task_id}] Deployment finished. Result: {deployment_result}"
             )
         except Exception as e:
-            logger.log.remote(f"[{task_id}] Deployment failed: {e}")
+            error_tb = traceback.format_exc()
+            logger.log.remote(f"[{task_id}] Deployment failed: {e}\n{error_tb}")
+            print(error_tb, file=sys.stderr)
             return {
                 "success": False,
                 "step": "deploy",
                 "error_type": type(e).__name__,
                 "error_message": str(e),
-                "traceback": traceback.format_exc(),
+                "traceback": error_tb,
             }
 
         # --- Step 2: Health Check ---
@@ -177,13 +180,17 @@ def _execute_task_sequence(
             return user_result
 
         except Exception as e:
-            logger.log.remote(f"[{task_id}] Exception in user task execution: {e}")
+            error_tb = traceback.format_exc()
+            logger.log.remote(
+                f"[{task_id}] Exception in user task execution: {e}\n{error_tb}"
+            )
+            print(error_tb, file=sys.stderr)
             return {
                 "success": False,
                 "step": "user_function",
                 "error_type": type(e).__name__,
                 "error_message": str(e),
-                "traceback": traceback.format_exc(),
+                "traceback": error_tb,
             }
 
     finally:
@@ -196,7 +203,9 @@ def _execute_task_sequence(
                     f"[{task_id}] Cleanup finished successfully removed {cleanup_results}."
                 )
             except Exception as e:
-                logger.log.remote(f"[{task_id}] Cleanup failed: {e}")
+                error_tb = traceback.format_exc()
+                logger.log.remote(f"[{task_id}] Cleanup failed: {e}\n{error_tb}")
+                print(error_tb, file=sys.stderr)
 
 
 # --- Job Manager Actor ---
