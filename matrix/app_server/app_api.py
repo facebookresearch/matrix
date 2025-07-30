@@ -147,9 +147,9 @@ class AppApi:
                         sanitized = sanitize_app_name(str(app["name"]))
                         if sanitized != app["name"]:
                             logger.info(
-                                f"Sanitize app name {app['name']} -> {sanitized}"
+                                f"Sanitized app name {app['name']} -> {sanitized}"
                             )
-                        app["name"] = sanitized
+                            app["name"] = sanitized
 
                     found = app.get("name") in existing_app_names
                     if found and action == Action.ADD:
