@@ -29,7 +29,6 @@ from matrix.utils.os import (
 )
 from matrix.utils.ray import ACTOR_NAME_SPACE, get_ray_head_node, init_ray_if_necessary
 
-
 _SLURM_KEY_ALIASES: dict[str, str] = {
     "slurm_account": "account",
     "slurm_qos": "qos",
