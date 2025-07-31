@@ -14,3 +14,4 @@ def test_sanitize_app_name():
     assert sanitize_app_name("foo/bar/baz") == "foo-bar-baz"
     assert sanitize_app_name("/leading") == "leading"
     assert sanitize_app_name("trailing/") == "trailing"
+    
