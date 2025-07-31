@@ -27,11 +27,7 @@ from matrix.utils.os import (
     kill_proc_tree,
     run_subprocess,
 )
-from matrix.utils.ray import (
-    ACTOR_NAME_SPACE,
-    get_ray_head_node,
-    init_ray_if_necessary,
-)
+from matrix.utils.ray import ACTOR_NAME_SPACE, get_ray_head_node, init_ray_if_necessary
 
 
 _SLURM_KEY_ALIASES: dict[str, str] = {
