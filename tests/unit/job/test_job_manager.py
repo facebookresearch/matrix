@@ -36,14 +36,14 @@ def dummy_deploy(apps):
     return True
 
 
-def test_execute_task_sequence_prints_traceback(capsys):
+def test_execute_task_sequence_logs_traceback():
     actor = Mock()
     actor.log.remote = Mock()
-    with patch.object(job_manager.ray, "get_actor", return_value=actor):
 
-        def user_func():
-            raise ValueError("boom")
+    def user_func():
+        raise ValueError("boom")
 
+    with patch("matrix.job.job_manager.ray.get_actor", return_value=actor):
         result = job_manager._execute_task_sequence(
             user_func,
             [],
@@ -57,7 +57,7 @@ def test_execute_task_sequence_prints_traceback(capsys):
         )
     assert result["success"] is False
     assert result["step"] == "user_function"
-    err = capsys.readouterr().err
-    assert "ValueError" in err
-    assert "boom" in err
-    assert "Traceback" in err
+    logs = "".join(call.args[0] for call in actor.log.remote.call_args_list)
+    assert "ValueError" in logs
+    assert "boom" in logs
+    assert "Traceback" in logs
