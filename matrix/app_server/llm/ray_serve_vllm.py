@@ -65,10 +65,9 @@ from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
 try:
     from vllm.entrypoints.openai.serving_engine import (  # type: ignore[attr-defined]
         LoRAModulePath,
-        PromptAdapterPath,
     )
 except:
-    from vllm.entrypoints.openai.serving_models import LoRAModulePath, PromptAdapterPath  # type: ignore[no-redef]
+    from vllm.entrypoints.openai.serving_models import LoRAModulePath  # type: ignore[no-redef]
 
 from vllm.utils import FlexibleArgumentParser
 
@@ -93,6 +92,23 @@ def use_ray_executor(cls, engine_config):
         return RayDistributedExecutor
 
 
+from vllm.config import DeviceConfig
+
+# Save original method
+original_post_init = DeviceConfig.__post_init__
+
+def patched_post_init(self):
+    import torch
+    try:
+        original_post_init(self)
+    except Exception as e:
+        print(f"[Patch] Device detection failed: {e}, defaulting to 'cpu'")
+        self.device_type = "cpu"
+        self.device = torch.device("cpu")
+
+# Apply patch
+DeviceConfig.__post_init__ = patched_post_init
+
 class BaseDeployment:
     lora_modules: Optional[List[LoRAModulePath]] = None
 
@@ -101,7 +117,6 @@ class BaseDeployment:
         engine_args: AsyncEngineArgs,
         response_role: str,
         lora_modules: Optional[List[LoRAModulePath]] = None,
-        prompt_adapters: Optional[List[PromptAdapterPath]] = None,
         request_logger: Optional[RequestLogger] = None,
         chat_template: Optional[str] = None,
         use_v1_engine: Optional[bool] = None,
@@ -112,7 +127,6 @@ class BaseDeployment:
         self.engine_args = engine_args
         self.response_role = response_role
         self.lora_modules = lora_modules
-        self.prompt_adapters = prompt_adapters
         self.request_logger = request_logger
         self.chat_template = chat_template
         self.use_v1_engine = (
@@ -189,7 +203,6 @@ class BaseDeployment:
                 model_config,
                 base_model_paths,  # type: ignore[arg-type]
                 lora_modules=self.lora_modules,
-                prompt_adapters=self.prompt_adapters,
             )
         if "chat_template_content_format" in init_params:
             kwargs["chat_template_content_format"] = "auto"
@@ -197,8 +210,6 @@ class BaseDeployment:
         # v0.6.6
         if "lora_modules" in init_params:
             kwargs["lora_modules"] = self.lora_modules
-        if "prompt_adapters" in init_params:
-            kwargs["prompt_adapters"] = self.prompt_adapters
         if "base_model_paths" in init_params:
             kwargs["base_model_paths"] = base_model_paths
 
@@ -250,7 +261,6 @@ class VLLMDeployment(BaseDeployment):
         engine_args: AsyncEngineArgs,
         response_role: str,
         lora_modules: Optional[List[LoRAModulePath]] = None,
-        prompt_adapters: Optional[List[PromptAdapterPath]] = None,
         request_logger: Optional[RequestLogger] = None,
         chat_template: Optional[str] = None,
         use_v1_engine: Optional[bool] = None,
@@ -259,7 +269,6 @@ class VLLMDeployment(BaseDeployment):
             engine_args=engine_args,
             response_role=response_role,
             lora_modules=lora_modules,
-            prompt_adapters=prompt_adapters,
             request_logger=request_logger,
             chat_template=chat_template,
             use_v1_engine=use_v1_engine,
@@ -332,7 +341,6 @@ class GrpcDeployment(BaseDeployment):
         engine_args: AsyncEngineArgs,
         response_role: str,
         lora_modules: Optional[List[LoRAModulePath]] = None,
-        prompt_adapters: Optional[List[PromptAdapterPath]] = None,
         request_logger: Optional[RequestLogger] = None,
         chat_template: Optional[str] = None,
         use_v1_engine: Optional[bool] = None,
@@ -341,7 +349,6 @@ class GrpcDeployment(BaseDeployment):
             engine_args=engine_args,
             response_role=response_role,
             lora_modules=lora_modules,
-            prompt_adapters=prompt_adapters,
             request_logger=request_logger,
             chat_template=chat_template,
             use_v1_engine=use_v1_engine,
@@ -540,7 +547,6 @@ def _build_app(cli_args: Dict[str, str], use_grpc) -> serve.Application:
         engine_args,
         parsed_args.response_role,
         parsed_args.lora_modules,
-        parsed_args.prompt_adapters,
         cli_args.get("request_logger"),
         parsed_args.chat_template,
         **deploy_args,
