@@ -103,8 +103,8 @@ def patched_post_init(self):
         original_post_init(self)
     except Exception as e:
         print(f"[Patch] Device detection failed: {e}, defaulting to 'cpu'")
-        self.device_type = "cpu"
-        self.device = torch.device("cpu")
+        self.device_type = "cuda"
+        self.device = torch.device("cuda")
 
 # Apply patch
 DeviceConfig.__post_init__ = patched_post_init
