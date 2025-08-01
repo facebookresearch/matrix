@@ -9,7 +9,7 @@ from argparse import ArgumentParser
 from typing import Dict, List, Optional, Union
 
 import openai
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from jinja2 import Template
 from ray import serve
 from ray.serve import scripts
@@ -70,7 +70,13 @@ class OpenaiDeployment:
             for key in ["temperature", "max_tokens", "top_p"]:
                 if key in completion_request:
                     completion_request.pop(key)
-        return await self.client.chat.completions.create(**completion_request)
+        try:
+            return await self.client.chat.completions.create(**completion_request)
+        except openai.APIStatusError as e:
+            detail = e.body if hasattr(e, "body") else str(e)
+            raise HTTPException(status_code=e.status_code, detail=detail)
+        except openai.OpenAIError as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
     @app.post("/v1/completions")
     async def create_completion(self, request: CompletionRequest, raw_request: Request):
@@ -82,7 +88,13 @@ class OpenaiDeployment:
         logger.debug(f"Request: {request}")
         completion_request = request.model_dump(exclude_unset=True)
         completion_request.pop("guided_json", None)
-        return await self.client.completions.create(**completion_request)
+        try:
+            return await self.client.completions.create(**completion_request)
+        except openai.APIStatusError as e:
+            detail = e.body if hasattr(e, "body") else str(e)
+            raise HTTPException(status_code=e.status_code, detail=detail)
+        except openai.OpenAIError as e:
+            raise HTTPException(status_code=500, detail=str(e))
 
 
 def build_app(cli_args: Dict[str, str]) -> serve.Application:
