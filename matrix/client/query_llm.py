@@ -175,6 +175,7 @@ async def make_request(
     top_p: float = 0.9,
     n: int = 1,
     logprobs: bool = False,
+    top_logprobs: tp.Optional[int] = None,
     max_retries: int = 3,
     initial_delay: int = 1,
     backoff_factor: int = 2,
@@ -237,7 +238,8 @@ async def make_request(
                             seed=seed,
                             n=n,
                             timeout=timeout_secs,  # 10 minutes
-                            logprobs=logprobs,
+                            logprobs=logprobs or top_logprobs is not None,
+                            top_logprobs=top_logprobs,
                             extra_headers=extra_headers,
                             extra_body=extra_body,
                         )
@@ -254,10 +256,28 @@ async def make_request(
                                 "response_timestamp": time.time(),
                             },
                         }
-                        if logprobs and response.choices[0].logprobs is not None:
+                        if (logprobs or top_logprobs is not None) and response.choices[
+                            0
+                        ].logprobs is not None:
                             lp = [
                                 [
-                                    {"token": elem.token, "logprob": elem.logprob}
+                                    {
+                                        "token": elem.token,
+                                        "logprob": elem.logprob,
+                                        **(
+                                            {
+                                                "top_logprobs": [
+                                                    {
+                                                        "token": tl.token,
+                                                        "logprob": tl.logprob,
+                                                    }
+                                                    for tl in elem.top_logprobs
+                                                ]
+                                            }
+                                            if elem.top_logprobs
+                                            else {}
+                                        ),
+                                    }
                                     for elem in response.choices[i].logprobs.content  # type: ignore[union-attr]
                                 ]
                                 for i in range(n)
@@ -273,7 +293,11 @@ async def make_request(
                             seed=seed,
                             n=n,
                             timeout=timeout_secs,
-                            logprobs=logprobs,
+                            logprobs=(
+                                top_logprobs
+                                if top_logprobs is not None
+                                else (1 if logprobs else None)
+                            ),
                             extra_headers=extra_headers,
                             extra_body=extra_body,
                         )
@@ -287,17 +311,26 @@ async def make_request(
                                 "response_timestamp": time.time(),
                             },
                         }
-                        if logprobs and response.choices[0].logprobs is not None:  # type: ignore[attr-defined]
-                            lp = [
-                                [
-                                    {"token": elem[0], "logprob": elem[1]}
-                                    for elem in zip(
-                                        response.choices[i].logprobs.tokens,  # type: ignore[union-attr]
-                                        response.choices[i].logprobs.token_logprobs,  # type: ignore[union-attr]
-                                    )  # type: ignore[attr-defined]
-                                ]
-                                for i in range(n)
-                            ]
+                        if (logprobs or top_logprobs is not None) and response.choices[
+                            0
+                        ].logprobs is not None:  # type: ignore[attr-defined]
+                            lp = []
+                            for i in range(n):
+                                tokens = response.choices[i].logprobs.tokens  # type: ignore[union-attr]
+                                token_lps = response.choices[i].logprobs.token_logprobs  # type: ignore[union-attr]
+                                top_lps_list = response.choices[i].logprobs.top_logprobs  # type: ignore[union-attr]
+                                current = []
+                                for idx, (token, lp_token) in enumerate(
+                                    zip(tokens, token_lps)
+                                ):
+                                    entry = {"token": token, "logprob": lp_token}
+                                    if top_lps_list:
+                                        entry["top_logprobs"] = [
+                                            {"token": t, "logprob": tl}
+                                            for t, tl in top_lps_list[idx].items()
+                                        ]
+                                    current.append(entry)
+                                lp.append(current)
                             result["response"]["logprobs"] = lp
                         if (
                             prompt_logprobs is not None
@@ -370,10 +403,28 @@ async def make_request(
                                 "response_timestamp": time.time(),
                             },
                         }
-                        if logprobs and response.choices[0].logprobs is not None:  # type: ignore[attr-defined]
+                        if (logprobs or top_logprobs is not None) and response.choices[
+                            0
+                        ].logprobs is not None:  # type: ignore[attr-defined]
                             lp = [
                                 [
-                                    {"token": elem.token, "logprob": elem.logprob}
+                                    {
+                                        "token": elem.token,
+                                        "logprob": elem.logprob,
+                                        **(
+                                            {
+                                                "top_logprobs": [
+                                                    {
+                                                        "token": tl.token,
+                                                        "logprob": tl.logprob,
+                                                    }
+                                                    for tl in elem.top_logprobs
+                                                ]
+                                            }
+                                            if elem.top_logprobs
+                                            else {}
+                                        ),
+                                    }
                                     for elem in response.choices[i].logprobs.content  # type: ignore[union-attr]
                                 ]
                                 for i in range(n)
@@ -402,13 +453,25 @@ async def make_request(
                                 "response_timestamp": time.time(),
                             },
                         }
-                        if logprobs and response.choices[0].logprobs is not None:  # type: ignore[attr-defined]
+                        if (logprobs or top_logprobs is not None) and response.choices[
+                            0
+                        ].logprobs is not None:  # type: ignore[attr-defined]
                             lp = [
                                 [
-                                    {"token": elem[0], "logprob": elem[1]}
-                                    for elem in zip(
+                                    {
+                                        "token": token,
+                                        "logprob": lp_token,
+                                        **(
+                                            {"top_logprobs": top_lp}
+                                            if response.choices[i].logprobs.top_logprobs
+                                            else {}
+                                        ),
+                                    }
+                                    for token, lp_token, top_lp in zip(
                                         response.choices[i].logprobs.tokens,  # type: ignore[union-attr]
                                         response.choices[i].logprobs.token_logprobs,  # type: ignore[union-attr]
+                                        response.choices[i].logprobs.top_logprobs
+                                        or [],  # type: ignore[union-attr]
                                     )
                                 ]
                                 for i in range(n)
