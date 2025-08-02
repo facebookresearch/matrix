@@ -218,6 +218,7 @@ class RayCluster:
         if local:
             local = _normalize_slurm_keys(local)
         requirements = slurm or local or {}
+        requirements = _normalize_slurm_keys(requirements)
         executor = "slurm" if slurm else "local"
 
         if self._cluster_json.exists():
