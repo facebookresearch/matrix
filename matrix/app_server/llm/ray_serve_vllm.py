@@ -95,19 +95,21 @@ def use_ray_executor(cls, engine_config):
 from vllm.config import DeviceConfig
 
 # Save original method
-original_post_init = DeviceConfig.__post_init__
+original_post_init = getattr(DeviceConfig, "__post_init__", None)
+if original_post_init is not None:
 
-def patched_post_init(self):
-    import torch
-    try:
-        original_post_init(self)
-    except Exception as e:
-        print(f"[Patch] Device detection failed: {e}, defaulting to 'cpu'")
-        self.device_type = "cuda"
-        self.device = torch.device("cuda")
+    def patched_post_init(self):
+        try:
+            original_post_init(self)  # type: ignore[misc]
+        except Exception as e:
+            print(f"[Patch] Device detection failed: {e}, defaulting to 'cuda'")
+            import torch
 
-# Apply patch
-DeviceConfig.__post_init__ = patched_post_init
+            self.device_type = "cuda"
+            self.device = torch.device("cuda")
+
+    DeviceConfig.__post_init__ = patched_post_init  # type: ignore[attr-defined]
+
 
 class BaseDeployment:
     lora_modules: Optional[List[LoRAModulePath]] = None

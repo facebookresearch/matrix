@@ -190,4 +190,24 @@ llm_model_default_parameters = {
         "gpu-memory-utilization": 0.8,
         "max_ongoing_requests": 50,
     },
+    # need to install vllm_0101_gptoss
+    "openai/gpt-oss-20b": {
+        "name": "gpt-oss-20b",
+        "tensor-parallel-size": 1,
+        "pipeline-parallel-size": 1,
+        "max-model-len": 131072,
+        "gpu-memory-utilization": 0.85,
+        "max_ongoing_requests": 64,
+        "use_v1_engine": "true",
+    },
+    # need to install vllm_0101_gptoss
+    "openai/gpt-oss-120b": {
+        "name": "gpt-oss-120b",
+        "tensor-parallel-size": 2,
+        "pipeline-parallel-size": 1,
+        "max-model-len": 131072,
+        "gpu-memory-utilization": 0.85,
+        "max_ongoing_requests": 64,
+        "use_v1_engine": "true",
+    },
 }
