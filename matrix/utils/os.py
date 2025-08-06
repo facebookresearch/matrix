@@ -234,7 +234,14 @@ def stop_process(process):
     """Stops the subprocess and cleans up."""
     if process and process.poll() is None:
         print("Stopping subprocess...")
-        os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        try:
+            pgid = os.getpgid(process.pid)
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            print(
+                f"Process group {process.pid} already terminated or does not exist"
+            )
+            return
         process.wait()
         print("Subprocess stopped.")
 
