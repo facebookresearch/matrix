@@ -238,9 +238,7 @@ def stop_process(process):
             pgid = os.getpgid(process.pid)
             os.killpg(pgid, signal.SIGTERM)
         except ProcessLookupError:
-            print(
-                f"Process group {process.pid} already terminated or does not exist"
-            )
+            print(f"Process group {process.pid} already terminated or does not exist")
             return
         process.wait()
         print("Subprocess stopped.")
