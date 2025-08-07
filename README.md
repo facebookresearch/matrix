@@ -117,7 +117,7 @@ matrix deploy_applications --action add --applications "[{'model_name': 'meta-ll
 matrix deploy_applications --applications ''
 ```
 ### Adjust Model Args
-vLLM Engine [Aruments](https://docs.vllm.ai/en/latest/serving/engine_args.html) can be specified in the deploy_applications arguments. The default values for popular models are in [llm_config.py](matrix/app_server/llm/llm_config.py). Other useful args
+vLLM Engine [Arguments](https://docs.vllm.ai/en/latest/serving/engine_args.html) can be specified in the deploy_applications arguments. The default values for popular models are in [llm_config.py](matrix/app_server/llm/llm_config.py). Other useful args
 * `model_name`: a huggingface model name or a directory containing checkpoints.
 * `name`: the default app_name.
 * `model_size`: template to apply when model is from a directory, such as 8B, 70B, 405B etc, templates are from the llm_config.py file.
