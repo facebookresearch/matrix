@@ -187,6 +187,19 @@ other_app_template = """
       target_ongoing_requests: 1
       min_replicas: {{ app.min_replica }}
       max_replicas: {{ app.max_replica }}
+  {% elif app.app_type == 'container' %}
+- name: {{ app.name }}
+  route_prefix: /{{ app.name }}
+  import_path: matrix.app_server.container.container_deployment:app
+  runtime_env: {}
+  args: {}
+  deployments:
+  - name: ContainerDeployment
+    max_ongoing_requests: 32
+    autoscaling_config:
+      target_ongoing_requests: 32
+      min_replicas: {{ app.min_replica }}
+      max_replicas: {{ app.max_replica }}
 {% elif app.app_type == 'hello' %}
 - name: {{ app.name }}
   route_prefix: /{{ app.name }}
@@ -229,6 +242,7 @@ def get_app_type(app):
     assert "deployments" in app
     deployment = app["deployments"][0]["name"]
     deploy_type = {
+        "ContainerDeployment": "container",
         "CodeExecutionApp": "code",
         "GrpcDeployment": "llm",
         "VLLMDeployment": "llm",
@@ -327,6 +341,7 @@ def get_yaml_for_deployment(
                 "llm",
                 "sglang_llm",
                 "code",
+                "container",
                 "hello",
                 "openai",
                 "metagen",
@@ -361,6 +376,10 @@ def get_yaml_for_deployment(
             elif app_type == "code":
                 if "name" not in app:
                     app["name"] = "code"
+                yaml_str += Template(other_app_template).render(app=app)
+            elif app_type == "container":
+                if "name" not in app:
+                    app["name"] = "container"
                 yaml_str += Template(other_app_template).render(app=app)
             elif app_type == "openai":
                 default_params: Dict[str, Union[str, int]] = {

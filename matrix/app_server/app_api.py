@@ -343,7 +343,11 @@ class AppApi:
         deployment_name = app["deployments"][0]["name"]  # type: ignore
         use_grpc = "GrpcDeployment" in deployment_name
         if serve_app:
-            if "code" in deployment_name.lower() or "hello" in deployment_name.lower():
+            if (
+                "code" in deployment_name.lower()
+                or "hello" in deployment_name.lower()
+                or "container" in deployment_name.lower()
+            ):
                 endpoint_template = f"http://{{host}}:{http_port}/{prefix}"
             else:
                 endpoint_template = (
