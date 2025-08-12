@@ -340,7 +340,7 @@ async def make_request(
                                 for i in range(n)
                             ]
                             result["response"]["logprobs"] = lp
-                        if prompt_logprobs and response.choices[0].prompt_logprobs is not None:  # type: ignore[attr-defined]
+                        if prompt_logprobs is not None and response.choices[0].prompt_logprobs is not None:  # type: ignore[attr-defined]
                             lp = [
                                 [
                                     _convert_token_log_probs(elem)
@@ -504,7 +504,7 @@ async def make_request(
                                 for i in range(n)
                             ]
                             result["response"]["logprobs"] = lp
-                        if prompt_logprobs and response.choices[0].prompt_logprobs is not None:  # type: ignore[attr-defined]
+                        if prompt_logprobs is not None and response.choices[0].prompt_logprobs is not None:  # type: ignore[attr-defined]
                             lp = [
                                 [
                                     _convert_token_log_probs(elem)
