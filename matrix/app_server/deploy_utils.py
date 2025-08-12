@@ -75,7 +75,7 @@ vllm_app_template = """
     model: {{ app.model_name }}
     {% for key, value in app.items() %}
     {% if key not in non_model_params %}
-    {{ key }}: {{ 'null' if value is true else value }}
+    {{ key }}: {{ 'null' if value is none else value }}
     {% endif %}
     {% endfor %}
   deployments:
