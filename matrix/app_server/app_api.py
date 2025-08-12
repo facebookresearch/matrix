@@ -293,12 +293,12 @@ class AppApi:
 
         yaml_config = str(self._cluster_dir / deployment_file)
         if not os.path.exists(yaml_config):
-            print(f"config does not exist {yaml_config}")
+            logger.debug(f"config does not exist {yaml_config}")
             return None, None
         with open(yaml_config, "r") as file:
             data = yaml.safe_load(file)
         if data is None:
-            print(f"empty config {yaml_config}")
+            logger.debug(f"empty config {yaml_config}")
             return None, None
 
         app = [
@@ -328,7 +328,7 @@ class AppApi:
         serve_app = True
         app, full_json = self._read_deployment(app_name, DEPLOYMENT_YAML, model_name)
         if app is None:
-            print("Nothing found. try sglang deployment")
+            logger.debug("Nothing found. try sglang deployment")
             serve_app = False
             app, full_json = self._read_deployment(
                 app_name, DEPLOYMENT_SGLANG_YAML, model_name
