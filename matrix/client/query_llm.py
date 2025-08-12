@@ -6,7 +6,6 @@
 
 import asyncio
 import glob
-import hashlib
 import json
 import logging
 import os
@@ -16,11 +15,9 @@ import typing as tp
 from functools import reduce
 
 import grpc
-import httpx
 import openai
 import tqdm
 from fire import Fire
-from google.protobuf import json_format
 from grpc import aio as grpc_aio
 from openai import APIConnectionError, APITimeoutError, RateLimitError
 
@@ -101,7 +98,7 @@ def load_from_jsonl(
                 metadata = get_request(get_metadata_key(text_key), data)
             else:
                 messages = get_request(messages_key, data)  # type: ignore
-                assert messages, "either {text_key} or {messages_key} should exist"
+                assert messages, f"either {text_key} or {messages_key} should exist"
                 metadata = get_request(get_metadata_key(messages_key), data)
 
             if system_prompt:
@@ -305,47 +302,67 @@ async def make_request(
                             "request": data,
                             "response": {
                                 "text": [response.choices[i].text for i in range(n)],  # type: ignore[attr-defined]
-                                "finish_reason": [
-                                    response.choices[i].finish_reason for i in range(n)
-                                ],
+                                "finish_reason": [response.choices[i].finish_reason for i in range(n)],  # type: ignore[attr-defined]
                                 "response_timestamp": time.time(),
                             },
                         }
                         if (logprobs or top_logprobs is not None) and response.choices[
                             0
                         ].logprobs is not None:  # type: ignore[attr-defined]
-                            lp = []
-                            for i in range(n):
-                                tokens = response.choices[i].logprobs.tokens  # type: ignore[union-attr]
-                                token_lps = response.choices[i].logprobs.token_logprobs  # type: ignore[union-attr]
-                                top_lps_list = response.choices[i].logprobs.top_logprobs  # type: ignore[union-attr]
-                                current = []
-                                for idx, (token, lp_token) in enumerate(
-                                    zip(tokens, token_lps)
-                                ):
-                                    entry = {"token": token, "logprob": lp_token}
-                                    if top_lps_list:
-                                        entry["top_logprobs"] = [
-                                            {"token": t, "logprob": tl}
-                                            for t, tl in top_lps_list[idx].items()
-                                        ]
-                                    current.append(entry)
-                                lp.append(current)
+                            lp = [
+                                [
+                                    {
+                                        "token": token,
+                                        "logprob": lp_token,
+                                        **(
+                                            {
+                                                "top_logprobs": [
+                                                    {"token": t, "logprob": lp}
+                                                    for t, lp in top_lp.items()
+                                                ]
+                                            }
+                                            if top_lp
+                                            else {}
+                                        ),
+                                    }
+                                    for token, lp_token, top_lp in zip(
+                                        response.choices[i].logprobs.tokens,  # type: ignore[union-attr]
+                                        response.choices[i].logprobs.token_logprobs,  # type: ignore[union-attr]
+                                        response.choices[i].logprobs.top_logprobs  # type: ignore[union-attr]
+                                        or [
+                                            None
+                                            for _ in range(
+                                                len(response.choices[i].logprobs.tokens)  # type: ignore[union-attr]
+                                            )
+                                        ],
+                                    )
+                                ]
+                                for i in range(n)
+                            ]
                             result["response"]["logprobs"] = lp
-                        if (
-                            prompt_logprobs is not None
-                            and response.choices[0].prompt_logprobs is not None  # type: ignore[attr-defined]
-                        ):
-                            lp = [response.choices[i].prompt_logprobs for i in range(n)]  # type: ignore[attr-defined]
+                        if prompt_logprobs and response.choices[0].prompt_logprobs is not None:  # type: ignore[attr-defined]
+                            lp = [
+                                [
+                                    _convert_token_log_probs(elem)
+                                    for elem in response.choices[i].prompt_logprobs  # type: ignore[attr-defined]
+                                ]
+                                for i in range(n)
+                            ]
                             result["response"]["prompt_logprobs"] = lp
                     else:
                         raise Exception(
-                            "request data should either have 'messeages' or 'prompt'!"
+                            "request data should either have 'messages' or 'prompt'!"
                         )
                     if response.usage:
                         result["response"]["usage"] = {
                             "prompt_tokens": response.usage.prompt_tokens,
                             "completion_tokens": response.usage.completion_tokens,
+                            **(
+                                {"total_tokens": response.usage.total_tokens}
+                                if getattr(response.usage, "total_tokens", None)
+                                is not None
+                                else {}
+                            ),
                         }
                     return result
                 except (RateLimitError, APITimeoutError, APIConnectionError) as e:
@@ -462,16 +479,26 @@ async def make_request(
                                         "token": token,
                                         "logprob": lp_token,
                                         **(
-                                            {"top_logprobs": top_lp}
-                                            if response.choices[i].logprobs.top_logprobs
+                                            {
+                                                "top_logprobs": [
+                                                    {"token": t, "logprob": lp}
+                                                    for t, lp in top_lp.items()
+                                                ]
+                                            }
+                                            if top_lp
                                             else {}
                                         ),
                                     }
                                     for token, lp_token, top_lp in zip(
                                         response.choices[i].logprobs.tokens,  # type: ignore[union-attr]
                                         response.choices[i].logprobs.token_logprobs,  # type: ignore[union-attr]
-                                        response.choices[i].logprobs.top_logprobs
-                                        or [],  # type: ignore[union-attr]
+                                        response.choices[i].logprobs.top_logprobs  # type: ignore[union-attr]
+                                        or [
+                                            None
+                                            for _ in range(
+                                                len(response.choices[i].logprobs.tokens)  # type: ignore[union-attr]
+                                            )
+                                        ],
                                     )
                                 ]
                                 for i in range(n)
@@ -488,13 +515,18 @@ async def make_request(
                             result["response"]["prompt_logprobs"] = lp
                     else:
                         raise Exception(
-                            "request data should either have 'messeages' or 'prompt'!"
+                            "request data should either have 'messages' or 'prompt'!"
                         )
 
                     if response.usage is not None:  # type: ignore[attr-defined]
                         result["response"]["usage"] = {
                             "prompt_tokens": response.usage.prompt_tokens,  # type: ignore[attr-defined]
                             "completion_tokens": response.usage.completion_tokens,  # type: ignore[attr-defined]
+                            **(
+                                {"total_tokens": response.usage.total_tokens}  # type: ignore[attr-defined]
+                                if getattr(response.usage, "total_tokens", None) is not None  # type: ignore[attr-defined]
+                                else {}
+                            ),
                         }
                     return result
                 except grpc_aio.AioRpcError as e:
@@ -591,6 +623,8 @@ def batch_requests(
                     outputs[index] = result["response"]["response"]["text"][0]
                 else:
                     outputs[index] = ""
+            if result["response"]["response"].get("error") is not None:
+                num_error += 1
 
         logger.info(f"complete {len(outputs)} samples, {num_error} request errors")
         return outputs
@@ -714,5 +748,46 @@ async def main(
     return stats
 
 
+def cli(
+    url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
+    output_file: str,
+    input_jsonls: str,
+    app_name: str,
+    model: str,
+    batch_size: int = 32,
+    seed: int = 42,
+    temperature: float = 0.7,
+    max_tokens: int = 4096,
+    top_p: float = 0.9,
+    n: int = 1,
+    logprobs: bool = False,
+    text_key: str = "text",
+    messages_key: str = "request.messages",
+    system_prompt: str = "",
+    timeout_secs: int = 600,
+) -> tp.Dict[str, int]:
+    """Synchronous CLI entrypoint that runs the async main."""
+    return run_async(
+        main(
+            url=url,
+            output_file=output_file,
+            input_jsonls=input_jsonls,
+            app_name=app_name,
+            model=model,
+            batch_size=batch_size,
+            seed=seed,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            n=n,
+            logprobs=logprobs,
+            text_key=text_key,
+            messages_key=messages_key,
+            system_prompt=system_prompt,
+            timeout_secs=timeout_secs,
+        )
+    )
+
+
 if __name__ == "__main__":
-    Fire(main)
+    Fire(cli)
