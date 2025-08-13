@@ -328,7 +328,7 @@ class AppApi:
         serve_app = True
         app, full_json = self._read_deployment(app_name, DEPLOYMENT_YAML, model_name)
         if app is None:
-            logger.debug("Nothing found. try sglang deployment")
+            logger.info("Nothing found. try sglang deployment")
             serve_app = False
             app, full_json = self._read_deployment(
                 app_name, DEPLOYMENT_SGLANG_YAML, model_name
