@@ -44,7 +44,7 @@ def test_execute_task_sequence_logs_traceback():
         raise ValueError("boom")
 
     with patch("matrix.job.job_manager.ray.get_actor", return_value=actor):
-        result = job_manager._execute_task_sequence(
+        result = job_manager._execute_task_sequence(  # type: ignore[operator]
             user_func,
             [],
             {},

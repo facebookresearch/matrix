@@ -77,17 +77,13 @@ def _execute_task_sequence(
     cleanup_func,
     timeout_s,
     task_id,  # Pass task_id for logging on the worker
-    log_fn: tp.Optional[tp.Callable[[str], tp.Any]] = None,
 ) -> tp.Dict[str, tp.Any]:
     """
     Wrapper to execute the deploy, health check, user function, and cleanup sequence.
     This runs as a single Ray task on a worker.
     """
-    if log_fn is None:
-        logger = ray.get_actor(ACTOR_NAME, NAMESPACE)
-        log_fn = logger.log.remote
-    else:
-        logger = SimpleNamespace(log=SimpleNamespace(remote=log_fn))
+    logger_actor = ray.get_actor(ACTOR_NAME, NAMESPACE)
+    log_fn = logger_actor.log.remote
     log_fn(f"[{task_id}] Starting task execution sequence on {socket.gethostname()}")
 
     try:
@@ -169,7 +165,7 @@ def _execute_task_sequence(
                 sig = inspect.signature(user_func)
             if "logging_config" in sig.parameters:
                 kwargs = kwargs.copy()
-                kwargs["logging_config"] = {"remote": True, "logger": logger}
+                kwargs["logging_config"] = {"remote": True, "logger": logger_actor}
 
             user_result = user_func(*args, **kwargs)
 
@@ -646,8 +642,7 @@ class JobManager:
             job_def["check_status"],
             job_def["cleanup_applications"],
             timeout,
-            task_def["task_id"],
-            cast(tp.Callable[[str], tp.Any], cast(tp.Any, self.log).remote),
+            task_id,
         )
         self._running_task_futures[task_id] = future
 
