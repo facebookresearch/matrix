@@ -618,12 +618,16 @@ def batch_requests(
         for result in results:
             index = result["index"]
             outputs[index] = result["response"]
+            inner_resp = None
+            if isinstance(result["response"], dict):
+                inner_resp = result["response"].get("response")
             if text_response_only:
-                if result["response"]["response"].get("error") is None:
-                    outputs[index] = result["response"]["response"]["text"][0]
+                if isinstance(inner_resp, dict) and inner_resp.get("error") is None:
+                    text_values = inner_resp.get("text", [])
+                    outputs[index] = text_values[0] if text_values else ""
                 else:
                     outputs[index] = ""
-            if result["response"]["response"].get("error") is not None:
+            if isinstance(inner_resp, dict) and inner_resp.get("error") is not None:
                 num_error += 1
 
         logger.info(f"complete {len(outputs)} samples, {num_error} request errors")
