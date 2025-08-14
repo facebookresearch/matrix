@@ -27,11 +27,22 @@ from matrix.utils.os import (
     kill_proc_tree,
     run_subprocess,
 )
-from matrix.utils.ray import (
-    ACTOR_NAME_SPACE,
-    get_ray_head_node,
-    init_ray_if_necessary,
-)
+from matrix.utils.ray import ACTOR_NAME_SPACE, get_ray_head_node, init_ray_if_necessary
+
+_SLURM_KEY_ALIASES: dict[str, str] = {
+    "slurm_account": "account",
+    "slurm_qos": "qos",
+}
+
+
+def _normalize_slurm_keys(
+    config: tp.Dict[str, tp.Union[str, int]]
+) -> tp.Dict[str, tp.Union[str, int]]:
+    """Map alternative slurm_* keys to their canonical form."""
+    normalized = {}
+    for key, value in config.items():
+        normalized[_SLURM_KEY_ALIASES.get(key, key)] = value
+    return normalized
 
 
 class RayCluster:
@@ -187,6 +198,8 @@ class RayCluster:
             slurm (dict, optional): resources requirements for slurm cluster.
                                     e.g., {'qos': '...', 'partition': '...', 'gpus-per-node': 8}.
             local (dict, optional): resources requirements for local cluster.
+            slurm keys may also use the prefix ``slurm_`` (e.g., ``slurm_account``)
+            which will be normalized to the canonical form (``account``).
             enable_grafana (bool): Whether to start Prometheus and Grafana
                                           for monitoring (default: True).
             force_new_head (bool): force to remove head.json if haven't run 'matrix stop_cluster'.
@@ -201,6 +214,7 @@ class RayCluster:
         start_wait_time_seconds = 60
         worker_wait_timeout_seconds = 60
         requirements = slurm or local or {}
+        requirements = _normalize_slurm_keys(requirements)
         executor = "slurm" if slurm else "local"
 
         if self._cluster_json.exists():

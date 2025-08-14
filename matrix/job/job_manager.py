@@ -11,12 +11,15 @@ import math
 import os
 import pickle
 import socket
+import sys
 import threading
 import time
 import traceback
 import typing as tp
 from collections import defaultdict
 from enum import Enum
+from types import SimpleNamespace
+from typing import cast
 
 import ray
 
@@ -79,34 +82,32 @@ def _execute_task_sequence(
     Wrapper to execute the deploy, health check, user function, and cleanup sequence.
     This runs as a single Ray task on a worker.
     """
-    logger = ray.get_actor(ACTOR_NAME, NAMESPACE)
-    logger.log.remote(
-        f"[{task_id}] Starting task execution sequence on {socket.gethostname()}"
-    )
+    logger_actor = ray.get_actor(ACTOR_NAME, NAMESPACE)
+    log_fn = logger_actor.log.remote
+    log_fn(f"[{task_id}] Starting task execution sequence on {socket.gethostname()}")
 
     try:
         # --- Step 1: Deploy Applications ---
-        logger.log.remote(f"[{task_id}] Starting deployment...")
+        log_fn(f"[{task_id}] Starting deployment...")
         try:
             deployment_result = deploy_func(applications)
-            logger.log.remote(
-                f"[{task_id}] Deployment finished. Result: {deployment_result}"
-            )
+            log_fn(f"[{task_id}] Deployment finished. Result: {deployment_result}")
         except Exception as e:
-            logger.log.remote(f"[{task_id}] Deployment failed: {e}")
+            error_tb = traceback.format_exc()
+            log_fn(f"[{task_id}] Deployment failed: {e}\n{error_tb}")
             return {
                 "success": False,
                 "step": "deploy",
                 "error_type": type(e).__name__,
                 "error_message": str(e),
-                "traceback": traceback.format_exc(),
+                "traceback": error_tb,
             }
 
         # --- Step 2: Health Check ---
         if check_status_func:
 
             def report_failure(failed_apps):
-                logger.log.remote(
+                log_fn(
                     f"[{task_id}] Health check failed for apps {failed_apps} after {max_status_check_attempts} attempts."
                 )
                 return {
@@ -116,7 +117,7 @@ def _execute_task_sequence(
                     "error_message": f"Applications at indices {failed_apps} did not become healthy within limits.",
                 }
 
-            logger.log.remote(f"[{task_id}] Starting health check...")
+            log_fn(f"[{task_id}] Starting health check...")
             max_status_check_attempts = math.ceil(timeout_s / STATUS_CHECK_INTERVAL)
 
             # Track which applications have succeeded
@@ -129,7 +130,7 @@ def _execute_task_sequence(
 
                     try:
                         status = check_status_func(app)
-                        logger.log.remote(
+                        log_fn(
                             f"[{task_id}] Health check attempt {attempt}: {app} {status}"
                         )
 
@@ -138,7 +139,7 @@ def _execute_task_sequence(
                         elif status_is_failure(status):
                             return report_failure([app])
                     except Exception as e:
-                        logger.log.remote(
+                        log_fn(
                             f"[{task_id}] Health check failed for app {i} on attempt {attempt}: {e}"
                         )
 
@@ -156,7 +157,7 @@ def _execute_task_sequence(
                 return report_failure(failed_apps)
 
         # --- Step 3: Execute User Function ---
-        logger.log.remote(f"[{task_id}] Starting user function execution...")
+        log_fn(f"[{task_id}] Starting user function execution...")
         try:
             if isinstance(user_func, functools.partial):
                 sig = inspect.signature(user_func.func)
@@ -164,7 +165,7 @@ def _execute_task_sequence(
                 sig = inspect.signature(user_func)
             if "logging_config" in sig.parameters:
                 kwargs = kwargs.copy()
-                kwargs["logging_config"] = {"remote": True, "logger": logger}
+                kwargs["logging_config"] = {"remote": True, "logger": logger_actor}
 
             user_result = user_func(*args, **kwargs)
 
@@ -173,30 +174,32 @@ def _execute_task_sequence(
                     f"User function {user_func} did not return a dic containing success flag."
                 )
 
-            logger.log.remote(f"[{task_id}] User function finished. {user_result}")
+            log_fn(f"[{task_id}] User function finished. {user_result}")
             return user_result
 
         except Exception as e:
-            logger.log.remote(f"[{task_id}] Exception in user task execution: {e}")
+            error_tb = traceback.format_exc()
+            log_fn(f"[{task_id}] Exception in user task execution: {e}\n{error_tb}")
             return {
                 "success": False,
                 "step": "user_function",
                 "error_type": type(e).__name__,
                 "error_message": str(e),
-                "traceback": traceback.format_exc(),
+                "traceback": error_tb,
             }
 
     finally:
         # --- Step 4: Cleanup Applications ---
         if cleanup_func:
-            logger.log.remote(f"[{task_id}] Starting cleanup...")
+            log_fn(f"[{task_id}] Starting cleanup...")
             try:
                 cleanup_results = cleanup_func(applications)
-                logger.log.remote(
+                log_fn(
                     f"[{task_id}] Cleanup finished successfully removed {cleanup_results}."
                 )
             except Exception as e:
-                logger.log.remote(f"[{task_id}] Cleanup failed: {e}")
+                error_tb = traceback.format_exc()
+                log_fn(f"[{task_id}] Cleanup failed: {e}\n{error_tb}")
 
 
 # --- Job Manager Actor ---
@@ -639,7 +642,7 @@ class JobManager:
             job_def["check_status"],
             job_def["cleanup_applications"],
             timeout,
-            task_def["task_id"],
+            task_id,
         )
         self._running_task_futures[task_id] = future
 
