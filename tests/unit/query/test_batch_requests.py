@@ -76,3 +76,51 @@ def test_batch_requests_empty_list():
         mock_request.assert_not_called()
         # Result should be an empty list
         assert result == []
+
+
+def test_batch_requests_with_non_dict_response():
+    """Ensure batch_requests handles non-dict responses without error."""
+
+    async def mock_make_request_async(_url, _model, request):
+        return f"response_{request}"
+
+    with patch(
+        "matrix.client.query_llm.make_request",
+        side_effect=mock_make_request_async,
+    ):
+        requests = [1, 2]
+        result = query_llm.batch_requests("", "", requests)
+
+        assert result == ["response_1", "response_2"]
+
+
+def test_batch_requests_text_only_non_dict_response():
+    """Non-dict responses yield empty strings when text_response_only is True."""
+
+    async def mock_make_request_async(_url, _model, request):
+        return f"response_{request}"
+
+    with patch(
+        "matrix.client.query_llm.make_request",
+        side_effect=mock_make_request_async,
+    ):
+        requests = [1]
+        result = query_llm.batch_requests("", "", requests, text_response_only=True)
+
+        assert result == [""]
+
+
+def test_batch_requests_text_only_non_dict_inner_response():
+    """Inner 'response' value that isn't a dict should be ignored."""
+
+    async def mock_make_request_async(_url, _model, request):
+        return {"response": "oops"}
+
+    with patch(
+        "matrix.client.query_llm.make_request",
+        side_effect=mock_make_request_async,
+    ):
+        requests = [1]
+        result = query_llm.batch_requests("", "", requests, text_response_only=True)
+
+        assert result == [""]
