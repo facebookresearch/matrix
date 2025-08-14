@@ -623,8 +623,13 @@ def batch_requests(
                 inner_resp = result["response"].get("response")
             if text_response_only:
                 if isinstance(inner_resp, dict) and inner_resp.get("error") is None:
-                    text_values = inner_resp.get("text", [])
-                    outputs[index] = text_values[0] if text_values else ""
+                    text_values = inner_resp.get("text")
+                    if isinstance(text_values, list):
+                        outputs[index] = text_values[0] if text_values else ""
+                    elif isinstance(text_values, str):
+                        outputs[index] = text_values
+                    else:
+                        outputs[index] = ""
                 else:
                     outputs[index] = ""
             if isinstance(inner_resp, dict) and inner_resp.get("error") is not None:
