@@ -61,6 +61,7 @@ non_model_params = [
     "endpoint_name",
     "anthropic_version",
     "thinking_budget",
+    "num_containers",
 ]
 
 vllm_app_template = """
@@ -190,9 +191,10 @@ other_app_template = """
   {% elif app.app_type == 'container' %}
 - name: {{ app.name }}
   route_prefix: /{{ app.name }}
-  import_path: matrix.app_server.container.container_deployment:app
+  import_path: matrix.app_server.container.container_deployment:build_app
   runtime_env: {}
-  args: {}
+  args:
+    num_containers: {{ app.num_containers }}
   deployments:
   - name: ContainerDeployment
     max_ongoing_requests: 32
@@ -378,8 +380,12 @@ def get_yaml_for_deployment(
                     app["name"] = "code"
                 yaml_str += Template(other_app_template).render(app=app)
             elif app_type == "container":
-                if "name" not in app:
-                    app["name"] = "container"
+                default_params = {
+                    "name": "container",
+                    "max_ongoing_requests": 32,
+                    "num_containers": 32,
+                }
+                app.update({k: v for k, v in default_params.items() if k not in app})
                 yaml_str += Template(other_app_template).render(app=app)
             elif app_type == "openai":
                 default_params: Dict[str, Union[str, int]] = {
