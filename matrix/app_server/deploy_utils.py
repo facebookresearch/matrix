@@ -61,7 +61,7 @@ non_model_params = [
     "endpoint_name",
     "anthropic_version",
     "thinking_budget",
-    "num_containers",
+    "num_containers_per_replica",
 ]
 
 vllm_app_template = """
@@ -194,7 +194,7 @@ other_app_template = """
   import_path: matrix.app_server.container.container_deployment:build_app
   runtime_env: {}
   args:
-    num_containers: {{ app.num_containers }}
+    num_containers_per_replica: {{ app.num_containers_per_replica }}
   deployments:
   - name: ContainerDeployment
     max_ongoing_requests: 32
@@ -383,7 +383,7 @@ def get_yaml_for_deployment(
                 default_params = {
                     "name": "container",
                     "max_ongoing_requests": 32,
-                    "num_containers": 32,
+                    "num_containers_per_replica": 32,
                 }
                 app.update({k: v for k, v in default_params.items() if k not in app})
                 yaml_str += Template(other_app_template).render(app=app)

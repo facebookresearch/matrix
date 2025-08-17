@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import asyncio
+import atexit
 import logging
 import os
 import random
@@ -16,100 +17,89 @@ from typing import Any, Dict, Optional
 import ray
 from fastapi import FastAPI, HTTPException
 from ray import serve
+from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
+
+from matrix.utils.ray import ACTOR_NAME_SPACE, get_matrix_actors, get_ray_head_node
 
 """
 ContainerDeployment has several replicas controlled by user.
-each replica has num_container ContainerActor, created when replica deploy.
-each ContainerActor has one container. container won't start until acquire, container removed until release. After container release, another container can start.
+each replica has num_containers_per_replica ContainerActor, created when replica deploy.
+each ContainerActor has one container. container won't start until acquire, container is removed when release.
 """
-
-logger = logging.getLogger("container")
 
 
 # ----------------------------
 # ContainerRegistry (detached)
 # ----------------------------
-@ray.remote
+@ray.remote(num_cpus=0)
 class ContainerRegistry:
+    name = "system.container_registry"
+
     def __init__(self):
-        # container_id (hex) -> {"handle": ActorHandle, "owner": replica_id}
-        # container_is is owned by the replica that created it, when replica die, container will die and should be removed
-        self.containers: Dict[str, Dict[str, Any]] = {}
-        # container_id -> replica_id (hex)
-        # container_id is serving traffic from replica_id, when replica die, these containers become free
-        self.assignment: Dict[str, str] = {}
+        # actor_id (hex) -> {"handle": ActorHandle, "owner": replica_id}
+        # actor is owned by the replica that created it, when replica die, actor will die and should be removed
+        self.actors: Dict[str, Dict[str, Any]] = {}
+        # container_id -> actor_id (hex)
+        self.containers: Dict[str, str] = {}
 
-    def _actor_id_from_handle(self, handle):
-        # ActorHandle._actor_id is internal, but works; store hex.
-        return handle._actor_id.hex()
-
-    def register_actor(self, owner_id: str, handle, container_id: str):
-        self.containers[container_id] = {"handle": handle, "owner": owner_id}
-        return container_id
+    def register_actor(self, owner_id: str, handle, actor_id: str):
+        self.actors[actor_id] = {"handle": handle, "owner": owner_id}
+        return actor_id
 
     def get_container_handle(self, container_id: str):
         """
         Returns (actor_handle, actor_id_hex) or (None, None)
         Cleans up if actor is dead (lazy).
         """
-        info = self.containers.get(container_id)
-        if not info:
+        actor_id = self.containers.get(container_id)
+        if not actor_id:
             return None
-        # check if the container is assigned
-        if container_id not in self.assignment:
+        info = self.actors.get(actor_id)
+        if not info:
             return None
         return info["handle"]
 
-    def acquire(self, replica_id: str) -> Optional[tuple[str, ray.actor.ActorHandle]]:
+    def acquire(self, container_id: str) -> Optional[tuple[str, ray.actor.ActorHandle]]:
         """
-        Return an idle actor handle and its id hex. Does NOT remove it from pool.
-        We'll consider any actor that does not have a container assigned as idle.
-        Cleans dead actors lazily.
+        Return an idle actor id and handle.
         """
         # Build set of busy actor ids
-        busy = set(self.assignment.keys())
-        # iterate available actors, prefer owner if provided
+        busy = set(self.containers.values())
+        # iterate available actors
         available = [
-            (cid, info) for cid, info in self.containers.items() if cid not in busy
+            (aid, info) for aid, info in self.actors.items() if aid not in busy
         ]
         if available:
             # randomly select one
-            cid, info = random.choice(available)
-            self.assignment[cid] = replica_id
-            return cid, info["handle"]
+            aid, info = random.choice(available)
+            self.containers[container_id] = aid
+            return aid, info["handle"]
         else:
             return None, None
 
     def release(self, container_id: str):
-        self.assignment.pop(container_id, None)
+        self.containers.pop(container_id, None)
         return True
 
     def list_actors(self):
         return {
-            "containers": {cid: info["owner"] for cid, info in self.containers.items()},
-            "assignment": self.assignment,
+            "actors": {aid: info["owner"] for aid, info in self.actors.items()},
+            "containers": self.containers,
         }
-
-    def cleanup_dead_container(self, container_id: str):
-        # Caller requested explicit removal
-        self.containers.pop(container_id, None)
-        self.assignment.pop(container_id, None)
 
     def cleanup_replica(self, replica_id: str):
         """
         Cleanup all actors owned by this replica.
         """
-        logger.info(f"Cleaning up dead replica {replica_id}")
+        print(f"Cleaning up dead replica {replica_id}")
         to_remove = [
-            cid for cid, info in self.containers.items() if info["owner"] == replica_id
+            aid for aid, info in self.actors.items() if info["owner"] == replica_id
         ]
-        for cid in to_remove:
-            self.containers.pop(cid, None)
-        to_unassign = [
-            cid for cid, owner in self.assignment.items() if owner == replica_id
-        ]
+        for aid in to_remove:
+            self.actors.pop(aid, None)
+        to_unassign = [cid for cid, aid in self.containers.items() if aid in to_remove]
         for cid in to_unassign:
-            self.assignment.pop(cid, None)
+            self.containers.pop(cid, None)
 
 
 # ----------------------------
@@ -118,24 +108,24 @@ class ContainerRegistry:
 @ray.remote(num_cpus=1)
 class ContainerActor:
     def __init__(self):
-        self.container_id = f"container-{uuid.uuid4().hex[:8]}"
-        self.process = None
+        self.actor_id = f"actor-{uuid.uuid4().hex[:8]}"
+        self.config = None
+        atexit.register(self.cleanup)
 
     def get_id(self):
-        return self.container_id
+        return self.actor_id
 
     def start_container(self, **config):
-        """Start the Apptainer instance (persistent container)."""
+        """Start the Apptainer instance (persistent container). May raise subprocess.CalledProcessError if failed."""
         self.config = config
         cmd = [self.config["executable"], "instance", "start", "--fakeroot"]
         cmd.append("--writable-tmpfs")
         cmd.extend(self.config["run_args"])
-        cmd.extend([self.config["image"], self.container_id])
+        cmd.extend([self.config["image"], self.config["container_id"]])
 
         print(f"Starting instance with command: {shlex.join(cmd)}")
-        self.process = subprocess.run(
-            cmd, check=True, timeout=3600 * 2
-        )  # 2 hours timeout
+        # Start the instance (blocking call, exits when daemon is launched)
+        subprocess.run(cmd, capture_output=True, text=True, check=True)
 
     def execute(
         self,
@@ -146,11 +136,12 @@ class ContainerActor:
         timeout_secs: int | None = None,
     ) -> dict[str, Any]:
         """Run a command inside the running instance."""
-        if self.process is None:
+        if self.config is None:
             raise RuntimeError(
                 "Container instance not started. Call start_container() first."
             )
 
+        container_id = self.config["container_id"]
         work_dir = cwd or self.config.get("cwd")
 
         cmd = [self.config["executable"], "exec"]
@@ -163,7 +154,7 @@ class ContainerActor:
         for key, value in (env or {}).items():
             cmd.extend(["--env", f"{key}={value}"])
 
-        cmd.append(f"instance://{self.container_id}")
+        cmd.append(f"instance://{container_id}")
         cmd.extend(["bash", "-lc", command])
 
         result = subprocess.run(
@@ -179,16 +170,17 @@ class ContainerActor:
 
     def cleanup(self):
         """Stop the Apptainer instance."""
-        if self.process is not None:
-            print(f"Stopping instance {self.container_id}")
+        if self.config is not None:
+            container_id = self.config["container_id"]
+            print(f"Stopping instance {container_id}")
             stop_cmd = [
                 self.config["executable"],
                 "instance",
                 "stop",
-                self.container_id,
+                container_id,
             ]
             subprocess.Popen(stop_cmd)
-            self.process = None
+            self.config = None
 
     def __del__(self):
         self.cleanup()
@@ -210,39 +202,26 @@ app = FastAPI()
 )
 @serve.ingress(app)
 class ContainerDeployment:
-    def __init__(self, num_containers: int = 32):
+    def __init__(self, num_containers_per_replica: int = 32):
+        self.registry = ray.get_actor(
+            ContainerRegistry.name, namespace=ACTOR_NAME_SPACE
+        )
         # identify this replica
         # keep this simple: use a uuid per replica
         self.replica_id = f"replica-{uuid.uuid4().hex[:8]}"
-        self.num_containers = num_containers
+        self.num_containers_per_replica = num_containers_per_replica
 
-        # Get or create the detached global registry by name
-        try:
-            self.registry = ray.get_actor(
-                "system.container_registry", namespace="matrix"
-            )
-        except ValueError:
-            # todo, in case of race, one will success, catch and get_actor again
-            try:
-                self.registry = ContainerRegistry.options(
-                    name="system.container_registry",
-                    namespace="matrix",
-                    lifetime="detached",
-                ).remote()
-            except Exception as e:
-                logger.error(f"Failed to create container registry: {e}")
-                self.registry = ray.get_actor(
-                    "system.container_registry", namespace="matrix"
-                )
         # create local non-detached actors and register them
-        self.local_actor_ids = []  # actor ids hex owned by this replica
-        for _ in range(self.num_containers):
-            c_handle = ContainerActor.remote()
-            c_id = ray.get(c_handle.get_id.remote())
+        self.local_actors = []  # actor ids hex owned by this replica
+        for _ in range(self.num_containers_per_replica):
+            actor_handle = ContainerActor.remote()
+            actor_id = ray.get(actor_handle.get_id.remote())
             ray.get(
-                self.registry.register_actor.remote(self.replica_id, c_handle, c_id)
+                self.registry.register_actor.remote(
+                    self.replica_id, actor_handle, actor_id
+                )
             )
-            self.local_actor_ids.append(c_id)
+            self.local_actors.append(actor_handle)
 
     async def _ray_get(self, ref):
         # helper to await ray.get without blocking the async loop
@@ -263,12 +242,13 @@ class ContainerDeployment:
 
         container_id = payload.get("container_id", None)
         assert container_id is None, "container_id unexpected"
+        container_id = f"container-{uuid.uuid4().hex[:8]}"
         timeout_s = float(payload.get("timeout_s", 5.0))
 
         start = asyncio.get_event_loop().time()
         while True:
-            container_id, handle = await self._ray_get(
-                self.registry.acquire.remote(self.replica_id)
+            _actor_id, handle = await self._ray_get(
+                self.registry.acquire.remote(container_id)
             )
             if handle is not None:
                 try:
@@ -277,6 +257,7 @@ class ContainerDeployment:
                             executable=executable,
                             image=image,
                             run_args=run_args,
+                            container_id=container_id,
                         )
                     )
                     return {"container_id": container_id}
@@ -286,7 +267,7 @@ class ContainerDeployment:
                     await self._ray_get(self.registry.release.remote(container_id))
 
                     raise HTTPException(
-                        status_code=500, detail=f"actor execution failed: {e}"
+                        status_code=500, detail=f"Failed to start_container: {e}"
                     )
 
             # none available
@@ -355,20 +336,45 @@ class ContainerDeployment:
 
     def __del__(self):
         """Clean up this replica when it's destroyed"""
+        # This might not work reliably in all shutdown scenarios
         try:
-            # This might not work reliably in all shutdown scenarios
-            ray.get(self.registry.cleanup_replica.remote(self.replica_id))
+            tasks = []
+            tasks.append(self.registry.cleanup_replica.remote(self.replica_id))
+            for handle in self.local_actors:
+                tasks.append(handle.cleanup.remote())
+            ray.get(tasks)
         except Exception:
+            # Ignore all exceptions during cleanup
             pass
 
 
 def build_app(cli_args: Dict[str, str]) -> serve.Application:
     """Builds the Serve app based on CLI arguments."""  # noqa: E501
-    pg_resources = []
-    pg_resources.append({"CPU": 2})  # for the deployment replica
+
+    head_node = get_ray_head_node()
+
+    # Get or create the detached global registry by name
+    try:
+        registry = ray.get_actor(ContainerRegistry.name, namespace=ACTOR_NAME_SPACE)
+    except ValueError:
+        registry = ContainerRegistry.options(
+            name=ContainerRegistry.name,
+            namespace=ACTOR_NAME_SPACE,
+            lifetime="detached",
+            scheduling_strategy=NodeAffinitySchedulingStrategy(
+                node_id=head_node["NodeID"],
+                soft=False,
+            ),
+            num_cpus=0,
+            num_gpus=0,
+            max_restarts=3,  # Allow 3 automatic retries
+            max_task_retries=-1,
+        ).remote()
 
     # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on
     # the same Ray node.
+    pg_resources = []
+    pg_resources.append({"CPU": 2})  # for the deployment replica
     return ContainerDeployment.options(  # type: ignore[union-attr]
         placement_group_bundles=pg_resources,
         placement_group_strategy="STRICT_PACK",
