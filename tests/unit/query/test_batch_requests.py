@@ -153,8 +153,6 @@ def test_batch_requests_text_only_accepts_string_text():
         side_effect=mock_make_request_async,
     ):
         requests = [{}]
-        result = query_llm.batch_requests(
-            "", "", requests, text_response_only=True
-        )
+        result = query_llm.batch_requests("", "", requests, text_response_only=True)
 
         assert result == ["mocked_response"]
