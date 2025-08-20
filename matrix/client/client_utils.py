@@ -3,15 +3,19 @@
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-
 import asyncio
 import hashlib
 import json
+import logging
+import os
 import random
 import time
 import typing as tp
 
 from matrix.client.endpoint_cache import EndpointCache
+
+logger = logging.getLogger("matrix.client.utils")
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 async def get_an_endpoint_url(
@@ -59,3 +63,19 @@ def save_to_jsonl(
             )
             json_str = json.dumps(item)
             file.write(json_str + "\n")
+
+
+def load_from_jsonl(
+    input_files: tp.Tuple[str, ...],
+) -> tp.List[tp.Dict[str, tp.Any]]:
+    data = []
+    for file_name in input_files:
+        assert os.path.exists(file_name), f"{file_name} does not exist"
+        with open(file_name, "r", encoding="UTF-8") as f:
+            num_lines = 0
+            for line_number, line in enumerate(f, start=1):
+                item = json.loads(line)
+                data.append(item)
+                num_lines += 1
+            logger.info(f"Loaded {num_lines} lines from {file_name}")
+    return data
