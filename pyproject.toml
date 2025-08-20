@@ -147,6 +147,22 @@ classifiers=[
       "iopath",
       "jsonlines",
   ]
+  # For video processing
+  vision = [
+      "submitit>=1.5.2",
+      "transformers>=4.45.2",
+      "vllm==v0.8.3",
+      "ray[serve]==2.43.0",
+      "torch>=2.6.0",
+      "boto3",
+      "google-genai>=1.13.0",
+      "datasketch",
+      "s3fs",
+      "datasets",
+      "iopath",
+      "jsonlines",
+      "perception_models @ git+https://github.com/facebookresearch/perception_models.git"
+  ]
 [project.scripts]
 matrix="matrix.cli:main"
 

@@ -62,6 +62,11 @@ non_model_params = [
     "anthropic_version",
     "thinking_budget",
     "num_containers_per_replica",
+    # Perception encoder and optical flow
+    "torch_batch_size",
+    # Optical flow
+    "return_flow",
+    "motion_score",
 ]
 
 vllm_app_template = """
@@ -211,6 +216,36 @@ other_app_template = """
   args: {}
   deployments:
   - name: HelloDeployment
+{% elif app.app_type == 'perception_encoder' %}
+- name: {{ app.name }}
+  route_prefix: /{{ app.name }}
+  import_path: matrix.app_server.vision.perception_encoder:build_app
+  args:
+    model_name: {{ app.model_name }}
+    {% if app.torch_batch_size is not none %}torch_batch_size: {{ app.torch_batch_size }}{% endif %}
+  deployments:
+  - name: PerceptionEncoderDeployment
+    max_ongoing_requests: 100
+    autoscaling_config:
+      target_ongoing_requests: 1
+      min_replicas: {{ app.min_replica }}
+      max_replicas: {{ app.max_replica }}
+{% elif app.app_type == 'optical_flow' %}
+- name: {{ app.name }}
+  route_prefix: /{{ app.name }}
+  import_path: matrix.app_server.vision.optical_flow:build_app
+  args:
+    model_name: {{ app.model_name }}
+    {% if app.torch_batch_size is not none %}torch_batch_size: {{ app.torch_batch_size }}{% endif %}
+    {% if app.return_flow is not none %}return_flow: {{ app.return_flow }}{% endif %}
+    {% if app.motion_score is not none %}motion_score: {{ app.motion_score }}{% endif %}
+  deployments:
+  - name: OpticalFlowDeployment
+    max_ongoing_requests: 100
+    autoscaling_config:
+      target_ongoing_requests: 1
+      min_replicas: {{ app.min_replica }}
+      max_replicas: {{ app.max_replica }}
 {% endif %}
 """
 
@@ -250,6 +285,8 @@ def get_app_type(app):
         "GrpcDeployment": "llm",
         "VLLMDeployment": "llm",
         "SglangDeployment": "sglang_llm",
+        "PerceptionEncoderDeployment": "perception_encoder",
+        "OpticalFlowDeployment": "optical_flow",
     }
     app_type = deploy_type.get(deployment)
     if app_type is None and deployment.endswith("Deployment"):
@@ -351,6 +388,8 @@ def get_yaml_for_deployment(
                 "sagemaker",
                 "gemini",
                 "bedrock",
+                "perception_encoder",
+                "optical_flow",
             ], f"unknown app_type {app_type}"
             app["app_type"] = app_type
             if "min_replica" not in app:

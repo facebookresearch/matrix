@@ -343,11 +343,14 @@ class AppApi:
         model = app["args"].get("model")  # type: ignore
         deployment_name = app["deployments"][0]["name"]  # type: ignore
         use_grpc = "GrpcDeployment" in deployment_name
+
         if serve_app:
             if (
                 "code" in deployment_name.lower()
                 or "hello" in deployment_name.lower()
                 or "container" in deployment_name.lower()
+                or "perception_encoder" in deployment_name.lower()
+                or "optical" in deployment_name.lower()
             ):
                 endpoint_template = f"http://{{host}}:{http_port}/{prefix}"
             else:
@@ -454,6 +457,17 @@ class AppApi:
             client = CodeExcutionClient(get_one_endpoint)
             return asyncio.run(
                 client.execute_code(
+                    output_jsonl,
+                    input_jsonls,
+                    **kwargs,
+                )
+            )
+        elif app_type in {"perception_encoder", "optical_flow"}:
+            from matrix.client.process_vision_data import VisionClient
+
+            vision_client = VisionClient(get_one_endpoint)
+            return asyncio.run(
+                vision_client.inference(
                     output_jsonl,
                     input_jsonls,
                     **kwargs,
