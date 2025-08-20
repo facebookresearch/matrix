@@ -212,6 +212,19 @@ query_llm.batch_requests(
 )
 ```
 
+If you only need raw text responses, you can request text outputs directly:
+
+```python
+responses = query_llm.batch_requests(
+  url=metadata["endpoints"]["head"],
+  model=metadata["model_name"],
+  app_name=metadata["name"],
+  requests=[{"messages": [{"role": "user", "content": "hi"}]}],
+  text_response_only=True,
+)
+print(responses)
+```
+
 ---
 
 ## Job manager

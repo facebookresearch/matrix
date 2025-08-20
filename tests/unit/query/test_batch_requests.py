@@ -110,6 +110,22 @@ def test_batch_requests_text_only_non_dict_response():
         assert result == [""]
 
 
+def test_batch_requests_non_dict_inner_response():
+    """Inner 'response' value that isn't a dict should be returned as-is."""
+
+    async def mock_make_request_async(_url, _model, request):
+        return {"response": "mocked_response"}
+
+    with patch(
+        "matrix.client.query_llm.make_request",
+        side_effect=mock_make_request_async,
+    ):
+        requests = [1]
+        result = query_llm.batch_requests("", "", requests)
+
+        assert result == [{"response": "mocked_response"}]
+
+
 def test_batch_requests_text_only_non_dict_inner_response():
     """Inner 'response' value that isn't a dict should be ignored."""
 
@@ -124,3 +140,21 @@ def test_batch_requests_text_only_non_dict_inner_response():
         result = query_llm.batch_requests("", "", requests, text_response_only=True)
 
         assert result == [""]
+
+
+def test_batch_requests_text_only_accepts_string_text():
+    """When response['text'] is a string it should be returned verbatim."""
+
+    async def mock_make_request_async(_url, _model, request):
+        return {"response": {"text": "mocked_response"}}
+
+    with patch(
+        "matrix.client.query_llm.make_request",
+        side_effect=mock_make_request_async,
+    ):
+        requests = [{}]
+        result = query_llm.batch_requests(
+            "", "", requests, text_response_only=True
+        )
+
+        assert result == ["mocked_response"]

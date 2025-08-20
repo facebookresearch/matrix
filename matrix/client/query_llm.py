@@ -582,6 +582,11 @@ def batch_requests(
           b. {"prompt": "<|start_header_id|>user<|end_header_id|>\n\n<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"}
         text_response_only: if True, return the response as a list of text. otherwise return eg
         [{"request": {...}, "response": {"text": ["..."], "finish_reason": ["..."], "response_timestamp": ..., "usage": ...}}]
+
+    Responses may also be plain strings. For example, an upstream service
+    might return "..." instead of a structured dictionary. In such
+    cases, the raw string is returned verbatim (or an empty string when
+    ``text_response_only`` is True).
     """
 
     async def _process_requests():
