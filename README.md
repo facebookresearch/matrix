@@ -63,6 +63,15 @@ conda activate matrix
 pip install fair-matrix[vllm_083]
 ```
 
+- Docker
+```
+# build the image with vLLM support (default)
+docker build -t matrix .
+
+# run any Matrix CLI command, e.g. display help
+docker run --rm matrix --help
+```
+
 - Launch ray cluster
 ```
 matrix start_cluster --add_workers 1 --slurm "{'account': $SLURM_ACCOUNT, 'qos': $SLURM_QOS}"
