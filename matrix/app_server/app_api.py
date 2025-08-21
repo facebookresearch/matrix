@@ -213,7 +213,7 @@ class AppApi:
                             )
                         else:
                             if action == Action.ADD:
-                                # disjoint
+                                # redeploy existing serve apps to avoid resource fragmentation
                                 old_app_names = [app["name"] for app in existing_apps]
                                 new_app_names = [
                                     app["name"] for app in update_apps["applications"]
@@ -223,7 +223,25 @@ class AppApi:
                                     not duplicates
                                 ), f"Add to existing apps {duplicates}"
 
-                                update_apps["applications"].extend(existing_apps)
+                                # remove current serve deployments so they can be rescheduled
+                                if old_apps:
+                                    delete_apps(self._cluster_info, old_apps)
+
+                                update_apps["applications"].extend(old_apps)
+
+                                def _gpu_count(app):
+                                    try:
+                                        return int(
+                                            app.get("args", {}).get(
+                                                "tensor_parallel_size", 1
+                                            )
+                                        )
+                                    except Exception:
+                                        return 1
+
+                                update_apps["applications"].sort(
+                                    key=_gpu_count, reverse=True
+                                )
                             serve_apps, _ = write_yaml_file(
                                 yaml_file, None, update_apps
                             )
