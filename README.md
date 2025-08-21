@@ -20,10 +20,10 @@ Matrix is a library for fast, scalable, and easy-to-use LLM-generation engine, f
 Matrix runs on top of a [Ray](https://github.com/ray-project/ray) cluster for scalability. Cluster resources are acquired from [Slurm](https://slurm.schedmd.com/documentation.html) or local through [submitit](https://github.com/facebookincubator/submitit). Matrix has following main features:
 
 **Large scale inference** for maintstream opensourced and proprietary LLMs
-- Hugging Face LLMs via seamless intergration with [vLLM](https://github.com/vllm-project/vllm) and [SGLang](https://github.com/sgl-project/sglang). Native multi-node inference support.
+- Hugging Face LLMs via seamless integration with [vLLM](https://github.com/vllm-project/vllm) and [SGLang](https://github.com/sgl-project/sglang). Native multi-node inference support.
 - Azure OpenAI, SageMaker, Gemini models with Proxy server
 
-**Data piplines** of high-throughput data processing and quality check
+**Data pipelines** of high-throughput data processing and quality checks
 - Code execution service as a wrapper of [bubblewrap](https://github.com/containers/bubblewrap).
 - Data curation, quality filtering, and augmentation with classifiers.
 
@@ -48,7 +48,7 @@ Matrix is designed for scalable LLM inference on [Slurm](https://slurm.schedmd.c
   - [Advanced Deployment](#advanced-deployment)
   - [LLM Inference](#llm-inference)
   - [Job Manager](#job-manager)
-  - [Data piplines](#data-piplines)
+  - [Data pipelines](#data-pipelines)
   - [Contributing](#contributing)
   - [Citation](#citation)
 
@@ -182,7 +182,7 @@ There are two formats for the jsonl input files:
     "text": "<|start_header_id|>system<|end_header_id|>You are ... <|eot_id|><|start_header_id|>user<|end_header_id|>Solve the following ...<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
 }
 ```
-  - Raw tax with arg --text_key text
+  - Raw text with arg --text_key text
 ```json
 {
     "text": "Solve the following ..."
@@ -220,7 +220,7 @@ Job manager allows users to submit tasks for distributed execution on Ray. More 
 
 ---
 
-## Data piplines
+## Data pipelines
 
 ### Code Execution
 - Install bubblewrap
@@ -232,14 +232,14 @@ conda install -c conda-forge bubblewrap
 matrix deploy_applications --applications "[{'name': 'code', 'app_type': code, 'min_replica': 5}]"
 matrix check_health --app_name code
 
-python -m -m matrix.scripts.hf_dataset_to_jsonl openai/openai_humaneval test humaneval/test.jsonl
+python -m matrix.scripts.hf_dataset_to_jsonl openai/openai_humaneval test humaneval/test.jsonl
 matrix inference code ~/tmp/he.jsonl humaneval/test.jsonl --text_keys "[prompt, canonical_solution, test, entry_point]" --prompt_template "check({entry_point})"
 ```
 
 ### Data filtering and augmentation
 - minhash dedup
 ```
-python  -m matrix.data_pipeline.quality.dedup_minhash $ray_head:$client_server_port input.jsonl output_dir working_dir --text_key problem
+python -m matrix.data_pipeline.quality.dedup_minhash $ray_head:$client_server_port input.jsonl output_dir working_dir --text_key problem
 ```
 - multilabel classification
 ```
