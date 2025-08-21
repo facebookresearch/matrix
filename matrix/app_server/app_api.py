@@ -231,11 +231,20 @@ class AppApi:
 
                                 def _gpu_count(app):
                                     try:
-                                        return int(
-                                            app.get("args", {}).get(
-                                                "tensor_parallel_size", 1
+                                        args = app.get("args", {})
+                                        tp = int(
+                                            args.get(
+                                                "tensor_parallel_size",
+                                                args.get("tensor-parallel-size", 1),
                                             )
                                         )
+                                        pp = int(
+                                            args.get(
+                                                "pipeline_parallel_size",
+                                                args.get("pipeline-parallel-size", 1),
+                                            )
+                                        )
+                                        return tp * pp
                                     except Exception:
                                         return 1
 
