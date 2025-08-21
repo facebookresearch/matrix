@@ -64,9 +64,10 @@ class PerceptionEncoderDeployment:
         self.model_name = model_name
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        self.model = (
+        model = (
             pe.CLIP.from_config(self.model_name, pretrained=True).to(self.device).eval()
         )
+        self.model = torch.compile(model, mode="reduce-overhead")
         self.preprocess = get_image_transform(self.model.image_size)
 
         self.num_workers = self._find_max_num_workers()
