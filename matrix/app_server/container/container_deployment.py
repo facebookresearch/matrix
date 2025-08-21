@@ -179,7 +179,8 @@ class ContainerActor:
                 "stop",
                 container_id,
             ]
-            subprocess.Popen(stop_cmd)
+            proc = subprocess.Popen(stop_cmd)
+            proc.wait()
             self.config = None
 
     def __del__(self):
@@ -371,11 +372,4 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
             max_task_retries=-1,
         ).remote()
 
-    # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on
-    # the same Ray node.
-    pg_resources = []
-    pg_resources.append({"CPU": 2})  # for the deployment replica
-    return ContainerDeployment.options(  # type: ignore[union-attr]
-        placement_group_bundles=pg_resources,
-        placement_group_strategy="STRICT_PACK",
-    ).bind(**cli_args)
+    return ContainerDeployment.options().bind(**cli_args)  # type: ignore[union-attr]

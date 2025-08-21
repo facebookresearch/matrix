@@ -6,6 +6,7 @@
 
 import asyncio
 import concurrent
+import logging
 import os
 import select
 import signal
@@ -19,9 +20,13 @@ import uuid
 from collections import deque
 from contextlib import closing
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
 import portalocker
 import psutil
+from tqdm import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 def kill_proc_tree(pid, including_parent=True):
@@ -336,3 +341,35 @@ def download_s3_dir(
     print(cmd)
     downloaded = run_subprocess(cmd)
     return downloaded, dest_dir
+
+
+async def batch_requests(
+    func: Callable[..., Any],
+    args_list: List[Dict[str, Any]],
+    batch_size: int = 32,
+) -> List[Any]:
+
+    semaphore = asyncio.Semaphore(batch_size)
+    results: List[Any] = [None] * len(args_list)
+
+    async def worker(index: int, kwargs: Dict[str, Any]):
+        async with semaphore:
+            try:
+                results[index] = await func(**kwargs)
+            except Exception as e:
+                logger.error(f"Error in batch request {index}: {e}", exc_info=True)
+                results[index] = e
+
+    tasks = [worker(i, kwargs) for i, kwargs in enumerate(args_list)]
+
+    # Progress bar
+    pbar = tqdm(
+        total=len(tasks),
+        desc=f"Batch {func.__name__ if hasattr(func, '__name__') else 'func'}",
+    )
+    for coro in asyncio.as_completed(tasks):
+        await coro
+        pbar.update(1)
+    pbar.close()
+
+    return results
