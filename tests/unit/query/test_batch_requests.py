@@ -17,8 +17,8 @@ def test_batch_requests_from_async_run():
     """Test batch_requests called from within an asyncio.run context."""
     mock_response = "mocked_response"
 
-    async def mock_make_request_async(_url, _model, request):
-        return f"{mock_response}_{request}"
+    async def mock_make_request_async(_url, _model, data):
+        return f"{mock_response}_{data}"
 
     async def async_wrapper():
         with patch(
@@ -48,8 +48,8 @@ def test_batch_requests_in_sync_context():
     # Create a mock for make_request_async
     mock_response = "mocked_response"
 
-    async def mock_make_request_async(_url, _model, request):
-        return f"{mock_response}_{request}"
+    async def mock_make_request_async(_url, _model, data):
+        return f"{mock_response}_{data}"
 
     with patch(
         "matrix.client.query_llm.make_request",
