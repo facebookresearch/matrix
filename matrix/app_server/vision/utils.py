@@ -5,12 +5,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import av
 import cv2
-import decord
 import numpy as np
 import torch
 import torchvision.io
 import torchvision.transforms.v2 as T
 from PIL import Image
+from tenacity import RetryError, Retrying, stop_after_attempt, wait_fixed
 from torch.utils.data import Dataset
 from torchcodec.decoders import VideoDecoder
 
@@ -135,7 +135,6 @@ class TorchCodecVideoDataset(Dataset):
         if self.preprocess:
             processed_frames = [self.preprocess(frame) for frame in item_tensor]
             item_tensor = torch.stack(processed_frames)
-
         metadata = {
             "frame_indices": final_indices,
             "timestamps_sec": [i / self.fps for i in final_indices],
@@ -175,3 +174,13 @@ def get_image_transform(
             T.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5], inplace=True),
         ]
     )
+
+
+def execute_with_retry(func, *args, **kwargs):
+
+    retryer = Retrying(
+        stop=stop_after_attempt(4),  # Max 4 attempts
+        wait=wait_fixed(0.5),  # Wait for 0.5 seconds before retrying
+        reraise=True,  # If it fails, re-raise the last exception
+    )
+    return retryer(func, *args, **kwargs)

@@ -1,6 +1,8 @@
+import asyncio
 import json
 import logging
 import os
+import traceback
 from argparse import ArgumentParser
 from typing import Any, Dict, List, Optional, Union
 
@@ -18,6 +20,7 @@ from torch.utils.data import DataLoader, Dataset
 from matrix.app_server.vision.utils import (
     SamplingMode,
     TorchCodecVideoDataset,
+    execute_with_retry,
     get_image_transform,
 )
 
@@ -64,9 +67,10 @@ class PerceptionEncoderDeployment:
         self.model_name = model_name
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
-        self.model = (
+        model = (
             pe.CLIP.from_config(self.model_name, pretrained=True).to(self.device).eval()
         )
+        self.model = torch.compile(model, mode="reduce-overhead")
         self.preprocess = get_image_transform(self.model.image_size)
 
         self.num_workers = self._find_max_num_workers()
@@ -179,22 +183,27 @@ class PerceptionEncoderDeployment:
                     collate_fn=_custom_collate_fn,
                 )
 
-                with torch.no_grad():
-                    for i, batch in enumerate(data_loader):
-                        frames = batch["frames"].to(
-                            self.device, non_blocking=self.device == "cuda"
-                        )
-                        if window_size > 1:
-                            batch_embeddings = self.model.encode_video(frames)
-                        else:
-                            batch_embeddings = self.model.encode_image(frames)
-                        meta = batch["meta"]
-                        output.append(
-                            {
-                                "embeddings": batch_embeddings.cpu().tolist(),
-                                "meta": meta,
-                            }
-                        )
+                def _run_inference():
+                    with torch.no_grad():
+                        for i, batch in enumerate(data_loader):
+                            frames = batch["frames"].to(self.device)
+                            if window_size > 1:
+                                batch_embeddings = execute_with_retry(
+                                    self.model.encode_video, frames
+                                )
+                            else:
+                                batch_embeddings = execute_with_retry(
+                                    self.model.encode_image, frames
+                                )
+                            meta = batch["meta"]
+                            output.append(
+                                {
+                                    "embeddings": batch_embeddings.cpu().tolist(),
+                                    "meta": meta,
+                                }
+                            )
+
+                await asyncio.to_thread(_run_inference)
 
             elif "image" in request_json:
                 image = request_json["image"]
@@ -212,18 +221,30 @@ class PerceptionEncoderDeployment:
                 image_tensor = (
                     self.preprocess(image_tensor).unsqueeze(0).to(self.device)
                 )
-                with torch.no_grad():
-                    embedding = self.model.encode_image(image_tensor)
-                    embeddings = embedding.cpu().tolist()
-                output.append({"embeddings": embeddings})
+
+                def _run_image_inference():
+                    with torch.no_grad():
+                        embeddings = execute_with_retry(
+                            self.model.encode_image, image_tensor
+                        )
+                        embeddings = embeddings.cpu().tolist()
+                    output.append({"embeddings": embeddings})
+
+                await asyncio.to_thread(_run_image_inference)
             elif "text" in request_json:
                 text = request_json["text"]
                 tokenizer = transforms.get_text_tokenizer(self.model.context_length)
                 text_tensor = tokenizer([text]).to(self.device)
-                with torch.no_grad():
-                    embedding = self.model.encode_text(text_tensor)
-                    embeddings = embedding.cpu().tolist()
-                output.append({"embeddings": embeddings})
+
+                def _run_text_inference():
+                    with torch.no_grad():
+                        embeddings = execute_with_retry(
+                            self.model.encode_text, text_tensor
+                        )
+                        embeddings = embeddings.cpu().tolist()
+                    output.append({"embeddings": embeddings})
+
+                await asyncio.to_thread(_run_text_inference)
 
             else:
                 raise ValueError(
@@ -239,10 +260,13 @@ class PerceptionEncoderDeployment:
             )
 
         except Exception as e:
+
+            traceback_str = traceback.format_exc()
             return JSONResponse(
                 {
                     "success": False,
                     "error_msg": str(e),
+                    "traceback": traceback_str,
                 },
                 status_code=500,
             )

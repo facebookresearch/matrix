@@ -161,6 +161,8 @@ classifiers=[
       "datasets",
       "iopath",
       "jsonlines",
+      "opencv-python",
+      "tenacity",
       "perception_models @ git+https://github.com/facebookresearch/perception_models.git"
   ]
 [project.scripts]

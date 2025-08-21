@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -153,7 +154,8 @@ class OpticalFlowDeployment:
                 persistent_workers=self.num_workers > 0,
             )
 
-            result = self._calculate_motion_metrics(
+            result: Dict[str, float | List[List[float]]] = await asyncio.to_thread(
+                self._calculate_motion_metrics,
                 data_loader,
             )
 
