@@ -132,12 +132,12 @@ classifiers=[
       "jsonlines",
   ]
   # For gpt-oss model with PP=1
-  vllm_0101_gptoss = [
+  vllm_0101 = [
       # install using https://docs.vllm.ai/projects/recipes/en/latest/OpenAI/GPT-OSS.html
       "submitit>=1.5.2",
       "transformers>=4.45.2",
       "torch>=2.7.1",
-      "vllm==0.10.1+gptoss",
+      "vllm==0.10.1",
       "ray[serve]>=2.48.0",
       "boto3",
       "google-genai>=1.13.0",
