@@ -18,7 +18,7 @@ def test_batch_requests_from_async_run():
     mock_response = "mocked_response"
 
     async def mock_make_request_async(_url, _model, request):
-        return f"{mock_response}_{request}"
+        return {"response": {"text": f"{mock_response}_{request}"}}
 
     async def async_wrapper():
         with patch(
@@ -34,9 +34,12 @@ def test_batch_requests_from_async_run():
             assert isinstance(result, list)
             assert len(result) == 3
             assert result == [
-                f"{mock_response}_1",
-                f"{mock_response}_2",
-                f"{mock_response}_3",
+                {"response": {"text": text}}
+                for text in [
+                    f"{mock_response}_1",
+                    f"{mock_response}_2",
+                    f"{mock_response}_3",
+                ]
             ]
 
     # Use asyncio.run to execute the async wrapper
@@ -49,7 +52,7 @@ def test_batch_requests_in_sync_context():
     mock_response = "mocked_response"
 
     async def mock_make_request_async(_url, _model, request):
-        return f"{mock_response}_{request}"
+        return {"response": {"text": f"{mock_response}_{request}"}}
 
     with patch(
         "matrix.client.query_llm.make_request",
@@ -62,9 +65,12 @@ def test_batch_requests_in_sync_context():
         # Verify results
         assert len(result) == 3
         assert result == [
-            f"{mock_response}_1",
-            f"{mock_response}_2",
-            f"{mock_response}_3",
+            {"response": {"text": text}}
+            for text in [
+                f"{mock_response}_1",
+                f"{mock_response}_2",
+                f"{mock_response}_3",
+            ]
         ]
 
 
