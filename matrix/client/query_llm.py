@@ -12,7 +12,7 @@ import os
 import random
 import time
 import typing as tp
-from functools import reduce
+from functools import partial, reduce
 
 import grpc
 import openai
@@ -24,7 +24,7 @@ from openai import APIConnectionError, APITimeoutError, RateLimitError
 from matrix.app_server.llm import openai_pb2, openai_pb2_grpc
 from matrix.client.client_utils import get_an_endpoint_url, save_to_jsonl
 from matrix.client.endpoint_cache import EndpointCache
-from matrix.utils.os import run_async
+from matrix.utils.os import batch_requests_async, run_async
 
 CHAR_PER_TOKEN = 3.61
 logging.basicConfig(
@@ -584,52 +584,34 @@ def batch_requests(
         [{"request": {...}, "response": {"text": ["..."], "finish_reason": ["..."], "response_timestamp": ..., "usage": ...}}]
     """
 
-    async def _process_requests():
-        """Helper function to process all requests concurrently."""
+    raw_results = run_async(
+        batch_requests_async(
+            func=partial(make_request, url, model, **kwargs),
+            args_list=[{"data": req} for req in requests],
+            batch_size=batch_size or len(requests),
+        )
+    )
 
-        semaphore = asyncio.Semaphore(batch_size or len(requests))  # Max concurrency
+    # Post-process results
+    outputs: list[dict[str, tp.Any] | str] = []
+    num_error = 0
 
-        async def process_prompt(index, request):
-            async with semaphore:
-                try:
-                    response = await make_request(url, model, request, **kwargs)
-                    return {"index": index, "response": response}
-                except Exception as e:
-                    logger.error(
-                        f"Error processing prompt {index}: {str(e)}", exc_info=True
-                    )
-                    return {"index": index, "response": make_error_response(request, e)}
+    for i, result in enumerate(raw_results):
+        if isinstance(result, Exception):
+            result = make_error_response(requests[i], result)
+        if result["response"].get("error") is not None:
+            num_error += 1
 
-        # Process all prompts concurrently
-        tasks = [process_prompt(i, prompt) for i, prompt in enumerate(requests)]
-        results = []
+        if text_response_only:
+            if result["response"].get("error") is not None:
+                outputs.append("")
+            else:
+                outputs.append(result["response"]["text"][0])
+        else:
+            outputs.append(result)
 
-        pbar = tqdm.tqdm(total=len(requests), desc="Processing async tasks")
-        for coro in asyncio.as_completed(tasks):
-            result = await coro
-            results.append(result)
-            pbar.update(1)
-        pbar.close()
-
-        # Extract outputs in correct order
-        outputs = [""] * len(requests)
-        num_error = 0
-
-        for result in results:
-            index = result["index"]
-            outputs[index] = result["response"]
-            if text_response_only:
-                if result["response"]["response"].get("error") is None:
-                    outputs[index] = result["response"]["response"]["text"][0]
-                else:
-                    outputs[index] = ""
-            if result["response"]["response"].get("error") is not None:
-                num_error += 1
-
-        logger.info(f"complete {len(outputs)} samples, {num_error} request errors")
-        return outputs
-
-    return run_async(_process_requests())
+    logger.info(f"complete {len(outputs)} samples, {num_error} request errors")
+    return outputs
 
 
 async def main(
@@ -649,6 +631,7 @@ async def main(
     messages_key="request.messages",
     system_prompt="",
     timeout_secs=600,
+    batch_mode=False,
 ) -> tp.Dict[str, int]:
     """Send jsonl llama3 instruct prompt for inference and save both the request and response as jsonl.
     params:
@@ -689,42 +672,13 @@ async def main(
         messages_key,
         system_prompt=system_prompt,
     )
-    pbar = tqdm.tqdm(total=len(lines), desc="Send request")
-
     stats = {"success": 0, "total": 0, "sum_latency": 0}
-    pending_tasks = set()  # type: ignore
-    batch_results = []
-    append_output_file: bool = False
-
-    async def save_outputs(flush=False):
-        nonlocal pending_tasks, batch_results, append_output_file
-        output_batch_size = 32
-
-        if pending_tasks:
-            completed, pending_tasks = await asyncio.wait(
-                pending_tasks, return_when=asyncio.FIRST_COMPLETED
-            )
-            for completed_task in completed:
-                batch_results.append(await completed_task)
-                pbar.update(1)
-        if flush or len(batch_results) >= output_batch_size:
-            await asyncio.to_thread(
-                save_to_jsonl,
-                batch_results,
-                output_file,
-                "w" if not append_output_file else "a",
-                stats,
-            )
-            batch_results = []
-            append_output_file = True
-
-    for line in lines:
-        # async with async_client.openai_client as client:
-        task = asyncio.create_task(
-            make_request(
+    if batch_mode:
+        outputs = await batch_requests_async(
+            func=partial(
+                make_request,
                 url,
                 model,
-                line,
                 app_name=app_name,
                 seed=seed,
                 top_p=top_p,
@@ -733,61 +687,75 @@ async def main(
                 temperature=temperature,
                 logprobs=logprobs,
                 timeout_secs=timeout_secs,
-            )
+            ),
+            args_list=[{"data": line} for line in lines],
+            batch_size=batch_size,
         )
-        pending_tasks.add(task)
-        # If we have reached the batch size, wait for at least one task to complete
-        if len(pending_tasks) >= batch_size:
+        await asyncio.to_thread(
+            save_to_jsonl,
+            outputs,
+            output_file,
+            "w",
+            stats,
+        )
+    else:
+        pbar = tqdm.tqdm(total=len(lines), desc="Send request")
+
+        pending_tasks = set()  # type: ignore
+        batch_results = []
+        append_output_file: bool = False
+
+        async def save_outputs(flush=False):
+            nonlocal pending_tasks, batch_results, append_output_file
+            output_batch_size = 32
+
+            if pending_tasks:
+                completed, pending_tasks = await asyncio.wait(
+                    pending_tasks, return_when=asyncio.FIRST_COMPLETED
+                )
+                for completed_task in completed:
+                    batch_results.append(await completed_task)
+                    pbar.update(1)
+            if flush or len(batch_results) >= output_batch_size:
+                await asyncio.to_thread(
+                    save_to_jsonl,
+                    batch_results,
+                    output_file,
+                    "w" if not append_output_file else "a",
+                    stats,
+                )
+                batch_results = []
+                append_output_file = True
+
+        for line in lines:
+            # async with async_client.openai_client as client:
+            task = asyncio.create_task(
+                make_request(
+                    url,
+                    model,
+                    line,
+                    app_name=app_name,
+                    seed=seed,
+                    top_p=top_p,
+                    n=n,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    logprobs=logprobs,
+                    timeout_secs=timeout_secs,
+                )
+            )
+            pending_tasks.add(task)
+            # If we have reached the batch size, wait for at least one task to complete
+            if len(pending_tasks) >= batch_size:
+                await save_outputs()
+        while pending_tasks:
             await save_outputs()
-    while pending_tasks:
-        await save_outputs()
-    if batch_results:
-        await save_outputs(flush=True)
-    pbar.close()
+        if batch_results:
+            await save_outputs(flush=True)
+        pbar.close()
     logger.info(f"Stats of the request: {stats}")
     return stats
 
 
-def cli(
-    url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
-    output_file: str,
-    input_jsonls: str,
-    app_name: str,
-    model: str,
-    batch_size: int = 32,
-    seed: int = 42,
-    temperature: float = 0.7,
-    max_tokens: int = 4096,
-    top_p: float = 0.9,
-    n: int = 1,
-    logprobs: bool = False,
-    text_key: str = "text",
-    messages_key: str = "request.messages",
-    system_prompt: str = "",
-    timeout_secs: int = 600,
-) -> tp.Dict[str, int]:
-    """Synchronous CLI entrypoint that runs the async main."""
-    return run_async(
-        main(
-            url=url,
-            output_file=output_file,
-            input_jsonls=input_jsonls,
-            app_name=app_name,
-            model=model,
-            batch_size=batch_size,
-            seed=seed,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            top_p=top_p,
-            n=n,
-            logprobs=logprobs,
-            text_key=text_key,
-            messages_key=messages_key,
-            system_prompt=system_prompt,
-            timeout_secs=timeout_secs,
-        )
-    )
-
-
 if __name__ == "__main__":
-    Fire(cli)
+    Fire(main)

@@ -17,7 +17,6 @@ from pathlib import Path
 import fire
 
 from matrix.app_server import app_api
-from matrix.client import query_llm
 from matrix.cluster.ray_cluster import RayCluster
 from matrix.utils.basics import convert_to_json_compatible
 from matrix.utils.os import run_and_stream, run_async, run_subprocess
@@ -327,6 +326,7 @@ class Cli:
                     async with ManagedContainer(
                         client, image="docker://ubuntu:22.04"
                     ) as container_id:
+                        assert container_id is not None
                         return await client.execute(container_id, "echo Hello World")
 
                 return run_async(run_container())
@@ -356,6 +356,8 @@ class Cli:
                     ]
                     return run_subprocess(curl_command)
                 else:
+                    from matrix.client import query_llm
+
                     if not use_chat:
                         data_payload = {"prompt": prompt}
                     response = query_llm.batch_requests(

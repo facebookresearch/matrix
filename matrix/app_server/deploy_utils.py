@@ -380,7 +380,7 @@ def get_yaml_for_deployment(
                     app["name"] = "code"
                 yaml_str += Template(other_app_template).render(app=app)
             elif app_type == "container":
-                default_params = {
+                default_params: Dict[str, Union[str, int]] = {
                     "name": "container",
                     "max_ongoing_requests": 32,
                     "num_containers_per_replica": 32,
@@ -388,7 +388,7 @@ def get_yaml_for_deployment(
                 app.update({k: v for k, v in default_params.items() if k not in app})
                 yaml_str += Template(other_app_template).render(app=app)
             elif app_type == "openai":
-                default_params: Dict[str, Union[str, int]] = {
+                default_params = {
                     "name": "openai",
                     "model_name": "gpt-4o",
                     "max_ongoing_requests": 100,

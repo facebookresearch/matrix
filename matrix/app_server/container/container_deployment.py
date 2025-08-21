@@ -59,7 +59,9 @@ class ContainerRegistry:
             return None
         return info["handle"]
 
-    def acquire(self, container_id: str) -> Optional[tuple[str, ray.actor.ActorHandle]]:
+    def acquire(
+        self, container_id: str
+    ) -> tuple[str | None, ray.actor.ActorHandle | None]:
         """
         Return an idle actor id and handle.
         """
@@ -215,7 +217,7 @@ class ContainerDeployment:
         # create local non-detached actors and register them
         self.local_actors = []  # actor ids hex owned by this replica
         for _ in range(self.num_containers_per_replica):
-            actor_handle = ContainerActor.remote()
+            actor_handle = ContainerActor.remote()  # type: ignore[attr-defined]
             actor_id = ray.get(actor_handle.get_id.remote())
             ray.get(
                 self.registry.register_actor.remote(
@@ -358,7 +360,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     try:
         registry = ray.get_actor(ContainerRegistry.name, namespace=ACTOR_NAME_SPACE)
     except ValueError:
-        registry = ContainerRegistry.options(
+        registry = ContainerRegistry.options(  # type: ignore[attr-defined]
             name=ContainerRegistry.name,
             namespace=ACTOR_NAME_SPACE,
             lifetime="detached",
@@ -372,4 +374,4 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
             max_task_retries=-1,
         ).remote()
 
-    return ContainerDeployment.options().bind(**cli_args)  # type: ignore[union-attr]
+    return ContainerDeployment.options().bind(**cli_args)  # type: ignore[attr-defined]

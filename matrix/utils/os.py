@@ -343,7 +343,7 @@ def download_s3_dir(
     return downloaded, dest_dir
 
 
-async def batch_requests(
+async def batch_requests_async(
     func: Callable[..., Any],
     args_list: List[Dict[str, Any]],
     batch_size: int = 32,

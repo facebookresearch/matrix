@@ -36,7 +36,7 @@ _SLURM_KEY_ALIASES: dict[str, str] = {
 
 
 def _normalize_slurm_keys(
-    config: tp.Dict[str, tp.Union[str, int]]
+    config: tp.Dict[str, tp.Union[str, int]],
 ) -> tp.Dict[str, tp.Union[str, int]]:
     """Map alternative slurm_* keys to their canonical form."""
     normalized = {}

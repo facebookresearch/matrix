@@ -282,8 +282,9 @@ class AppApi:
             results.append("\n\nReplica: " + "-" * 8)
             os.environ["RAY_ADDRESS"] = get_ray_address(self._cluster_info)
             _client = _get_global_client()
+            assert _client is not None
             replicas = ray.get(
-                _client._controller._all_running_replicas.remote()
+                _client._controller._all_running_replicas.remote()  # type: ignore[attr-defined]
             )  # type: ignore[union-attr]
             json_compatible_replicas = convert_to_json_compatible(replicas)
             results.append(json.dumps(json_compatible_replicas, indent=2))
