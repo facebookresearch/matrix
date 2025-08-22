@@ -63,7 +63,7 @@ conda activate matrix
 pip install fair-matrix[vllm_083]
 ```
 
-- Docker
+- Docker (Not Recommended)
 ```bash
 # build the image with vLLM support (default)
 docker build -t matrix .
@@ -71,6 +71,7 @@ docker build -t matrix .
 # run any Matrix CLI command, e.g. display help
 docker run --rm matrix --help
 ```
+> **Note:** The Docker image is useful for experimenting with the Matrix CLI, but it does not include system-level dependencies such as Slurm. Operations like `start_cluster` that rely on these packages should be run in a properly configured Conda environment on the host.
 
 - Launch ray cluster
 ```bash
