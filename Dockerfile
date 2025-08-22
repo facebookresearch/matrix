@@ -20,7 +20,6 @@ RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
 
 # Expose the Matrix CLI as the container entrypoint so users can execute
-# commands directly, e.g. `docker run matrix --help` or
-# `docker run matrix start_cluster ...`.
+# commands directly, e.g. `docker run matrix --help`
 ENTRYPOINT ["matrix"]
 CMD ["--help"]
