@@ -145,7 +145,7 @@ llm_model_default_parameters = {
         "max-model-len": 32768,
         "gpu-memory-utilization": 0.8,
     },
-    "Qwen2.5-32B-Instruct": {
+    "Qwen/Qwen2.5-32B-Instruct": {
         "name": "Qwen2.5-32B",
         "tensor-parallel-size": 2,
         "pipeline-parallel-size": 1,
@@ -154,7 +154,7 @@ llm_model_default_parameters = {
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
     },
-    "Qwen2.5-72B-Instruct": {
+    "Qwen/Qwen2.5-72B-Instruct": {
         "name": "Qwen2.5-72B",
         "tensor-parallel-size": 4,
         "pipeline-parallel-size": 1,
@@ -163,7 +163,7 @@ llm_model_default_parameters = {
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
     },
-    "Qwen3-8B": {
+    "Qwen/Qwen3-8B": {
         "name": "Qwen3-8B",
         "tensor-parallel-size": 1,
         "pipeline-parallel-size": 1,
@@ -172,8 +172,8 @@ llm_model_default_parameters = {
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
     },
-    "Qwen3-32B": {
-        "name": "Qwen3-8B",
+    "Qwen/Qwen3-32B": {
+        "name": "Qwen3-32B",
         "tensor-parallel-size": 2,
         "pipeline-parallel-size": 1,
         "enable-prefix-caching": True,
