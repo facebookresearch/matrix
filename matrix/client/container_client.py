@@ -16,6 +16,12 @@ from matrix.utils.http import fetch_url, post_url
 
 logger = logging.getLogger(__name__)
 
+"""
+How to set timeout?
+1. in execute, we can block forever. this includes the wait time due to queueing
+2. in acquire, when we preallocate containers, it is better to fail early when not enough containers. But the time needs to allow container image download. say 5 minutes.
+"""
+
 
 class ContainerClientError(Exception):
     """Custom exception for container client errors."""
@@ -62,7 +68,7 @@ class ContainerClient:
         image: str,
         executable: str = "apptainer",
         run_args: Optional[List[str]] = None,
-        timeout_s: float = 1800.0,
+        timeout: int = 300,
     ) -> str | None:
         """
         Acquire a container with the specified image.
@@ -71,7 +77,7 @@ class ContainerClient:
             image: Container image (e.g., "docker://ubuntu:22.04")
             executable: Container runtime executable (default: "apptainer")
             run_args: Additional runtime arguments (default: [])
-            timeout_s: Timeout in seconds to wait for available container (default: 5.0)
+            timeout: Timeout in seconds to wait for available container (default: 5.0)
 
         Returns:
             Container ID string
@@ -86,20 +92,23 @@ class ContainerClient:
             "image": image,
             "executable": executable,
             "run_args": run_args,
-            "timeout_s": timeout_s,
+            "timeout": timeout,
         }
 
         url = f"{self.base_url}/acquire"
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(timeout)) as session:
             status, content = await post_url(session, url, payload)
             response = self._parse_response(status, content)
             container_id = response.get("container_id")
             if container_id:
                 self.containers.append(container_id)
+
             return container_id
 
-    async def release_container(self, container_id: str) -> Dict:
+    async def release_container(
+        self, container_id: str, timeout: int | None = None
+    ) -> Dict:
         """
         Release a container by its ID.
 
@@ -115,11 +124,32 @@ class ContainerClient:
         payload = {"container_id": container_id}
         url = f"{self.base_url}/release"
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(timeout)) as session:
             status, content = await post_url(session, url, payload)
             result = self._parse_response(status, content)
             if container_id in self.containers:
                 self.containers.remove(container_id)
+            return result
+
+    async def release_all(self, timeout: int | None = None) -> Dict:
+        """
+        Release all containers owned by this client.
+
+        Args:
+            timeout: Timeout in seconds for the release operation (default: None)
+
+        Returns:
+            Response dictionary with status and released container IDs
+
+        Raises:
+            ContainerClientError: If release fails
+        """
+        url = f"{self.base_url}/release_all"
+
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(timeout)) as session:
+            status, content = await post_url(session, url, {})
+            result = self._parse_response(status, content)
+            self.containers.clear()
             return result
 
     async def execute(
@@ -129,6 +159,7 @@ class ContainerClient:
         cwd: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
         forward_env: Optional[List[str]] = None,
+        timeout: int | None = None,  # wait indefinitely
     ) -> Dict:
         """
         Execute a command in the specified container.
@@ -154,10 +185,11 @@ class ContainerClient:
             payload["env"] = env
         if forward_env is not None:
             payload["forward_env"] = forward_env
+        payload["timeout"] = timeout
 
         url = f"{self.base_url}/execute"
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(timeout)) as session:
             status, content = await post_url(session, url, payload)
             return self._parse_response(status, content)
 
@@ -182,7 +214,7 @@ class ContainerClient:
         if self.containers:
             print(f"Releasing containers {self.containers}")
             tasks = [self.release_container(cid) for cid in self.containers]
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.gather(*tasks, return_exceptions=False)
         return False  # re-raise exception if one happened
 
 
@@ -196,13 +228,13 @@ class ManagedContainer:
         image: str,
         executable: str = "apptainer",
         run_args: Optional[List[str]] = None,
-        timeout_s: float = 5.0,
+        timeout: int = 300,
     ):
         self.client = client
         self.image = image
         self.executable = executable
         self.run_args = run_args or []
-        self.timeout_s = timeout_s
+        self.timeout = timeout
         self.container_id: Optional[str] = None
 
     async def __aenter__(self) -> str | None:
@@ -211,7 +243,7 @@ class ManagedContainer:
             image=self.image,
             executable=self.executable,
             run_args=self.run_args,
-            timeout_s=self.timeout_s,
+            timeout=self.timeout,
         )
         return self.container_id
 

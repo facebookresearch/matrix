@@ -7,6 +7,7 @@
 import aiohttp
 import requests
 
+
 async def post_url(session, url, data=None):
     """Send a POST request to a given URL with optional data, returning status and content."""
     try:

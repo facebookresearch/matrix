@@ -12,9 +12,11 @@ import random
 import shlex
 import subprocess
 import threading
-import uuid
-from typing import Any, Dict, Optional
 import time
+import uuid
+from functools import partial
+from typing import Any, Dict, Optional
+
 import ray
 from fastapi import FastAPI, HTTPException
 from ray import serve
@@ -44,7 +46,7 @@ class ContainerRegistry:
         self.containers: Dict[str, str] = {}
 
     def register_actor(self, owner_id: str, handle, actor_id: str):
-        print(f"register {actor_id} {owner_id}")
+        print(f"register {actor_id} {owner_id}")  # note: logger.info does not print anything
         self.actors[actor_id] = {"handle": handle, "owner": owner_id}
         return actor_id
 
@@ -77,11 +79,13 @@ class ContainerRegistry:
             # randomly select one
             aid, info = random.choice(available)
             self.containers[container_id] = aid
+            print(f"acquire {container_id} {aid}")
             return aid, info["handle"]
         else:
             return None, None
 
     def release(self, container_id: str):
+        print(f"release {container_id}")
         self.containers.pop(container_id, None)
         return True
 
@@ -90,6 +94,10 @@ class ContainerRegistry:
             "actors": {aid: info["owner"] for aid, info in self.actors.items()},
             "containers": self.containers,
         }
+
+    def release_all_containers(self):
+        print(f"Release all containers")
+        self.containers.clear()
 
     def cleanup_replica(self, replica_id: str):
         """
@@ -137,7 +145,7 @@ class ContainerActor:
         cwd: str = "",
         env: dict[str, str] = None,
         forward_env: list[str] = None,
-        timeout_secs: int | None = None,
+        timeout: int | None = None,
     ) -> dict[str, Any]:
         """Run a command inside the running instance."""
         if self.config is None:
@@ -164,7 +172,7 @@ class ContainerActor:
         result = subprocess.run(
             cmd,
             text=True,
-            timeout=timeout_secs,
+            timeout=timeout,
             encoding="utf-8",
             errors="replace",
             stdout=subprocess.PIPE,
@@ -253,15 +261,15 @@ class ContainerDeployment:
                     # Could log or add exponential backoff
                     time.sleep(1)
 
-    async def _ray_get(self, ref):
+    async def _ray_get(self, ref, get_fn=ray.get):
         # helper to await ray.get without blocking the async loop
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, ray.get, ref)
+        return await loop.run_in_executor(None, get_fn, ref)
 
     @app.post("/acquire")
     async def acquire_container(self, payload: Dict):
         """
-        payload: {"timeout_s": 5, "executable": "apptainer", "image": "docker://ubuntu:22.04", "run_args": []}
+        payload: {"timeout": 5, "executable": "apptainer", "image": "docker://ubuntu:22.04", "run_args": []}
         returns {"container_id": ...}
         """
         image = payload.get("image")
@@ -273,7 +281,7 @@ class ContainerDeployment:
         container_id = payload.get("container_id", None)
         assert container_id is None, "container_id unexpected"
         container_id = f"container-{uuid.uuid4().hex[:8]}"
-        timeout_s = float(payload.get("timeout_s", 5.0))
+        timeout = float(payload.get("timeout", 5.0))
 
         start = asyncio.get_event_loop().time()
         while True:
@@ -296,7 +304,7 @@ class ContainerDeployment:
                     try:
                         await self._ray_get(handle.cleanup.remote())
                         await self._ray_get(self.registry.release.remote(container_id))
-                    except:
+                    except Exception:
                         pass
 
                     raise HTTPException(
@@ -304,7 +312,7 @@ class ContainerDeployment:
                     )
 
             # none available
-            if asyncio.get_event_loop().time() - start > timeout_s:
+            if asyncio.get_event_loop().time() - start > timeout:
                 raise HTTPException(
                     status_code=503, detail="No available containers, wait then retry."
                 )
@@ -329,7 +337,7 @@ class ContainerDeployment:
             )
         try:
             await self._ray_get(handle.cleanup.remote())
-        except:
+        except Exception:
             pass
         try:
             await self._ray_get(self.registry.release.remote(container_id))
@@ -371,6 +379,30 @@ class ContainerDeployment:
     async def status(self):
         info = await self._ray_get(self.registry.list_actors.remote())
         return info
+
+    @app.post("/release_all")
+    async def release_all_containers(self, payload: Dict):
+        """
+        remove all live containers
+        """
+        actors_containers = await self._ray_get(self.registry.list_containers.remote())
+        actors = actors_containers["actors"]
+        containers = actors_containers["containers"]
+        handles = [
+            actors[aid]["handle"] for aid in containers.values() if aid in actors
+        ]
+        try:
+            await self._ray_get(
+                [handle.cleanup.remote() for handle in handles],
+                partial(ray.get, raise_on_error=False),
+            )
+        except Exception:
+            pass
+        try:
+            await self._ray_get(self.registry.release_all_containers.remote())
+        except Exception as e:
+            return {"status": "failed", "error": repr(e)}
+        return {"status": "ok", "container_ids": list(containers.keys())}
 
     def __del__(self):
         """Clean up this replica when it's destroyed"""
