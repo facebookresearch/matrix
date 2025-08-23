@@ -7,7 +7,6 @@
 import aiohttp
 import requests
 
-
 async def post_url(session, url, data=None):
     """Send a POST request to a given URL with optional data, returning status and content."""
     try:
@@ -16,7 +15,7 @@ async def post_url(session, url, data=None):
             content = await response.text()  # Get the response body as text
             return status, content
     except Exception as e:
-        return None, str(e)  # Return None for status and error message as content
+        return None, repr(e)  # Return None for status and error message as content
 
 
 async def fetch_url(url, headers=None):

@@ -11,9 +11,10 @@ import os
 import random
 import shlex
 import subprocess
+import threading
 import uuid
 from typing import Any, Dict, Optional
-
+import time
 import ray
 from fastapi import FastAPI, HTTPException
 from ray import serve
@@ -43,6 +44,7 @@ class ContainerRegistry:
         self.containers: Dict[str, str] = {}
 
     def register_actor(self, owner_id: str, handle, actor_id: str):
+        print(f"register {actor_id} {owner_id}")
         self.actors[actor_id] = {"handle": handle, "owner": owner_id}
         return actor_id
 
@@ -216,15 +218,40 @@ class ContainerDeployment:
 
         # create local non-detached actors and register them
         self.local_actors = []  # actor ids hex owned by this replica
+        # Cancellation event
+        self._stop_event = threading.Event()
+
+        # Start background thread
+        self._thread = threading.Thread(target=self._launch_actors, daemon=True)
+        self._thread.start()
+
+    def _launch_actors(self):
+        """Create actors with infinite retry until stopped."""
         for _ in range(self.num_containers_per_replica):
-            actor_handle = ContainerActor.remote()  # type: ignore[attr-defined]
-            actor_id = ray.get(actor_handle.get_id.remote())
-            ray.get(
-                self.registry.register_actor.remote(
-                    self.replica_id, actor_handle, actor_id
-                )
-            )
-            self.local_actors.append(actor_handle)
+            if self._stop_event.is_set():
+                break
+            actor_handle = ContainerActor.remote()
+            while not self._stop_event.is_set():
+                try:
+                    # Use non-blocking wait with timeout
+                    ready, _ = ray.wait(
+                        [actor_handle.get_id.remote()],
+                        timeout=2,  # short timeout for interruptibility
+                    )
+
+                    if ready:
+                        actor_id = ray.get(ready[0])
+                        # Register actor
+                        ray.get(
+                            self.registry.register_actor.remote(
+                                self.replica_id, actor_handle, actor_id
+                            )
+                        )
+                        self.local_actors.append(actor_handle)
+                        break  # move to next actor
+                except Exception as e:
+                    # Could log or add exponential backoff
+                    time.sleep(1)
 
     async def _ray_get(self, ref):
         # helper to await ray.get without blocking the async loop
@@ -266,8 +293,11 @@ class ContainerDeployment:
                     return {"container_id": container_id}
                 except Exception as e:
                     # actor probably died or failed - do a cleanup of that actor in registry
-                    await self._ray_get(handle.cleanup.remote())
-                    await self._ray_get(self.registry.release.remote(container_id))
+                    try:
+                        await self._ray_get(handle.cleanup.remote())
+                        await self._ray_get(self.registry.release.remote(container_id))
+                    except:
+                        pass
 
                     raise HTTPException(
                         status_code=500, detail=f"Failed to start_container: {e}"
@@ -297,9 +327,14 @@ class ContainerDeployment:
             raise HTTPException(
                 status_code=404, detail=f"bad container id {container_id}"
             )
-        await self._ray_get(handle.cleanup.remote())
-
-        await self._ray_get(self.registry.release.remote(container_id))
+        try:
+            await self._ray_get(handle.cleanup.remote())
+        except:
+            pass
+        try:
+            await self._ray_get(self.registry.release.remote(container_id))
+        except Exception as e:
+            return {"status": "failed", "container_id": container_id, "error": repr(e)}
         return {"status": "ok", "container_id": container_id}
 
     @app.post("/execute")
@@ -339,13 +374,18 @@ class ContainerDeployment:
 
     def __del__(self):
         """Clean up this replica when it's destroyed"""
-        # This might not work reliably in all shutdown scenarios
+        # Signal background thread to stop, but don't wait
+        self._stop_event.set()
+
         try:
             tasks = []
             tasks.append(self.registry.cleanup_replica.remote(self.replica_id))
             for handle in self.local_actors:
-                tasks.append(handle.cleanup.remote())
-            ray.get(tasks)
+                try:
+                    tasks.append(handle.cleanup.remote())
+                except Exception:
+                    pass
+            ray.get(tasks, raise_on_error=False)
         except Exception:
             # Ignore all exceptions during cleanup
             pass

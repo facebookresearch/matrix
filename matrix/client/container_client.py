@@ -44,6 +44,7 @@ class ContainerClient:
             raise ContainerClientError(f"Request failed: {content}")
 
         if status >= 400:
+            print(f"Error response from server: {content}")
             try:
                 error_data = json.loads(content)
                 detail = error_data.get("detail", content)

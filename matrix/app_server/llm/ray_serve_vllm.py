@@ -293,6 +293,8 @@ class VLLMDeployment(BaseDeployment):
             request, raw_request
         )
         if isinstance(generator, ErrorResponse):
+            if hasattr(generator, "error"):
+                generator = generator.error
             return JSONResponse(
                 content=generator.model_dump(exclude_unset=True, exclude_none=True),
                 status_code=generator.code,
