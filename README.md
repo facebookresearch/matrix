@@ -197,13 +197,13 @@ import asyncio
 metadata = Cli().get_app_metadata(app_name="8B")
 
 # async call
-response = asyncio.run(query_llm.make_request(
+resp = asyncio.run(query_llm.make_request(
   url=metadata["endpoints"]["head"],
   model=metadata["model_name"],
   app_name=metadata["name"],
   data={"messages": [{"role": "user", "content": "hi"}]},
 ))
-print(response)
+print(resp)
 
 # batch inference
 for response in query_llm.batch_requests(
@@ -236,13 +236,13 @@ import asyncio
 metadata = Cli().get_app_metadata(app_name="8B")
 
 # async call
-response = asyncio.run(query_llm.make_request(
+resp = asyncio.run(query_llm.make_request(
   url=metadata["endpoints"]["head"],
   model=metadata["model_name"],
   app_name=metadata["name"],
   data={"messages": [{"role": "user", "content": "hi"}]},
 ))
-print(response)
+print(resp)
 
 # batch inference
 for response in query_llm.batch_requests(
