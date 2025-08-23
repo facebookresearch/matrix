@@ -227,8 +227,8 @@ docker run --rm \
   --network=host \
   --entrypoint python \
   -e MATRIX_CLUSTER_ID="${USER}_cluster" \
-  -v ~/.matrix:/home/appuser/.matrix \
-  matrix - <<'EOF'
+  -v ~/.matrix:/home/appuser/.matrix:ro \
+  matrix -u - <<'EOF'
 from matrix import Cli
 from matrix.client import query_llm
 import asyncio
