@@ -192,24 +192,27 @@ There are two formats for the jsonl input files:
 ```python
 from matrix import Cli
 from matrix.client import query_llm
+import asyncio
 
 metadata = Cli().get_app_metadata(app_name="8B")
 
 # async call
-await query_llm.make_request(
+response = asyncio.run(query_llm.make_request(
   url=metadata["endpoints"]["head"],
   model=metadata["model_name"],
   app_name=metadata["name"],
   data={"messages": [{"role": "user", "content": "hi"}]},
-)
+))
+print(response)
 
 # batch inference
-query_llm.batch_requests(
-  url=metadata["endpoints"]["head"],
-  model=metadata["model_name"],
-  app_name=metadata["name"],
-  requests=[{"messages": [{"role": "user", "content": "hi"}]}],
-)
+for response in query_llm.batch_requests(
+    url=metadata["endpoints"]["head"],
+    model=metadata["model_name"],
+    app_name=metadata["name"],
+    requests=[{"messages": [{"role": "user", "content": "hi"}]}],
+):
+    print(response)
 ```
 
 #### Running inside Docker
@@ -228,24 +231,27 @@ docker run --rm \
   matrix - <<'EOF'
 from matrix import Cli
 from matrix.client import query_llm
+import asyncio
 
 metadata = Cli().get_app_metadata(app_name="8B")
 
 # async call
-await query_llm.make_request(
+response = asyncio.run(query_llm.make_request(
   url=metadata["endpoints"]["head"],
   model=metadata["model_name"],
   app_name=metadata["name"],
   data={"messages": [{"role": "user", "content": "hi"}]},
-)
+))
+print(response)
 
 # batch inference
-query_llm.batch_requests(
-  url=metadata["endpoints"]["head"],
-  model=metadata["model_name"],
-  app_name=metadata["name"],
-  requests=[{"messages": [{"role": "user", "content": "hi"}]}],
-)
+for response in query_llm.batch_requests(
+    url=metadata["endpoints"]["head"],
+    model=metadata["model_name"],
+    app_name=metadata["name"],
+    requests=[{"messages": [{"role": "user", "content": "hi"}]}],
+):
+    print(response)
 EOF
 ```
 > **NOTE:** If required export `HUGGING_FACE_HUB_TOKEN` on the host (and pass `-e HUGGING_FACE_HUB_TOKEN=...` to docker when needed).
