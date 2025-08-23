@@ -254,7 +254,9 @@ for response in query_llm.batch_requests(
     print(response)
 EOF
 ```
-> **NOTE:** If required export `HUGGING_FACE_HUB_TOKEN` on the host (and pass `-e HUGGING_FACE_HUB_TOKEN=...` to docker when needed).
+**NOTE:**
+- If you are using custom cluster_id, update here `-e MATRIX_CLUSTER_ID="custom_cluster_id"`.
+- If required export `HUGGING_FACE_HUB_TOKEN` on the host (and pass `-e HUGGING_FACE_HUB_TOKEN=...` to docker when needed).
 
 ---
 
