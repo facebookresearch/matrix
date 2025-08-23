@@ -56,22 +56,12 @@ Matrix is designed for scalable LLM inference on [Slurm](https://slurm.schedmd.c
 
 ## Getting Started
 
-- Conda Environment (Recommended)
+- Conda Environment
 ```bash
 conda create --name matrix python=3.10
 conda activate matrix
 pip install fair-matrix[vllm_083]
 ```
-
-- Docker (Not Recommended)
-```bash
-# build the image with vLLM support (default)
-docker build -t matrix .
-
-# run any Matrix CLI command, e.g. display help
-docker run --rm matrix --help
-```
-> **Note:** The Docker image is useful for experimenting with the Matrix CLI, but it does not include system-level dependencies such as Slurm. Operations like `start_cluster` that rely on these packages should be run in a properly configured Conda environment on the host.
 
 - Launch ray cluster
 ```bash
@@ -211,7 +201,7 @@ await query_llm.make_request(
   model=metadata["model_name"],
   app_name=metadata["name"],
   data={"messages": [{"role": "user", "content": "hi"}]},
-))
+)
 
 # batch inference
 query_llm.batch_requests(
@@ -221,6 +211,44 @@ query_llm.batch_requests(
   requests=[{"messages": [{"role": "user", "content": "hi"}]}],
 )
 ```
+
+#### Running inside Docker
+
+To execute the same snippet within the Matrix Docker image, run:
+```bash
+# build the image with vLLM support (default)
+docker build -t matrix .
+
+# inference
+docker run --rm \
+  --network=host \
+  --entrypoint python \
+  -e MATRIX_CLUSTER_ID="${USER}_cluster" \
+  -v ~/.matrix:/home/appuser/.matrix \
+  matrix - <<'EOF'
+from matrix import Cli
+from matrix.client import query_llm
+
+metadata = Cli().get_app_metadata(app_name="8B")
+
+# async call
+await query_llm.make_request(
+  url=metadata["endpoints"]["head"],
+  model=metadata["model_name"],
+  app_name=metadata["name"],
+  data={"messages": [{"role": "user", "content": "hi"}]},
+)
+
+# batch inference
+query_llm.batch_requests(
+  url=metadata["endpoints"]["head"],
+  model=metadata["model_name"],
+  app_name=metadata["name"],
+  requests=[{"messages": [{"role": "user", "content": "hi"}]}],
+)
+EOF
+```
+> **NOTE:** If required export `HUGGING_FACE_HUB_TOKEN` on the host (and pass `-e HUGGING_FACE_HUB_TOKEN=...` to docker when needed).
 
 ---
 
