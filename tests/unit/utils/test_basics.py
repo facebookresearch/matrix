@@ -56,3 +56,8 @@ def test_convert_to_json_compatible_handles_types():
     assert sorted(converted["set"]) == ["x", "y"]
     assert converted["dc"] == {"a": 5, "b": [3, 4], "c": ["z"], "color": "red"}
     assert converted["enum"] == "blue"
+
+
+def test_convert_to_json_compatible_dataclass_class():
+    """Ensure dataclass *types* are stringified rather than treated as instances."""
+    assert convert_to_json_compatible(Demo) == str(Demo)
