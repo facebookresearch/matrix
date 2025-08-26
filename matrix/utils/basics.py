@@ -6,22 +6,28 @@
 
 import importlib
 import re
-from dataclasses import asdict
+from dataclasses import asdict, is_dataclass
+from enum import Enum
+from typing import Any
 
 import matrix
 
 
-def convert_to_json_compatible(obj):
+def convert_to_json_compatible(obj: Any):
     if isinstance(obj, dict):
         return {
             str(key): convert_to_json_compatible(value) for key, value in obj.items()
         }
-    elif isinstance(obj, list):
+    if isinstance(obj, (list, tuple, set)):
         return [convert_to_json_compatible(item) for item in obj]
-    elif hasattr(obj, "__dataclass_fields__"):
+    if is_dataclass(obj):
         return convert_to_json_compatible(asdict(obj))
-    else:
-        return str(obj)
+    if isinstance(obj, Enum):
+        return convert_to_json_compatible(obj.value)
+    if isinstance(obj, (str, int, float, bool)) or obj is None:
+        return obj
+
+    return str(obj)
 
 
 def sanitize_app_name(app_name: str) -> str:

@@ -74,4 +74,4 @@ def test_status_replica_json_serializable(
         json_output = results[-1]
         data = json.loads(json_output)
         assert "DummyDeploymentID(app)" in data
-        assert data["DummyDeploymentID(app)"]["id"] == "1"
+        assert data["DummyDeploymentID(app)"]["id"] == 1
