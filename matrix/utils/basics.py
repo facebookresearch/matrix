@@ -20,7 +20,7 @@ def convert_to_json_compatible(obj: Any):
         }
     if isinstance(obj, (list, tuple, set)):
         return [convert_to_json_compatible(item) for item in obj]
-    if is_dataclass(obj):
+    if is_dataclass(obj) and not isinstance(obj, type):
         return convert_to_json_compatible(asdict(obj))
     if isinstance(obj, Enum):
         return convert_to_json_compatible(obj.value)
