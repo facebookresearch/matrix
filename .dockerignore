@@ -1,0 +1,23 @@
+# Ignore git and CI files
+.git
+.gitignore
+.github
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info
+
+# Virtual environments
+.env
+.venv
+venv/
+ENV/
+
+# Build artifacts
+build/
+dist/
+
+# Dockerfile itself
+Dockerfile

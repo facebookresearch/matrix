@@ -72,6 +72,7 @@ vllm_app_template = """
     env_vars:
         OUTLINES_CACHE_DIR: {{ temp_dir }}/.outlines
         RAY_DEBUG: legacy
+        TIKTOKEN_RS_CACHE_DIR: {{ temp_dir }}
   args:
     model: {{ app.model_name }}
     {% for key, value in app.items() %}
