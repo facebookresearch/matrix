@@ -16,20 +16,6 @@ from matrix.utils.http import fetch_url, post_url
 
 logger = logging.getLogger(__name__)
 
-"""
-How to set timeout?
-1. in execute, we can block forever. this includes the wait time due to queueing
-2. in acquire, when we preallocate containers, it is better to fail early when not enough containers. But the time needs to allow container image download. say 5 minutes.
-"""
-
-
-class ContainerClientError(Exception):
-    """Custom exception for container client errors."""
-
-    def __init__(self, message: str, status_code: Optional[int] = None):
-        super().__init__(message)
-        self.status_code = status_code
-
 
 class ContainerClient:
     """Client for interacting with the ContainerDeployment HTTP server."""
@@ -232,11 +218,8 @@ class ManagedContainer:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Release container on exiting context."""
         if self.container_id:
-            try:
-                await self.client.release_container(self.container_id)
-            except ContainerClientError:
-                # Log error but don't raise - we're already exiting
-                pass
+            await self.client.release_container(self.container_id)
+            self.container_id = None
 
     async def execute(
         self,
