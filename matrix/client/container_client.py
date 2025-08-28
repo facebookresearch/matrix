@@ -180,11 +180,9 @@ class ContainerClient:
         Returns:
             Dict with either {"container_ids": []} or {"error": "..."}
         """
-        payload = {}
-
         async with aiohttp.ClientSession() as session:
             status, content = await post_url(
-                session, f"{self.base_url}/release_all", payload
+                session, f"{self.base_url}/release_all", {}
             )
             return await self._handle_response(status, content)
 
@@ -218,7 +216,7 @@ class ManagedContainer:
         self.timeout = timeout
         self.container_id: Optional[str] = None
 
-    async def __aenter__(self) -> str | None:
+    async def __aenter__(self) -> "ManagedContainer":
         """Acquire container on entering context."""
         result = await self.client.acquire_container(
             image=self.image,
@@ -248,6 +246,7 @@ class ManagedContainer:
         forward_env: Optional[List[str]] = None,
         timeout: int = 30,
     ) -> Dict[str, Any]:
+        assert self.container_id is not None, "Container not acquired yet"
         return await self.client.execute(
             self.container_id, cmd, cwd, env, forward_env, timeout
         )

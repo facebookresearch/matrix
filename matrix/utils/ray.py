@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import time
+import typing as tp
 from enum import Enum
 from functools import partial
 
@@ -149,7 +150,7 @@ async def ray_get_async(ref, timeout=None):
 
         def wait_for_all():
 
-            results = [None] * len(ref)
+            results: list[tp.Any] = [None] * len(ref)
             done = [False] * len(ref)
             remaining = ref[:]
             ref_to_index = {r: i for i, r in enumerate(ref)}
@@ -172,6 +173,7 @@ async def ray_get_async(ref, timeout=None):
                         done[idx] = True
                     except Exception as e:
                         results[idx] = e
+                        done[idx] = True
 
             for i, finish in enumerate(done):
                 if not finish:

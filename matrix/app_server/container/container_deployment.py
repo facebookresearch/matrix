@@ -227,7 +227,7 @@ class ContainerDeployment:
         self.num_containers_per_replica = num_containers_per_replica
 
         # create local non-detached actors and register them
-        self.local_actors = []  # actor ids hex owned by this replica
+        self.local_actors: list[Any] = []  # actor ids hex owned by this replica
         # Cancellation event
         self._stop_event = threading.Event()
 
@@ -240,7 +240,7 @@ class ContainerDeployment:
         for _ in range(self.num_containers_per_replica):
             if self._stop_event.is_set():
                 break
-            actor_handle = ContainerActor.remote()
+            actor_handle = ContainerActor.remote()  # type: ignore[attr-defined]
             while not self._stop_event.is_set():
                 try:
                     # Use non-blocking wait with timeout
