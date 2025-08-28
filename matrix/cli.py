@@ -322,12 +322,11 @@ class Cli:
                         ManagedContainer,
                     )
 
-                    client = ContainerClient(metadata["endpoints"]["head"])
                     async with ManagedContainer(
-                        client, image="docker://ubuntu:22.04"
-                    ) as container_id:
-                        assert container_id is not None
-                        return await client.execute(container_id, "echo Hello World")
+                        ContainerClient(metadata["endpoints"]["head"]),
+                        image="docker://ubuntu:22.04",
+                    ) as client:
+                        return await client.execute("echo Hello World")
 
                 return run_async(run_container())
             else:

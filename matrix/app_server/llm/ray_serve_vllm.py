@@ -319,6 +319,8 @@ class VLLMDeployment(BaseDeployment):
             request, raw_request
         )
         if isinstance(generator, ErrorResponse):
+            if hasattr(generator, "error"):
+                generator = generator.error
             return JSONResponse(
                 content=generator.model_dump(), status_code=generator.code
             )
@@ -408,6 +410,8 @@ class GrpcDeployment(BaseDeployment):
                 await self.openai_serving_chat.models.init_static_loras()
             generator = await self.openai_serving_chat.create_chat_completion(chat)
             if isinstance(generator, ErrorResponse):
+                if hasattr(generator, "error"):
+                    generator = generator.error
                 status_code = self.http_to_grpc_status(generator.code)
                 raise grpc.RpcError(
                     status_code,
@@ -465,6 +469,8 @@ class GrpcDeployment(BaseDeployment):
                 ),
             )
             if isinstance(generator, ErrorResponse):
+                if hasattr(generator, "error"):
+                    generator = generator.error
                 status_code = self.http_to_grpc_status(generator.code)
                 raise grpc.RpcError(
                     status_code,

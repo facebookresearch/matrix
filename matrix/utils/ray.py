@@ -7,7 +7,9 @@
 import json
 import os
 import subprocess
+import time
 from enum import Enum
+from functools import partial
 
 import aiohttp
 
@@ -129,3 +131,60 @@ def status_is_failure(app_status: str) -> bool:
 
 def status_is_pending(app_status: str) -> bool:
     return app_status in ["NOT_STARTED", "DEPLOYING", "UNHEALTHY"]
+
+
+async def ray_get_async(ref, timeout=None):
+    # helper to await ray.get/ray.wait without blocking the async loop
+    import asyncio
+
+    import ray
+
+    loop = asyncio.get_event_loop()
+
+    # If ref is a list, use ray.wait to get all results
+    if isinstance(ref, list):
+        assert len(ref) > 0
+        if timeout is None:
+            timeout = len(ref) * 10
+
+        def wait_for_all():
+
+            results = [None] * len(ref)
+            done = [False] * len(ref)
+            remaining = ref[:]
+            ref_to_index = {r: i for i, r in enumerate(ref)}
+            start_time = time.time()
+
+            while remaining:
+                elapsed = time.time() - start_time
+                if elapsed >= timeout:
+                    break
+
+                remaining_timeout = timeout - elapsed
+                ready, remaining = ray.wait(
+                    remaining, num_returns=len(remaining), timeout=remaining_timeout
+                )
+
+                for ready_ref in ready:
+                    idx = ref_to_index[ready_ref]
+                    try:
+                        results[idx] = ray.get(ready_ref)
+                        done[idx] = True
+                    except Exception as e:
+                        results[idx] = e
+
+            for i, finish in enumerate(done):
+                if not finish:
+                    results[i] = TimeoutError(
+                        f"ray.wait timed out {timeout} for ray get at index {i}"
+                    )
+
+            for result in results:
+                if isinstance(result, Exception):
+                    raise result
+
+            return results
+
+        return await loop.run_in_executor(None, wait_for_all)
+    else:
+        return await loop.run_in_executor(None, partial(ray.get, timeout=timeout), ref)

@@ -511,3 +511,13 @@ class AppApi:
                     return "RUNNING"
             except:
                 return "NOT_STARTED"
+
+    def app_cleanup(self, app_name: str) -> str:
+        """A helper function to cleanup for stateful services, eg containers maybe be dangling due to exception etc."""
+        from matrix.client.container_client import ContainerClient
+
+        metadata = self.get_app_metadata(app_name)
+        assert metadata["app_type"] == "container"
+        base_url = metadata["endpoints"]["head"]
+        client = ContainerClient(base_url)
+        return run_async(client.release_all_containers())

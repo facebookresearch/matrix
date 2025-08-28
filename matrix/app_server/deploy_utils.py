@@ -195,12 +195,12 @@ other_app_template = """
   import_path: matrix.app_server.container.container_deployment:build_app
   runtime_env: {}
   args:
-    num_containers_per_replica: {{ app.num_containers_per_replica }}
+    num_containers_per_replica: {{ app.max_ongoing_requests }}
   deployments:
   - name: ContainerDeployment
-    max_ongoing_requests: 32
+    max_ongoing_requests: {{ app.max_ongoing_requests }}
     autoscaling_config:
-      target_ongoing_requests: 32
+      target_ongoing_requests: {{ (app.max_ongoing_requests * 0.8) | int }}
       min_replicas: {{ app.min_replica }}
       max_replicas: {{ app.max_replica }}
 {% elif app.app_type == 'hello' %}
@@ -384,7 +384,6 @@ def get_yaml_for_deployment(
                 default_params: Dict[str, Union[str, int]] = {
                     "name": "container",
                     "max_ongoing_requests": 32,
-                    "num_containers_per_replica": 32,
                 }
                 app.update({k: v for k, v in default_params.items() if k not in app})
                 yaml_str += Template(other_app_template).render(app=app)

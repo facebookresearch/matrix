@@ -22,7 +22,7 @@ from fastapi import FastAPI, HTTPException
 from ray import serve
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
-from matrix.utils.ray import ACTOR_NAME_SPACE, get_matrix_actors, get_ray_head_node
+from matrix.utils.ray import ACTOR_NAME_SPACE, get_ray_head_node, ray_get_async
 
 """
 ContainerDeployment has several replicas controlled by user.
@@ -46,7 +46,9 @@ class ContainerRegistry:
         self.containers: Dict[str, str] = {}
 
     def register_actor(self, owner_id: str, handle, actor_id: str):
-        print(f"register {actor_id} {owner_id}")  # note: logger.info does not print anything
+        print(
+            f"register {actor_id} {owner_id}"
+        )  # note: logger.info does not print anything
         self.actors[actor_id] = {"handle": handle, "owner": owner_id}
         return actor_id
 
@@ -91,7 +93,7 @@ class ContainerRegistry:
 
     def list_actors(self):
         return {
-            "actors": {aid: info["owner"] for aid, info in self.actors.items()},
+            "actors": self.actors,
             "containers": self.containers,
         }
 
@@ -261,11 +263,6 @@ class ContainerDeployment:
                     # Could log or add exponential backoff
                     time.sleep(1)
 
-    async def _ray_get(self, ref, get_fn=ray.get):
-        # helper to await ray.get without blocking the async loop
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, get_fn, ref)
-
     @app.post("/acquire")
     async def acquire_container(self, payload: Dict):
         """
@@ -281,54 +278,54 @@ class ContainerDeployment:
         container_id = payload.get("container_id", None)
         assert container_id is None, "container_id unexpected"
         container_id = f"container-{uuid.uuid4().hex[:8]}"
-        timeout = float(payload.get("timeout", 5.0))
+        timeout = payload.get("timeout")
 
-        start = asyncio.get_event_loop().time()
-        while True:
-            _actor_id, handle = await self._ray_get(
-                self.registry.acquire.remote(container_id)
-            )
-            if handle is not None:
-                try:
-                    await self._ray_get(
-                        handle.start_container.remote(
-                            executable=executable,
-                            image=image,
-                            run_args=run_args,
-                            container_id=container_id,
-                        )
+        _actor_id, handle = await ray_get_async(
+            self.registry.acquire.remote(container_id)
+        )
+        if handle is not None:
+            try:
+                await ray_get_async(
+                    handle.start_container.remote(
+                        executable=executable,
+                        image=image,
+                        run_args=run_args,
+                        container_id=container_id,
+                        timeout=timeout,
                     )
-                    return {"container_id": container_id}
-                except Exception as e:
-                    # actor probably died or failed - do a cleanup of that actor in registry
-                    try:
-                        await self._ray_get(handle.cleanup.remote())
-                        await self._ray_get(self.registry.release.remote(container_id))
-                    except Exception:
-                        pass
-
-                    raise HTTPException(
-                        status_code=500, detail=f"Failed to start_container: {e}"
-                    )
-
-            # none available
-            if asyncio.get_event_loop().time() - start > timeout:
-                raise HTTPException(
-                    status_code=503, detail="No available containers, wait then retry."
                 )
-            await asyncio.sleep(1)
+                return {"container_id": container_id}
+            except Exception as e:
+                # actor probably died or failed - do a cleanup of that actor in registry
+                try:
+                    await ray_get_async(
+                        [
+                            handle.cleanup.remote(),
+                            self.registry.release.remote(container_id),
+                        ]
+                    )
+                except Exception:
+                    pass
+
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to start_container: {e}"
+                )
+        raise HTTPException(
+            status_code=503, detail=f"Containers are not available, please retry later"
+        )
 
     @app.post("/release")
     async def release_container(self, payload: Dict):
         """
         payload: {"container_id": "..."}
+        return {"container_id": container_id}
         """
         container_id = payload.get("container_id")
         if not container_id:
-            raise HTTPException(status_code=400, detail="container_id required")
+            return {"container_id": container_id}
 
         # lookup actor for container
-        handle = await self._ray_get(
+        handle = await ray_get_async(
             self.registry.get_container_handle.remote(container_id)
         )
         if handle is None:
@@ -336,19 +333,21 @@ class ContainerDeployment:
                 status_code=404, detail=f"bad container id {container_id}"
             )
         try:
-            await self._ray_get(handle.cleanup.remote())
-        except Exception:
-            pass
-        try:
-            await self._ray_get(self.registry.release.remote(container_id))
+            await ray_get_async(
+                [handle.cleanup.remote(), self.registry.release.remote(container_id)]
+            )
         except Exception as e:
-            return {"status": "failed", "container_id": container_id, "error": repr(e)}
-        return {"status": "ok", "container_id": container_id}
+            raise HTTPException(
+                status_code=500,
+                detail=f"container_id {container_id} release failed: {repr(e)}",
+            )
+        return {"container_id": container_id}
 
     @app.post("/execute")
     async def execute(self, payload: Dict):
         """
         payload: {"container_id": "...", "cmd": "..."}
+        return :{"returncode": bash status code, "output": stdout}
         """
         container_id = payload.get("container_id")
         cmd = payload.get("cmd")
@@ -357,9 +356,10 @@ class ContainerDeployment:
         cwd = payload.get("cwd")
         env = payload.get("env")
         forward_env = payload.get("forward_env")
+        timeout = payload.get("timeout", 30)
 
         # lookup actor for container
-        handle = await self._ray_get(
+        handle = await ray_get_async(
             self.registry.get_container_handle.remote(container_id)
         )
         if handle is None:
@@ -369,40 +369,46 @@ class ContainerDeployment:
 
         # call the actor.execute remotely; await result
         try:
-            return await self._ray_get(
-                handle.execute.remote(cmd, cwd=cwd, env=env, forward_env=forward_env)
+            return await ray_get_async(
+                handle.execute.remote(
+                    cmd, cwd=cwd, env=env, forward_env=forward_env, timeout=timeout
+                )
             )
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"actor execution failed: {e}")
+            raise HTTPException(
+                status_code=500, detail=f"actor execution failed: {repr(e)}"
+            )
 
     @app.get("/status")
     async def status(self):
-        info = await self._ray_get(self.registry.list_actors.remote())
-        return info
+        info = await ray_get_async(self.registry.list_actors.remote())
+        return {
+            "actors": {aid: info["owner"] for aid, info in info["actors"].items()},
+            "containers": info["containers"],
+        }
 
     @app.post("/release_all")
     async def release_all_containers(self, payload: Dict):
         """
         remove all live containers
+        return {"container_ids": list(container_id)}
         """
-        actors_containers = await self._ray_get(self.registry.list_containers.remote())
+        actors_containers = await ray_get_async(self.registry.list_actors.remote())
         actors = actors_containers["actors"]
         containers = actors_containers["containers"]
         handles = [
             actors[aid]["handle"] for aid in containers.values() if aid in actors
         ]
         try:
-            await self._ray_get(
-                [handle.cleanup.remote() for handle in handles],
-                partial(ray.get, raise_on_error=False),
+            await ray_get_async(
+                [handle.cleanup.remote() for handle in handles]
+                + [self.registry.release_all_containers.remote()]
             )
-        except Exception:
-            pass
-        try:
-            await self._ray_get(self.registry.release_all_containers.remote())
         except Exception as e:
-            return {"status": "failed", "error": repr(e)}
-        return {"status": "ok", "container_ids": list(containers.keys())}
+            raise HTTPException(
+                status_code=500, detail=f"release_all_containers failed: {repr(e)}"
+            )
+        return {"container_ids": list(containers.keys())}
 
     def __del__(self):
         """Clean up this replica when it's destroyed"""
