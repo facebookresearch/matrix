@@ -147,7 +147,7 @@ class ContainerActor:
         cwd: str = "",
         env: dict[str, str] = None,
         forward_env: list[str] = None,
-        timeout: int | None = None,
+        timeout: int | None = None,  # in seconds
     ) -> dict[str, Any]:
         """Run a command inside the running instance."""
         if self.config is None:
