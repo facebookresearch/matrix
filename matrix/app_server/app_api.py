@@ -413,7 +413,7 @@ class AppApi:
         **kwargs,
     ):
         """Run LLM inference.
-        
+
         The input can be provided either as JSONL files via ``input_jsonls`` or
         fetched directly from a Hugging Face dataset using ``input_hf_dataset``
         and ``hf_dataset_split``.
