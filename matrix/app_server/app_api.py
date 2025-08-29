@@ -406,13 +406,18 @@ class AppApi:
         self,
         app_name: str,
         output_jsonl: str,
-        input_jsonls: str,
+        input_jsonls: str | None = None,
+        input_hf_dataset: str | None = None,
+        hf_dataset_split: str = "train",
         load_balance: bool = True,
         **kwargs,
     ):
-        """Run LLM inference."""
+        """Run LLM inference.
 
-        from matrix.client.query_llm import main as query
+        The input can be provided either as JSONL files via ``input_jsonls`` or
+        fetched directly from a Hugging Face dataset using ``input_hf_dataset``
+        and ``hf_dataset_split``.
+        """
 
         metadata = self.get_app_metadata(app_name)
         assert self._cluster_info.hostname
@@ -448,6 +453,8 @@ class AppApi:
                     input_jsonls,
                     model=metadata["model_name"],
                     app_name=metadata["name"],
+                    input_hf_dataset=input_hf_dataset,
+                    hf_dataset_split=hf_dataset_split,
                     **kwargs,
                 )
             )
@@ -455,6 +462,7 @@ class AppApi:
             from matrix.client.execute_code import CodeExcutionClient
 
             client = CodeExcutionClient(get_one_endpoint)
+            assert input_jsonls is not None, "input_jsonls is required for code apps"
             return asyncio.run(
                 client.execute_code(
                     output_jsonl,
@@ -466,6 +474,7 @@ class AppApi:
             from matrix.client.process_vision_data import VisionClient
 
             vision_client = VisionClient(get_one_endpoint)
+            assert input_jsonls is not None, "input_jsonls is required for vision apps"
             return asyncio.run(
                 vision_client.inference(
                     output_jsonl,

@@ -163,8 +163,13 @@ matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-4-M
 # download math-500 dataset
 python -m matrix.scripts.hf_dataset_to_jsonl HuggingFaceH4/MATH-500 test test.jsonl
 
-# query math-500
+# query math-500 from local jsonl
 matrix inference --app_name maverick-fp8 --input_jsonls test.jsonl --output_jsonl response.jsonl --batch_size=64 \
+  --system_prompt "Please reason step by step, and put your final answer within \boxed{}." --max_tokens 30000 --text_key problem --timeout_secs 1800
+
+# or query directly from the Hugging Face dataset
+matrix inference --app_name maverick-fp8 --input_hf_dataset HuggingFaceH4/MATH-500 --hf_dataset_split test \
+  --output_jsonl response.jsonl --batch_size=64 \
   --system_prompt "Please reason step by step, and put your final answer within \boxed{}." --max_tokens 30000 --text_key problem --timeout_secs 1800
 ```
 
