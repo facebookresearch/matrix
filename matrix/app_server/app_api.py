@@ -412,9 +412,12 @@ class AppApi:
         load_balance: bool = True,
         **kwargs,
     ):
-        """Run LLM inference."""
-
-        from matrix.client.query_llm import main as query
+        """Run LLM inference.
+        
+        The input can be provided either as JSONL files via ``input_jsonls`` or
+        fetched directly from a Hugging Face dataset using ``input_hf_dataset``
+        and ``hf_dataset_split``.
+        """
 
         metadata = self.get_app_metadata(app_name)
         assert self._cluster_info.hostname
