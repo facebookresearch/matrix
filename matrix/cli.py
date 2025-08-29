@@ -196,7 +196,15 @@ class Cli:
             yaml_config,
         )
 
-    def inference(self, app_name: str, output_jsonl: str, input_jsonls: str, **kwargs):
+    def inference(
+        self,
+        app_name: str,
+        output_jsonl: str,
+        input_jsonls: str | None = None,
+        input_hf_dataset: str | None = None,
+        hf_dataset_split: str = "train",
+        **kwargs,
+    ):
         """
         Run batch inference using a deployed application.
 
@@ -206,7 +214,9 @@ class Cli:
         Args:
             app_name (str): The name of the deployed application to use.
             output_jsonl (str): Path to save inference results in JSONL format.
-            input_jsonls (str): Path to input data in JSONL format.
+            input_jsonls (str | None): Path to input data in JSONL format.
+            input_hf_dataset (str | None): Hugging Face dataset name to load directly.
+            hf_dataset_split (str): Dataset split to load when using a Hugging Face dataset.
             **kwargs: Additional parameters for inference (e.g., temperature, max_tokens).
 
         Returns:
@@ -216,6 +226,8 @@ class Cli:
             app_name,
             output_jsonl,
             input_jsonls,
+            input_hf_dataset=input_hf_dataset,
+            hf_dataset_split=hf_dataset_split,
             **kwargs,
         )
 
