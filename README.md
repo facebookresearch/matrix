@@ -6,6 +6,17 @@ Matrix: Multi-Agent daTa geneRation Infra and eXperimentation
 Fast, scalable, and easy-to-use LLM-generation engine
 </h3>
 
+<div align="center">
+
+[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Test and Lints](https://github.com/facebookresearch/matrix/actions/workflows/lints_and_tests.yml/badge.svg)](https://github.com/facebookresearch/matrix/actions/workflows/lints_and_tests.yml?query=branch%3Amain)
+[![Test Docker Image](https://github.com/facebookresearch/matrix/actions/workflows/docker_image.yml/badge.svg)](https://github.com/facebookresearch/matrix/actions/workflows/docker_image.yml?query=branch%3Amain)
+[![license](https://img.shields.io/badge/license-MIT-lightgrey.svg)](./LICENSE)
+
+</div>
+
 ---
 
 *Latest News*
