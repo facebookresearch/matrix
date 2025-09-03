@@ -1,4 +1,4 @@
-name: lint_and_tests
+name: Lint and Tests
 
 on:
   # Trigger the workflow on push to master or any pull request
