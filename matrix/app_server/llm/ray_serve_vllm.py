@@ -113,6 +113,7 @@ if original_post_init is not None:
 
 class BaseDeployment:
     lora_modules: Optional[List[LoRAModulePath]] = None
+    use_v1_engine: Optional[bool] = None
 
     def __init__(
         self,
