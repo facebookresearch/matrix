@@ -24,7 +24,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"matrix/app_server/llm/openai.proto\x12\x15matrix.app_server.llm\"F\n\x15\x43hatCompletionLogProb\x12\r\n\x05token\x18\x01 \x01(\t\x12\x0f\n\x07logprob\x18\x02 \x01(\x02\x12\r\n\x05\x62ytes\x18\x03 \x03(\x05\"\x92\x01\n\x1d\x43hatCompletionLogProbsContent\x12\r\n\x05token\x18\x01 \x01(\t\x12\x0f\n\x07logprob\x18\x02 \x01(\x02\x12\r\n\x05\x62ytes\x18\x03 \x03(\x05\x12\x42\n\x0ctop_logprobs\x18\x04 \x03(\x0b\x32,.matrix.app_server.llm.ChatCompletionLogProb\"_\n\x16\x43hatCompletionLogProbs\x12\x45\n\x07\x63ontent\x18\x01 \x03(\x0b\x32\x34.matrix.app_server.llm.ChatCompletionLogProbsContent\"Q\n\x12\x43ompletionLogProbs\x12\x13\n\x0btext_offset\x18\x01 \x03(\x05\x12\x16\n\x0etoken_logprobs\x18\x02 \x03(\x02\x12\x0e\n\x06tokens\x18\x03 \x03(\t\"O\n\x05Usage\x12\x15\n\rprompt_tokens\x18\x01 \x01(\x05\x12\x19\n\x11\x63ompletion_tokens\x18\x02 \x01(\x05\x12\x14\n\x0ctotal_tokens\x18\x03 \x01(\x05\"@\n\x11\x43ompletionMessage\x12\x0c\n\x04role\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\t\x12\x0c\n\x04name\x18\x03 \x01(\t\"\xd5\x01\n\x1c\x43hatCompletionResponseChoice\x12\r\n\x05index\x18\x01 \x01(\x03\x12\x39\n\x07message\x18\x02 \x01(\x0b\x32(.matrix.app_server.llm.CompletionMessage\x12?\n\x08logprobs\x18\x03 \x01(\x0b\x32-.matrix.app_server.llm.ChatCompletionLogProbs\x12\x15\n\rfinish_reason\x18\x04 \x01(\t\x12\x13\n\x0bstop_reason\x18\x05 \x01(\t\"\xdf\x01\n\x18\x43ompletionResponseChoice\x12\r\n\x05index\x18\x01 \x01(\x03\x12\x0c\n\x04text\x18\x02 \x01(\t\x12;\n\x08logprobs\x18\x03 \x01(\x0b\x32).matrix.app_server.llm.CompletionLogProbs\x12\x15\n\rfinish_reason\x18\x04 \x01(\t\x12\x13\n\x0bstop_reason\x18\x05 \x01(\t\x12=\n\x0fprompt_logprobs\x18\x06 \x03(\x0b\x32$.matrix.app_server.llm.TokenLogProbs\"A\n\tTokenInfo\x12\x0f\n\x07logprob\x18\x01 \x01(\x02\x12\x0c\n\x04rank\x18\x02 \x01(\x05\x12\x15\n\rdecoded_token\x18\x03 \x01(\t\"\xa9\x01\n\rTokenLogProbs\x12\x45\n\ttoken_map\x18\x01 \x03(\x0b\x32\x32.matrix.app_server.llm.TokenLogProbs.TokenMapEntry\x1aQ\n\rTokenMapEntry\x12\x0b\n\x03key\x18\x01 \x01(\x05\x12/\n\x05value\x18\x02 \x01(\x0b\x32 .matrix.app_server.llm.TokenInfo:\x02\x38\x01\"\x99\x03\n\x15\x43hatCompletionRequest\x12\r\n\x05model\x18\x01 \x01(\t\x12:\n\x08messages\x18\x02 \x03(\x0b\x32(.matrix.app_server.llm.CompletionMessage\x12\x13\n\x0btemperature\x18\x03 \x01(\x02\x12\r\n\x05top_p\x18\x04 \x01(\x02\x12\t\n\x01n\x18\x05 \x01(\x05\x12\x10\n\x08logprobs\x18\x06 \x01(\x08\x12\x0c\n\x04stop\x18\x07 \x01(\t\x12\x12\n\nmax_tokens\x18\x08 \x01(\x05\x12\x18\n\x10presence_penalty\x18\t \x01(\x02\x12\x19\n\x11\x66requency_penalty\x18\n \x01(\x02\x12O\n\nlogit_bias\x18\x0b \x03(\x0b\x32;.matrix.app_server.llm.ChatCompletionRequest.LogitBiasEntry\x12\x0c\n\x04user\x18\x0c \x01(\t\x12\x0c\n\x04seed\x18\r \x01(\x05\x1a\x30\n\x0eLogitBiasEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x03:\x02\x38\x01\"\xfe\x02\n\x11\x43ompletionRequest\x12\r\n\x05model\x18\x01 \x01(\t\x12\x0e\n\x06prompt\x18\x02 \x01(\t\x12\x13\n\x0btemperature\x18\x03 \x01(\x02\x12\r\n\x05top_p\x18\x04 \x01(\x02\x12\t\n\x01n\x18\x05 \x01(\x05\x12\x10\n\x08logprobs\x18\x06 \x01(\x08\x12\x0c\n\x04stop\x18\x07 \x01(\t\x12\x12\n\nmax_tokens\x18\x08 \x01(\x05\x12\x18\n\x10presence_penalty\x18\t \x01(\x02\x12\x19\n\x11\x66requency_penalty\x18\n \x01(\x02\x12K\n\nlogit_bias\x18\x0b \x03(\x0b\x32\x37.matrix.app_server.llm.CompletionRequest.LogitBiasEntry\x12\x0c\n\x04user\x18\x0c \x01(\t\x12\x0c\n\x04seed\x18\r \x01(\x05\x12\x17\n\x0fprompt_logprobs\x18\x0e \x01(\x05\x1a\x30\n\x0eLogitBiasEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x03:\x02\x38\x01\"\xc7\x01\n\x16\x43hatCompletionResponse\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06object\x18\x02 \x01(\t\x12\x0f\n\x07\x63reated\x18\x03 \x01(\x03\x12\r\n\x05model\x18\x04 \x01(\t\x12\x44\n\x07\x63hoices\x18\x05 \x03(\x0b\x32\x33.matrix.app_server.llm.ChatCompletionResponseChoice\x12+\n\x05usage\x18\x06 \x01(\x0b\x32\x1c.matrix.app_server.llm.Usage\"\xbf\x01\n\x12\x43ompletionResponse\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06object\x18\x02 \x01(\t\x12\x0f\n\x07\x63reated\x18\x03 \x01(\x03\x12\r\n\x05model\x18\x04 \x01(\t\x12@\n\x07\x63hoices\x18\x05 \x03(\x0b\x32/.matrix.app_server.llm.CompletionResponseChoice\x12+\n\x05usage\x18\x06 \x01(\x0b\x32\x1c.matrix.app_server.llm.Usage2\xf1\x01\n\rOpenaiService\x12u\n\x14\x43reateChatCompletion\x12,.matrix.app_server.llm.ChatCompletionRequest\x1a-.matrix.app_server.llm.ChatCompletionResponse\"\x00\x12i\n\x10\x43reateCompletion\x12(.matrix.app_server.llm.CompletionRequest\x1a).matrix.app_server.llm.CompletionResponse\"\x00\x42\nB\x06globalP\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\"matrix/app_server/llm/openai.proto\x12\x15matrix.app_server.llm\"F\n\x15\x43hatCompletionLogProb\x12\r\n\x05token\x18\x01 \x01(\t\x12\x0f\n\x07logprob\x18\x02 \x01(\x02\x12\r\n\x05\x62ytes\x18\x03 \x03(\x05\"\x92\x01\n\x1d\x43hatCompletionLogProbsContent\x12\r\n\x05token\x18\x01 \x01(\t\x12\x0f\n\x07logprob\x18\x02 \x01(\x02\x12\r\n\x05\x62ytes\x18\x03 \x03(\x05\x12\x42\n\x0ctop_logprobs\x18\x04 \x03(\x0b\x32,.matrix.app_server.llm.ChatCompletionLogProb\"_\n\x16\x43hatCompletionLogProbs\x12\x45\n\x07\x63ontent\x18\x01 \x03(\x0b\x32\x34.matrix.app_server.llm.ChatCompletionLogProbsContent\"Q\n\x12\x43ompletionLogProbs\x12\x13\n\x0btext_offset\x18\x01 \x03(\x05\x12\x16\n\x0etoken_logprobs\x18\x02 \x03(\x02\x12\x0e\n\x06tokens\x18\x03 \x03(\t\"O\n\x05Usage\x12\x15\n\rprompt_tokens\x18\x01 \x01(\x05\x12\x19\n\x11\x63ompletion_tokens\x18\x02 \x01(\x05\x12\x14\n\x0ctotal_tokens\x18\x03 \x01(\x05\"/\n\x0c\x46unctionCall\x12\x0c\n\x04name\x18\x01 \x01(\t\x12\x11\n\targuments\x18\x02 \x01(\t\"[\n\x08ToolCall\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0c\n\x04type\x18\x02 \x01(\t\x12\x35\n\x08\x66unction\x18\x03 \x01(\x0b\x32#.matrix.app_server.llm.FunctionCall\"\xcf\x01\n\x11\x43ompletionMessage\x12\x0c\n\x04role\x18\x01 \x01(\t\x12\x0f\n\x07\x63ontent\x18\x02 \x01(\t\x12\x0f\n\x07refusal\x18\x03 \x01(\t\x12:\n\rfunction_call\x18\x04 \x03(\x0b\x32#.matrix.app_server.llm.FunctionCall\x12\x33\n\ntool_calls\x18\x05 \x03(\x0b\x32\x1f.matrix.app_server.llm.ToolCall\x12\x19\n\x11reasoning_content\x18\x06 \x01(\t\"\xd5\x01\n\x1c\x43hatCompletionResponseChoice\x12\r\n\x05index\x18\x01 \x01(\x03\x12\x39\n\x07message\x18\x02 \x01(\x0b\x32(.matrix.app_server.llm.CompletionMessage\x12?\n\x08logprobs\x18\x03 \x01(\x0b\x32-.matrix.app_server.llm.ChatCompletionLogProbs\x12\x15\n\rfinish_reason\x18\x04 \x01(\t\x12\x13\n\x0bstop_reason\x18\x05 \x01(\t\"\xdf\x01\n\x18\x43ompletionResponseChoice\x12\r\n\x05index\x18\x01 \x01(\x03\x12\x0c\n\x04text\x18\x02 \x01(\t\x12;\n\x08logprobs\x18\x03 \x01(\x0b\x32).matrix.app_server.llm.CompletionLogProbs\x12\x15\n\rfinish_reason\x18\x04 \x01(\t\x12\x13\n\x0bstop_reason\x18\x05 \x01(\t\x12=\n\x0fprompt_logprobs\x18\x06 \x03(\x0b\x32$.matrix.app_server.llm.TokenLogProbs\"A\n\tTokenInfo\x12\x0f\n\x07logprob\x18\x01 \x01(\x02\x12\x0c\n\x04rank\x18\x02 \x01(\x05\x12\x15\n\rdecoded_token\x18\x03 \x01(\t\"\xa9\x01\n\rTokenLogProbs\x12\x45\n\ttoken_map\x18\x01 \x03(\x0b\x32\x32.matrix.app_server.llm.TokenLogProbs.TokenMapEntry\x1aQ\n\rTokenMapEntry\x12\x0b\n\x03key\x18\x01 \x01(\x05\x12/\n\x05value\x18\x02 \x01(\x0b\x32 .matrix.app_server.llm.TokenInfo:\x02\x38\x01\"\x99\x03\n\x15\x43hatCompletionRequest\x12\r\n\x05model\x18\x01 \x01(\t\x12:\n\x08messages\x18\x02 \x03(\x0b\x32(.matrix.app_server.llm.CompletionMessage\x12\x13\n\x0btemperature\x18\x03 \x01(\x02\x12\r\n\x05top_p\x18\x04 \x01(\x02\x12\t\n\x01n\x18\x05 \x01(\x05\x12\x10\n\x08logprobs\x18\x06 \x01(\x08\x12\x0c\n\x04stop\x18\x07 \x01(\t\x12\x12\n\nmax_tokens\x18\x08 \x01(\x05\x12\x18\n\x10presence_penalty\x18\t \x01(\x02\x12\x19\n\x11\x66requency_penalty\x18\n \x01(\x02\x12O\n\nlogit_bias\x18\x0b \x03(\x0b\x32;.matrix.app_server.llm.ChatCompletionRequest.LogitBiasEntry\x12\x0c\n\x04user\x18\x0c \x01(\t\x12\x0c\n\x04seed\x18\r \x01(\x05\x1a\x30\n\x0eLogitBiasEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x03:\x02\x38\x01\"\xfe\x02\n\x11\x43ompletionRequest\x12\r\n\x05model\x18\x01 \x01(\t\x12\x0e\n\x06prompt\x18\x02 \x01(\t\x12\x13\n\x0btemperature\x18\x03 \x01(\x02\x12\r\n\x05top_p\x18\x04 \x01(\x02\x12\t\n\x01n\x18\x05 \x01(\x05\x12\x10\n\x08logprobs\x18\x06 \x01(\x08\x12\x0c\n\x04stop\x18\x07 \x01(\t\x12\x12\n\nmax_tokens\x18\x08 \x01(\x05\x12\x18\n\x10presence_penalty\x18\t \x01(\x02\x12\x19\n\x11\x66requency_penalty\x18\n \x01(\x02\x12K\n\nlogit_bias\x18\x0b \x03(\x0b\x32\x37.matrix.app_server.llm.CompletionRequest.LogitBiasEntry\x12\x0c\n\x04user\x18\x0c \x01(\t\x12\x0c\n\x04seed\x18\r \x01(\x05\x12\x17\n\x0fprompt_logprobs\x18\x0e \x01(\x05\x1a\x30\n\x0eLogitBiasEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\x03:\x02\x38\x01\"\xc7\x01\n\x16\x43hatCompletionResponse\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06object\x18\x02 \x01(\t\x12\x0f\n\x07\x63reated\x18\x03 \x01(\x03\x12\r\n\x05model\x18\x04 \x01(\t\x12\x44\n\x07\x63hoices\x18\x05 \x03(\x0b\x32\x33.matrix.app_server.llm.ChatCompletionResponseChoice\x12+\n\x05usage\x18\x06 \x01(\x0b\x32\x1c.matrix.app_server.llm.Usage\"\xbf\x01\n\x12\x43ompletionResponse\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0e\n\x06object\x18\x02 \x01(\t\x12\x0f\n\x07\x63reated\x18\x03 \x01(\x03\x12\r\n\x05model\x18\x04 \x01(\t\x12@\n\x07\x63hoices\x18\x05 \x03(\x0b\x32/.matrix.app_server.llm.CompletionResponseChoice\x12+\n\x05usage\x18\x06 \x01(\x0b\x32\x1c.matrix.app_server.llm.Usage2\xf1\x01\n\rOpenaiService\x12u\n\x14\x43reateChatCompletion\x12,.matrix.app_server.llm.ChatCompletionRequest\x1a-.matrix.app_server.llm.ChatCompletionResponse\"\x00\x12i\n\x10\x43reateCompletion\x12(.matrix.app_server.llm.CompletionRequest\x1a).matrix.app_server.llm.CompletionResponse\"\x00\x42\nB\x06globalP\x01\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -48,30 +48,34 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_COMPLETIONLOGPROBS']._serialized_end=460
   _globals['_USAGE']._serialized_start=462
   _globals['_USAGE']._serialized_end=541
-  _globals['_COMPLETIONMESSAGE']._serialized_start=543
-  _globals['_COMPLETIONMESSAGE']._serialized_end=607
-  _globals['_CHATCOMPLETIONRESPONSECHOICE']._serialized_start=610
-  _globals['_CHATCOMPLETIONRESPONSECHOICE']._serialized_end=823
-  _globals['_COMPLETIONRESPONSECHOICE']._serialized_start=826
-  _globals['_COMPLETIONRESPONSECHOICE']._serialized_end=1049
-  _globals['_TOKENINFO']._serialized_start=1051
-  _globals['_TOKENINFO']._serialized_end=1116
-  _globals['_TOKENLOGPROBS']._serialized_start=1119
-  _globals['_TOKENLOGPROBS']._serialized_end=1288
-  _globals['_TOKENLOGPROBS_TOKENMAPENTRY']._serialized_start=1207
-  _globals['_TOKENLOGPROBS_TOKENMAPENTRY']._serialized_end=1288
-  _globals['_CHATCOMPLETIONREQUEST']._serialized_start=1291
-  _globals['_CHATCOMPLETIONREQUEST']._serialized_end=1700
-  _globals['_CHATCOMPLETIONREQUEST_LOGITBIASENTRY']._serialized_start=1652
-  _globals['_CHATCOMPLETIONREQUEST_LOGITBIASENTRY']._serialized_end=1700
-  _globals['_COMPLETIONREQUEST']._serialized_start=1703
-  _globals['_COMPLETIONREQUEST']._serialized_end=2085
-  _globals['_COMPLETIONREQUEST_LOGITBIASENTRY']._serialized_start=1652
-  _globals['_COMPLETIONREQUEST_LOGITBIASENTRY']._serialized_end=1700
-  _globals['_CHATCOMPLETIONRESPONSE']._serialized_start=2088
-  _globals['_CHATCOMPLETIONRESPONSE']._serialized_end=2287
-  _globals['_COMPLETIONRESPONSE']._serialized_start=2290
-  _globals['_COMPLETIONRESPONSE']._serialized_end=2481
-  _globals['_OPENAISERVICE']._serialized_start=2484
-  _globals['_OPENAISERVICE']._serialized_end=2725
+  _globals['_FUNCTIONCALL']._serialized_start=543
+  _globals['_FUNCTIONCALL']._serialized_end=590
+  _globals['_TOOLCALL']._serialized_start=592
+  _globals['_TOOLCALL']._serialized_end=683
+  _globals['_COMPLETIONMESSAGE']._serialized_start=686
+  _globals['_COMPLETIONMESSAGE']._serialized_end=893
+  _globals['_CHATCOMPLETIONRESPONSECHOICE']._serialized_start=896
+  _globals['_CHATCOMPLETIONRESPONSECHOICE']._serialized_end=1109
+  _globals['_COMPLETIONRESPONSECHOICE']._serialized_start=1112
+  _globals['_COMPLETIONRESPONSECHOICE']._serialized_end=1335
+  _globals['_TOKENINFO']._serialized_start=1337
+  _globals['_TOKENINFO']._serialized_end=1402
+  _globals['_TOKENLOGPROBS']._serialized_start=1405
+  _globals['_TOKENLOGPROBS']._serialized_end=1574
+  _globals['_TOKENLOGPROBS_TOKENMAPENTRY']._serialized_start=1493
+  _globals['_TOKENLOGPROBS_TOKENMAPENTRY']._serialized_end=1574
+  _globals['_CHATCOMPLETIONREQUEST']._serialized_start=1577
+  _globals['_CHATCOMPLETIONREQUEST']._serialized_end=1986
+  _globals['_CHATCOMPLETIONREQUEST_LOGITBIASENTRY']._serialized_start=1938
+  _globals['_CHATCOMPLETIONREQUEST_LOGITBIASENTRY']._serialized_end=1986
+  _globals['_COMPLETIONREQUEST']._serialized_start=1989
+  _globals['_COMPLETIONREQUEST']._serialized_end=2371
+  _globals['_COMPLETIONREQUEST_LOGITBIASENTRY']._serialized_start=1938
+  _globals['_COMPLETIONREQUEST_LOGITBIASENTRY']._serialized_end=1986
+  _globals['_CHATCOMPLETIONRESPONSE']._serialized_start=2374
+  _globals['_CHATCOMPLETIONRESPONSE']._serialized_end=2573
+  _globals['_COMPLETIONRESPONSE']._serialized_start=2576
+  _globals['_COMPLETIONRESPONSE']._serialized_end=2767
+  _globals['_OPENAISERVICE']._serialized_start=2770
+  _globals['_OPENAISERVICE']._serialized_end=3011
 # @@protoc_insertion_point(module_scope)

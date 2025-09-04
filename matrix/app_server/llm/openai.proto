@@ -42,11 +42,26 @@ message Usage {
   int32 total_tokens = 3;
 }
 
+message FunctionCall {
+  string name = 1;
+  string arguments = 2;
+}
+message ToolCall {
+  string id = 1;
+  string type = 2; // Only "function" is valid
+  FunctionCall function = 3;
+}
+
 // CompletionMessage is the message that is sent to the server.
 message CompletionMessage {
   string role = 1;
   string content = 2;
-  string name = 3; // omitempty will need to be handled in implementation
+  string refusal = 3;
+  repeated FunctionCall function_call = 4;
+  repeated ToolCall tool_calls = 5;
+
+  // vLLM-specific fields that are not in OpenAI spec
+  string reasoning_content = 6;
 }
 
 message ChatCompletionResponseChoice {
