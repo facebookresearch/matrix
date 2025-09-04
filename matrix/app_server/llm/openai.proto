@@ -5,6 +5,7 @@
 // LICENSE file in the root directory of this source tree.
 
 syntax = "proto3";
+import "google/protobuf/struct.proto";
 
 package matrix.app_server.llm;
 
@@ -91,6 +92,19 @@ message TokenLogProbs {
   map<int32, TokenInfo> token_map = 1;
 }
 
+/**************** Tool Related ****************/
+
+message ChatCompletionToolsParam {
+  string type = 1; // vllm only support "function" https://github.com/vllm-project/vllm/blob/main/vllm/entrypoints/openai/protocol.py#L193
+  FunctionDefinition function = 2;  
+}
+
+message FunctionDefinition {
+  string name = 1;
+  string description = 2;
+  google.protobuf.Struct parameters = 3; // simple example; adjust to your needs
+}
+
 /**************** Request ****************/
 
 // ChatCompletionRequest represents a request structure for chat completion API.
@@ -108,6 +122,8 @@ message ChatCompletionRequest {
   map<string, int64> logit_bias = 11;
   string user = 12;
   int32 seed = 13;
+  repeated ChatCompletionToolsParam tools = 14;
+  string tool_choice = 15;
 }
 
 // CompletionRequest represents a request structure for chat completion API.
