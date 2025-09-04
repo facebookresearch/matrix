@@ -72,7 +72,11 @@ non_model_params = [
 vllm_app_template = """
 - name: {{ app.name }}
   route_prefix: /{{ app.name }}
+  {% if app.app_type == 'fastgen' %}
+  import_path: matrix.app_server.llm.ray_serve_fastgen:build_app
+  {% else %}
   import_path: matrix.app_server.llm.ray_serve_vllm:{{ 'build_app_grpc' if app.use_grpc else 'build_app' }}
+  {% endif %}
   runtime_env:
     env_vars:
         OUTLINES_CACHE_DIR: {{ temp_dir }}/.outlines
@@ -90,6 +94,8 @@ vllm_app_template = """
   - name: GrpcDeployment
   {% elif app.app_type == 'sglang_llm' %}
   - name: SglangDeployment
+  {% elif app.app_type == 'fastgen' %}
+  - name: FastgenDeployment
   {% else %}
   - name: VLLMDeployment
   {% endif %}
@@ -285,6 +291,7 @@ def get_app_type(app):
         "GrpcDeployment": "llm",
         "VLLMDeployment": "llm",
         "SglangDeployment": "sglang_llm",
+        "FastgenDeployment": "fastgen",
         "PerceptionEncoderDeployment": "perception_encoder",
         "OpticalFlowDeployment": "optical_flow",
     }
@@ -380,6 +387,7 @@ def get_yaml_for_deployment(
             assert app_type in [
                 "llm",
                 "sglang_llm",
+                "fastgen",
                 "code",
                 "container",
                 "hello",
@@ -397,7 +405,7 @@ def get_yaml_for_deployment(
             if "max_replica" not in app:
                 app["max_replica"] = app["min_replica"]
 
-            if app_type in ["llm", "sglang_llm"]:
+            if app_type in ["llm", "sglang_llm", "fastgen"]:
                 unknown = {
                     k: v
                     for k, v in app.items()
@@ -410,7 +418,7 @@ def get_yaml_for_deployment(
                 unknown = {k: v for k, v in app.items() if k not in non_model_params}
                 assert not unknown, f"unknown {app_type} model args {unknown}"
 
-            if app_type in ["llm", "sglang_llm"]:
+            if app_type in ["llm", "sglang_llm", "fastgen"]:
                 update_vllm_app_params(app)
                 yaml_str += Template(vllm_app_template).render(
                     temp_dir=temp_dir, non_model_params=non_model_params, app=app
