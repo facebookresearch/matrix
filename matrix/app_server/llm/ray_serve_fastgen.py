@@ -8,24 +8,27 @@ import argparse
 import asyncio
 import logging
 import os
+import socket
 import subprocess as sp
 import sys
 import tempfile
 from dataclasses import dataclass
 from inspect import Parameter, signature
-from multiprocessing import Pipe, Process
 from multiprocessing.connection import Client, Connection, Listener
 from queue import Queue
 from threading import Thread
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 from uuid import uuid4
 
+import ray
 import torch
 from fastapi import FastAPI
 from fastgen.generate import Fastgen, GenArgs, Packet
 from fastgen.utils.loading import HfLoader
 from fastgen.utils.tokenizer import BaseTokenizer
 from ray import serve
+from ray.actor import ActorHandle
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
 logger = logging.getLogger("ray.serve")
@@ -79,12 +82,21 @@ def worker_main(
     args: argparse.Namespace,
     rdv_dir: str,
     rank: int,
-    c: Connection,
+    host_port: Tuple[str, int],
 ) -> None:
-    pid = os.getpid()
-    logger.warning(f"Worker {rank} starting with PID {pid}")
     world_size = args.tensor_parallel_size
-    device = torch.device(f"cuda:{rank}")
+    pid = os.getpid()
+    device_id = int(os.environ["CUDA_VISIBLE_DEVICES"])
+    logger.warning(
+        f"Worker {rank}, world_size {world_size}, CUDA_VISIBLE_DEVICES={os.environ.get('CUDA_VISIBLE_DEVICES')}, RDV_DIR={rdv_dir}"
+    )
+
+    c = Client(host_port)
+
+    os.environ["ENABLE_INTRA_NODE_COMM"] = "1"
+    os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
+
+    device = torch.device(f"cuda:0")
     torch.cuda.set_device(device)
     if world_size == 1:
         mesh: Optional[DeviceMesh] = None
@@ -96,6 +108,7 @@ def worker_main(
             init_method=f"file://{rdv_dir}/rdv",
         )
         mesh = init_device_mesh("cuda", (world_size,))
+    logger.warning(f"Done init_process_group")
 
     torch.manual_seed(777)
     torch.set_default_device(device)
@@ -107,10 +120,10 @@ def worker_main(
         tp_mesh=mesh,
         device=device,
     )
+    logger.warning(f"Done init Fastgen")
     c.send("ready")
 
     q: Queue = Queue()
-
     enqueuer_thread = Thread(target=worker_enqueuer, args=(c, q), daemon=True)
     enqueuer_thread.start()
 
@@ -122,6 +135,36 @@ def worker_main(
     fg.destroy()
     if mesh is not None:
         torch.distributed.destroy_process_group()
+
+
+class WorkerWrapper:
+
+    def __init__(
+        self,
+        args: argparse.Namespace,
+        rdv_dir: str,
+        rank: int,
+        host_port: Tuple[str, int],
+    ):
+
+        import multiprocessing as mp
+
+        mp.set_start_method("spawn", force=True)
+
+        self.args = args
+        self.rdv_dir = rdv_dir
+        self.rank = rank
+
+        self.process = mp.Process(
+            target=worker_main,
+            args=(
+                args,
+                rdv_dir,
+                rank,
+                host_port,
+            ),
+        )
+        self.process.start()
 
 
 @serve.deployment(
@@ -137,18 +180,20 @@ class FastgenDeployment:
 
     def __init__(
         self,
-        engine_args: argparse.Namespace,
+        args: argparse.Namespace,
     ):
-        logger.warning(f"Starting with engine args: {engine_args} and env: {os.environ}")
-        self.engine_args = engine_args
-        self.workers: list[tuple[sp.Popen, Connection]] = []
+        logger.warning(f"Starting with engine args: {args} and env: {os.environ}")
+        self.args = args
+        self.workers: list[tuple[ActorHandle, Connection]] = []
         self.handles: dict[str, Queue[list[int]]] = {}
         self.running: bool = True
-        self.tokenizer: BaseTokenizer = None  # type: ignore[assignment]
-        self.setup(engine_args)
+        loader = HfLoader(args.model)
+        self.tokenizer: BaseTokenizer = loader.load_tokenizer()
+
+        self.setup(args)
 
     def receiver(self, loop: asyncio.AbstractEventLoop):
-        """Receiver thread"""
+        """Receive from the rank 0 worker and put the response into the queue for that request"""
         while self.running:
             rid, tokens = self.workers[0][1].recv()
 
@@ -162,32 +207,37 @@ class FastgenDeployment:
             asyncio.run_coroutine_threadsafe(hnd.put(tokens), loop)
 
     def setup(self, args):
-        self.gpu_ids = os.environ["CUDA_VISIBLE_DEVICES"].split(",")
-        assert len(self.gpu_ids) == args.tensor_parallel_size
+        placement_group = ray.util.get_current_placement_group()
+        bundle_indices = []
+        for bundle_id, bundle in enumerate(placement_group.bundle_specs):
+            if bundle.get("GPU", 0):
+                bundle_indices.append(bundle_id)
+        bundle_indices = bundle_indices[: args.tensor_parallel_size]
 
-        loader = HfLoader(args.model)
-        # global tokenizer
-        self.tokenizer = loader.load_tokenizer()
+        hostname = socket.gethostname()
+        listener = Listener((hostname, 0), "AF_INET", authkey=None)
+        host, port = listener.address
+        logger.info(f"Listener started on host={host}, port={port}")
 
-        # spawn worker processes
         with tempfile.TemporaryDirectory() as rdv_dir:
-            for rank in range(args.tensor_parallel_size):
-                parent_conn, child_conn = Pipe()  # create two ends of the connection
-                os.environ["ENABLE_INTRA_NODE_COMM"] = "1"
-                os.environ["TORCH_NCCL_AVOID_RECORD_STREAMS"] = "1"
-                os.environ["CUDA_VISIBLE_DEVICES"] = "0" # self.gpu_ids[rank]
+            for rank, bundle_id in enumerate(bundle_indices):
 
-                p = Process(
-                    target=worker_main,
-                    args=(
-                        args,
-                        rdv_dir,
-                        rank,
-                        child_conn,
-                    ),
+                scheduling_strategy = PlacementGroupSchedulingStrategy(
+                    placement_group=placement_group,
+                    placement_group_capture_child_tasks=True,
+                    placement_group_bundle_index=bundle_id,
                 )
-                p.start()
-                self.workers.append((p, parent_conn))
+
+                worker = ray.remote(
+                    num_cpus=0,
+                    num_gpus=1,
+                    scheduling_strategy=scheduling_strategy,
+                )(WorkerWrapper).remote(self.args, rdv_dir, rank, (host, port))
+
+                conn = listener.accept()
+                logger.info(f"Connection accepted from: {conn}")
+
+                self.workers.append((worker, conn))
 
             # wait for workers to be ready
             for _, c in self.workers:
@@ -201,7 +251,7 @@ class FastgenDeployment:
     @app.post("/v1/chat/completions")
     async def create_chat_completion(self, request: Request):
         """OpenAI-compatible HTTP endpoint."""
-        logger.info(f"Request: {request}")
+        logger.debug(f"Request: {request}")
 
         rq = request  # Request(**completion_request)
         rid = uuid4().hex
@@ -248,9 +298,8 @@ class FastgenDeployment:
         self.running = False
 
 
-def parse_engine_args(cli_args: Dict[str, str]):
-    """Parses engine args based on CLI inputs.
-    """
+def parse_args(cli_args: Dict[str, str]):
+    """Parses engine args based on CLI inputs."""
     parser = argparse.ArgumentParser(description="Example with type annotations")
 
     parser.add_argument(
@@ -307,13 +356,12 @@ def parse_engine_args(cli_args: Dict[str, str]):
 
 
 def build_app(cli_args: Dict[str, str]) -> serve.Application:
-    """Builds the Serve app based on CLI arguments.
-    """  # noqa: E501
+    """Builds the Serve app based on CLI arguments."""  # noqa: E501
     accelerator = "GPU"
-    engine_args = parse_engine_args(cli_args)
+    args = parse_args(cli_args)
 
-    tp = engine_args.tensor_parallel_size
-    pp = engine_args.pipeline_parallel_size
+    tp = args.tensor_parallel_size
+    pp = args.pipeline_parallel_size
     logger.info(f"Tensor parallelism = {tp}, Pipeline parallelism = {pp}")
     pg_resources = []
     pg_resources.append({"CPU": 1})  # for the deployment replica
@@ -326,5 +374,5 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
         placement_group_bundles=pg_resources,
         placement_group_strategy="STRICT_PACK" if pp == 1 else "PACK",
     ).bind(
-        engine_args,
+        args,
     )

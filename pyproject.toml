@@ -166,6 +166,22 @@ classifiers=[
       "tenacity",
       "perception_models @ git+https://github.com/facebookresearch/perception_models.git"
   ]
+  fastgen = [
+      "submitit>=1.5.2",
+      "transformers>=4.45.2",
+      "torch>=2.7.1",
+      "ray[serve]>=2.48.0",
+      "boto3",
+      "google-genai>=1.13.0",
+      "datasketch",
+      "s3fs",
+      "datasets",
+      "iopath",
+      "jsonlines",
+      "flash-attn==2.7.3",
+      "fastgen @ git+https://github.com/dongwang218/fastgen.git"
+  ]
+
 [project.scripts]
 matrix="matrix.cli:main"
 
