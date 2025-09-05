@@ -294,16 +294,27 @@ async def make_request(
                         result = {
                             "request": data,
                             "response": {
-                                "text": [
-                                    response.choices[i].message.content
-                                    for i in range(n)
-                                ],
                                 "finish_reason": [
                                     response.choices[i].finish_reason for i in range(n)
                                 ],
                                 "response_timestamp": time.time(),
                             },
                         }
+                        if response.choices[0].message.content:
+                            result["response"]["text"] = ([response.choices[i].message.content for i in range(n)],)  # type: ignore[attr-defined]
+                        if response.choices[0].message.tool_calls:
+                            result["response"]["tool_calls"] = [
+                                [
+                                    {
+                                        "name": tool_call.function.name,  # type: ignore[union-attr]
+                                        "arguments": tool_call.function.arguments,  # type: ignore[union-attr]
+                                    }
+                                    for tool_call in response.choices[
+                                        i
+                                    ].message.tool_calls  # type: ignore[union-attr]
+                                ]
+                                for i in range(n)
+                            ]
                         if (logprobs or top_logprobs is not None) and response.choices[
                             0
                         ].logprobs is not None:
@@ -456,7 +467,7 @@ async def make_request(
                             top_p=top_p,
                             temperature=temperature,
                             tool_choice=tool_choice,
-                            tools=tools,
+                            tools=tools if tools is not NOT_GIVEN else None,
                             n=n,
                             seed=seed,
                             max_tokens=max_tokens,
@@ -468,11 +479,25 @@ async def make_request(
                         result = {
                             "request": data,
                             "response": {
-                                "text": [response.choices[i].message.content for i in range(n)],  # type: ignore[attr-defined]
                                 "finish_reason": [response.choices[i].finish_reason for i in range(n)],  # type: ignore[attr-defined]
                                 "response_timestamp": time.time(),
                             },
                         }
+                        if response.choices[0].message.content:
+                            result["response"]["text"] = ([response.choices[i].message.content for i in range(n)],)  # type: ignore[attr-defined]
+                        if response.choices[0].message.tool_calls:
+                            result["response"]["tool_calls"] = [
+                                [
+                                    {
+                                        "name": tool_call.function.name,  # type: ignore[union-attr]
+                                        "arguments": tool_call.function.arguments,  # type: ignore[union-attr]
+                                    }
+                                    for tool_call in response.choices[
+                                        i
+                                    ].message.tool_calls  # type: ignore[union-attr]
+                                ]
+                                for i in range(n)
+                            ]
                         if (logprobs or top_logprobs is not None) and response.choices[
                             0
                         ].logprobs is not None:  # type: ignore[attr-defined]

@@ -14,6 +14,7 @@ llm_model_default_parameters = {
         "max_ongoing_requests": 256,
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
+        "tool-call-parser": "llama3_json",
     },
     "meta-llama/Llama-3.1-8B-Instruct": {
         "name": "8B",
@@ -23,6 +24,7 @@ llm_model_default_parameters = {
         "max_ongoing_requests": 150,
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
+        "tool-call-parser": "llama3_json",
     },
     "meta-llama/Llama-3.1-70B-Instruct": {
         "name": "70B",
@@ -32,6 +34,7 @@ llm_model_default_parameters = {
         "max-model-len": 30960,
         "gpu-memory-utilization": 0.8,
         "max_ongoing_requests": 100,
+        "tool-call-parser": "llama3_json",
     },
     "meta-llama/Llama-3.1-405B-Instruct-FP8": {
         "name": "405B-FP8",
@@ -41,6 +44,7 @@ llm_model_default_parameters = {
         "max-model-len": 10240,
         "gpu-memory-utilization": 0.8,
         "max_ongoing_requests": 50,
+        "tool-call-parser": "llama3_json",
     },
     "meta-llama/Llama-3.1-405B-Instruct": {
         "name": "405B",
@@ -50,6 +54,7 @@ llm_model_default_parameters = {
         "max-model-len": 10240,  # 30960 (4 node), 61440 (6 node), 128000 (10 nodes)
         "gpu-memory-utilization": 0.8,
         "max_ongoing_requests": 50,
+        "tool-call-parser": "llama3_json",
     },
     "meta-llama/Llama-3.3-70B-Instruct": {
         "name": "3_3_70B",
@@ -59,6 +64,7 @@ llm_model_default_parameters = {
         "max-model-len": 32768,
         "gpu-memory-utilization": 0.8,
         "max_ongoing_requests": 100,
+        "tool-call-parser": "llama3_json",
     },
     "deepseek-ai/DeepSeek-R1": {
         "name": "deepseek-r1",
@@ -79,6 +85,7 @@ llm_model_default_parameters = {
         "gpu-memory-utilization": 0.9,
         "max_ongoing_requests": 100,
         "use_v1_engine": "true",
+        "tool-call-parser": "llama3_json",
     },
     "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8": {
         "name": "maverick-fp8",
@@ -92,6 +99,7 @@ llm_model_default_parameters = {
         "kv-cache-dtype": "auto",
         "quantization": "compressed-tensors",
         "use_v1_engine": "true",
+        "tool-call-parser": "llama3_json",
     },
     "unsloth/mistral-7b-instruct-v0.2-bnb-4bit": {
         "name": "unsloth-mistral-7B",
@@ -124,6 +132,7 @@ llm_model_default_parameters = {
         "max-model-len": 32768,
         "gpu-memory-utilization": 0.8,
         "disable-sliding-window": True,
+        "tool-call-parser": "minimax",
     },
     "mistralai/Mistral-7B-Instruct-v0.1": {
         "name": "mistralai-7B",
@@ -135,6 +144,7 @@ llm_model_default_parameters = {
         "max-model-len": 4096,
         "gpu-memory-utilization": 0.8,
         "dtype": "half",
+        "tool-call-parser": "minimax",
     },
     "Qwen/Qwen2.5-7B-Instruct": {
         "name": "Qwen2.5-7B",
@@ -144,6 +154,7 @@ llm_model_default_parameters = {
         "max_ongoing_requests": 150,
         "max-model-len": 32768,
         "gpu-memory-utilization": 0.8,
+        "tool-call-parser": "hermes",
     },
     "Qwen/Qwen2.5-32B-Instruct": {
         "name": "Qwen2.5-32B",
@@ -153,6 +164,7 @@ llm_model_default_parameters = {
         "max_ongoing_requests": 150,
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
+        "tool-call-parser": "hermes",
     },
     "Qwen/Qwen2.5-72B-Instruct": {
         "name": "Qwen2.5-72B",
@@ -171,6 +183,7 @@ llm_model_default_parameters = {
         "max_ongoing_requests": 150,
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.8,
+        "tool-call-parser": "hermes",
     },
     "Qwen/Qwen3-32B": {
         "name": "Qwen3-32B",
@@ -178,8 +191,9 @@ llm_model_default_parameters = {
         "pipeline-parallel-size": 1,
         "enable-prefix-caching": True,
         "max_ongoing_requests": 150,
-        "max-model-len": 131072,
+        "max-model-len": 32768,
         "gpu-memory-utilization": 0.8,
+        "tool-call-parser": "hermes",
     },
     "Qwen/Qwen3-235B-A22B": {
         "name": "Qwen3-235B-A22B",
@@ -189,6 +203,7 @@ llm_model_default_parameters = {
         "max-model-len": 32768,
         "gpu-memory-utilization": 0.8,
         "max_ongoing_requests": 50,
+        "tool-call-parser": "hermes",
     },
     # need to install vllm_0101_gptoss
     "openai/gpt-oss-20b": {

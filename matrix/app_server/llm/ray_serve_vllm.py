@@ -73,6 +73,7 @@ from vllm.utils import FlexibleArgumentParser
 
 vllm_deploy_args = [
     "use_v1_engine",
+    "enable_tools",
 ]
 
 logger = logging.getLogger("ray.serve")
@@ -114,6 +115,8 @@ if original_post_init is not None:
 class BaseDeployment:
     lora_modules: Optional[List[LoRAModulePath]] = None
     use_v1_engine: Optional[bool] = None
+    enable_tools: bool = False
+    tool_parser: Optional[str] = None
 
     def __init__(
         self,
@@ -122,6 +125,8 @@ class BaseDeployment:
         lora_modules: Optional[List[LoRAModulePath]] = None,
         request_logger: Optional[RequestLogger] = None,
         chat_template: Optional[str] = None,
+        tool_parser: Optional[str] = None,
+        enable_tools: bool = False,
         use_v1_engine: Optional[bool] = None,
     ):
         logger.info(f"Starting with engine args: {engine_args}")
@@ -135,6 +140,8 @@ class BaseDeployment:
         self.use_v1_engine = (
             _has_v1 and use_v1_engine is not None and use_v1_engine == True
         )
+        self.enable_tools = enable_tools
+        self.tool_parser = tool_parser
         # AsyncLLMEngine._get_executor_cls = classmethod(use_ray_executor)
 
         # current_platform.get_device_capability() would return None for some models (e.g. R1) after
@@ -216,11 +223,18 @@ class BaseDeployment:
         if "base_model_paths" in init_params:
             kwargs["base_model_paths"] = base_model_paths
 
+        # equivalent to --enable-auto-tool-choice
+        if self.enable_tools:
+            kwargs["enable_auto_tools"] = True
+            kwargs["tool_parser"] = self.tool_parser
+
         self.openai_serving_chat = OpenAIServingChat(**kwargs)  # type: ignore[arg-type]
         completion_exclude = [
             "chat_template",
             "chat_template_content_format",
             "response_role",
+            "enable_auto_tools",
+            "tool_parser",
         ]
         self.openai_serving_completion = OpenAIServingCompletion(
             **{k: v for k, v in kwargs.items() if not k in completion_exclude}  # type: ignore[arg-type]
@@ -266,6 +280,8 @@ class VLLMDeployment(BaseDeployment):
         lora_modules: Optional[List[LoRAModulePath]] = None,
         request_logger: Optional[RequestLogger] = None,
         chat_template: Optional[str] = None,
+        tool_parser: Optional[str] = None,
+        enable_tools: bool = False,
         use_v1_engine: Optional[bool] = None,
     ):
         super().__init__(
@@ -274,6 +290,8 @@ class VLLMDeployment(BaseDeployment):
             lora_modules=lora_modules,
             request_logger=request_logger,
             chat_template=chat_template,
+            tool_parser=tool_parser,
+            enable_tools=enable_tools,
             use_v1_engine=use_v1_engine,
         )
 
@@ -350,6 +368,8 @@ class GrpcDeployment(BaseDeployment):
         lora_modules: Optional[List[LoRAModulePath]] = None,
         request_logger: Optional[RequestLogger] = None,
         chat_template: Optional[str] = None,
+        tool_parser: Optional[str] = None,
+        enable_tools: bool = False,
         use_v1_engine: Optional[bool] = None,
     ):
         super().__init__(
@@ -358,6 +378,8 @@ class GrpcDeployment(BaseDeployment):
             lora_modules=lora_modules,
             request_logger=request_logger,
             chat_template=chat_template,
+            tool_parser=tool_parser,
+            enable_tools=enable_tools,
             use_v1_engine=use_v1_engine,
         )
         self.healthy = True
@@ -444,8 +466,6 @@ class GrpcDeployment(BaseDeployment):
         model_id = serve.get_multiplexed_model_id()
         if model_id:
             model = await self.get_model(model_id)
-        logger.info(f"logger multiplexed_model_id {model_id}")
-
         completion_request = CompletionRequest(
             **json_format.MessageToDict(request, preserving_proto_field_name=True)
         )
@@ -552,6 +572,7 @@ def _build_app(cli_args: Dict[str, str], use_grpc) -> serve.Application:
         parsed_args.lora_modules,
         cli_args.get("request_logger"),
         parsed_args.chat_template,
+        parsed_args.tool_call_parser,
         **deploy_args,
     )
 
