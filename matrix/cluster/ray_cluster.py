@@ -392,3 +392,15 @@ class RayCluster:
     def __exit__(self, _exc_type, _exc_value, _traceback):
         # Ensure the cluster is stopped when exiting the context
         self.stop()
+
+    def get_resources(self):
+        import ray
+
+        cluster_info = self.cluster_info()
+        assert cluster_info is not None, "Head is not ready"
+        init_ray_if_necessary(cluster_info)
+        return {
+            "nodes": ray.nodes(),
+            "total_resources": ray.cluster_resources(),
+            "available_resources": ray.available_resources(),
+        }

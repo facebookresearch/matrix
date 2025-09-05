@@ -7,7 +7,15 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from matrix.utils.basics import convert_to_json_compatible, sanitize_app_name
+import pytest
+
+from matrix.utils.basics import (
+    convert_to_json_compatible,
+    get_nested_value,
+    get_user_message_from_llama3_prompt,
+    sanitize_app_name,
+    str_to_callable,
+)
 
 
 def test_sanitize_app_name():
@@ -58,6 +66,63 @@ def test_convert_to_json_compatible_handles_types():
     assert converted["enum"] == "blue"
 
 
+def test_convert_to_json_compatible_nested_structures():
+    nested = {"items": [Demo(1, (2,), {"a"}, Color.RED)]}
+    assert convert_to_json_compatible(nested) == {
+        "items": [{"a": 1, "b": [2], "c": ["a"], "color": "red"}]
+    }
+
+
 def test_convert_to_json_compatible_dataclass_class():
     """Ensure dataclass *types* are stringified rather than treated as instances."""
     assert convert_to_json_compatible(Demo) == str(Demo)
+
+
+def test_get_user_message_from_llama3_prompt():
+    prompt = "<|start_header_id|>user<|end_header_id|>\n\nHello<|eot_id|>"
+    assert get_user_message_from_llama3_prompt(prompt) == "Hello"
+
+    malformed = "<|start_header_id|>user<|end_header_id|>noeot"
+    assert get_user_message_from_llama3_prompt(malformed) == malformed
+
+    plain = "Just text"
+    assert get_user_message_from_llama3_prompt(plain) == plain
+
+
+def test_get_user_message_from_llama3_prompt_picks_first_user():
+    conversation = (
+        "<|start_header_id|>system<|end_header_id|>\n\nSys<|eot_id|>"
+        "<|start_header_id|>user<|end_header_id|>\n\nHi<|eot_id|>"
+        "<|start_header_id|>assistant<|end_header_id|>\n\nHello<|eot_id|>"
+        "<|start_header_id|>user<|end_header_id|>\n\nBye<|eot_id|>"
+    )
+    assert get_user_message_from_llama3_prompt(conversation) == "Hi"
+
+
+def test_get_nested_value():
+    data = {"a": {"b": [{"c": 3}, {"c": 4}]}, "x": [10, 20]}
+    assert get_nested_value(data, "a.b[1].c") == 4
+    assert get_nested_value(data, "x[0]") == 10
+    assert get_nested_value(data, "a.b[2].c") is None
+    assert get_nested_value(data, "a.b.c") is None
+
+
+def test_str_to_callable_success():
+    func = str_to_callable("matrix.job.job_utils.echo")
+    assert func("hi") == {"success": True, "output": "hi"}
+
+
+@pytest.mark.parametrize(
+    "path, message",
+    [
+        ("matrix.utils.ray.ACTOR_NAME_SPACE", "resolved to a non-callable object"),
+        ("matrix.job.job_utils.missing", "not found in module"),
+        ("matrix.missing.module", "could not be imported"),
+        ("not.a.path", "could not be imported"),
+        ("badpath", "Invalid path"),
+    ],
+)
+def test_str_to_callable_errors(path, message):
+    with pytest.raises(ValueError) as exc:
+        str_to_callable(path)
+    assert message in str(exc.value)

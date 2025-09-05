@@ -460,14 +460,6 @@ class GrpcDeployment(BaseDeployment):
                 await self.openai_serving_chat.models.init_static_loras()
             generator = await self.openai_serving_completion.create_completion(
                 completion_request,
-                Request(  # this Request is purely dummy, it is changed to optional in vllm's recent pull https://github.com/vllm-project/vllm/pull/12503
-                    scope={
-                        "type": "http",
-                        "method": "GET",
-                        "path": "",
-                        "headers": [],
-                    }
-                ),
             )
             if isinstance(generator, ErrorResponse):
                 if hasattr(generator, "error"):
