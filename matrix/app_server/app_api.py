@@ -438,6 +438,7 @@ class AppApi:
         if app_type in [
             "llm",
             "sglang_llm",
+            "fastgen",
             "openai",
             "metagen",
             "sagemaker",

@@ -185,7 +185,7 @@ class FastgenDeployment:
         logger.warning(f"Starting with engine args: {args} and env: {os.environ}")
         self.args = args
         self.workers: list[tuple[ActorHandle, Connection]] = []
-        self.handles: dict[str, Queue[list[int]]] = {}
+        self.handles: dict[str, asyncio.Queue[list[int]]] = {}
         self.running: bool = True
         loader = HfLoader(args.model)
         self.tokenizer: BaseTokenizer = loader.load_tokenizer()
@@ -204,7 +204,7 @@ class FastgenDeployment:
                 continue
 
             # Schedule async put into the queue from this thread
-            asyncio.run_coroutine_threadsafe(hnd.put(tokens), loop)
+            asyncio.run_coroutine_threadsafe(hnd.put(tokens), loop)  # type: ignore[func-returns-value]
 
     def setup(self, args):
         placement_group = ray.util.get_current_placement_group()
@@ -216,7 +216,7 @@ class FastgenDeployment:
 
         hostname = socket.gethostname()
         listener = Listener((hostname, 0), "AF_INET", authkey=None)
-        host, port = listener.address
+        host, port = listener.address  # type: ignore[misc]
         logger.info(f"Listener started on host={host}, port={port}")
 
         with tempfile.TemporaryDirectory() as rdv_dir:
@@ -256,7 +256,7 @@ class FastgenDeployment:
         rq = request  # Request(**completion_request)
         rid = uuid4().hex
         prompt_tokens = self.tokenizer.encode_dialog(rq.messages)
-        hnd = asyncio.Queue()
+        hnd: asyncio.Queue = asyncio.Queue()
         self.handles[rid] = hnd
         for _, c in self.workers:
             c.send(("gen", (rid, rq, prompt_tokens)))
@@ -274,14 +274,14 @@ class FastgenDeployment:
         }
         for ix in range(rq.n):
             tokens = await hnd.get()
-            rsp["usage"]["completion_tokens"] += len(tokens)
-            rsp["usage"]["total_tokens"] += len(tokens)
+            rsp["usage"]["completion_tokens"] += len(tokens)  # type: ignore[index]
+            rsp["usage"]["total_tokens"] += len(tokens)  # type: ignore[index]
             if tokens[-1] in self.tokenizer.stop_tokens:
                 tokens = tokens[:-1]
                 stopped = True
             else:
                 stopped = False
-            rsp["choices"].append(
+            rsp["choices"].append(  # type: ignore[attr-defined]
                 {
                     "index": ix,
                     "message": {
@@ -362,6 +362,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
 
     tp = args.tensor_parallel_size
     pp = args.pipeline_parallel_size
+    assert pp == 1, "Pipeline parallelism > 1 is not supported in fastgen"
     logger.info(f"Tensor parallelism = {tp}, Pipeline parallelism = {pp}")
     pg_resources = []
     pg_resources.append({"CPU": 1})  # for the deployment replica
@@ -370,7 +371,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
 
     # We use the "STRICT_PACK" strategy below to ensure all actors are placed on
     # the same Ray node.
-    return FastgenDeployment.options(  # type: ignore[union-attr]
+    return FastgenDeployment.options(  # type: ignore[attr-defined]
         placement_group_bundles=pg_resources,
         placement_group_strategy="STRICT_PACK" if pp == 1 else "PACK",
     ).bind(
