@@ -8,12 +8,10 @@ Fast, scalable, and easy-to-use LLM-generation engine
 
 <div align="center">
 
-[![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)](https://www.python.org/downloads/)
-[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10+-fcbc2c.svg?style=flat-square&logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Lint and Tests](https://github.com/facebookresearch/matrix/actions/workflows/lint_and_tests.yml/badge.svg)](https://github.com/facebookresearch/matrix/actions/workflows/lint_and_tests.yml?query=branch%3Amain)
 [![Test Docker Image](https://github.com/facebookresearch/matrix/actions/workflows/docker_image.yml/badge.svg)](https://github.com/facebookresearch/matrix/actions/workflows/docker_image.yml?query=branch%3Amain)
-[![license](https://img.shields.io/badge/license-MIT-lightgrey.svg)](./LICENSE)
+[![License](https://img.shields.io/badge/license-MIT-3c60b1.svg?logo=opensourceinitiative&logoColor=white&style=flat-square)](./LICENSE)
 
 </div>
 
