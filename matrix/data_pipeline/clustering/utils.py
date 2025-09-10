@@ -19,7 +19,7 @@ import ray
 import torch
 from sentence_transformers import SentenceTransformer
 
-from matrix.utils.basics import get_user_message_from_llama3_prompt
+from matrix.utils.basics import get_nested_value, get_user_message_from_llama3_prompt
 
 # Basic Logging Setup
 logging.basicConfig(
@@ -97,18 +97,6 @@ def get_outputs_path(
 
 def xxhash128(text: str) -> str:
     return xxhash.xxh3_128_hexdigest(text)
-
-
-def get_nested_value(d, path: str):
-    """Access nested dict/list using a dotted string path like 'a.b[0].c'."""
-    tokens = re.findall(r"[^[\].]+|\[\d+\]", path)
-    for token in tokens:
-        if token.startswith("[") and token.endswith("]"):
-            index = int(token[1:-1])
-            d = d[index]
-        else:
-            d = d[token]
-    return d
 
 
 def is_valid_parquet(path: str) -> bool:

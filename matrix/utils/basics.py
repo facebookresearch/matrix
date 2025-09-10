@@ -92,9 +92,26 @@ def str_to_callable(dotted_path: str):
     return obj
 
 
-def get_nested_value(d, path: str):
-    """Access nested dict/list using a dotted string path like 'a.b[0].c'."""
-    tokens = re.findall(r"[^[\].]+|\[\d+\]", path)
+def get_nested_value(d, path: str, default: Any | None = None) -> Any:
+    """Access nested ``dict``/``list`` using a dotted string path.
+
+    When the path cannot be fully resolved, ``default`` is returned.
+    Example::
+
+        data = {"a": {"b": [1]}}
+        get_nested_value(data, "a.b[0]")       # -> 1
+        get_nested_value(data, "a.c", "miss")  # -> "miss"
+
+    Args:
+        d: Root dictionary/list to traverse.
+        path: Dotted path string such as ``"a.b[0].c"``.
+        default: Value returned when the path does not exist.
+
+    Returns:
+        The resolved value or ``default`` if any part of the path is missing.
+    """
+    
+    tokens = re.findall(r"[^\[\].]+|\[\d+\]", path)
     try:
         for token in tokens:
             if token.startswith("[") and token.endswith("]"):
@@ -104,4 +121,4 @@ def get_nested_value(d, path: str):
                 d = d[token]
         return d
     except (KeyError, IndexError, TypeError):
-        return None
+        return default

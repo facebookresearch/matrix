@@ -105,6 +105,7 @@ def test_get_nested_value():
     assert get_nested_value(data, "x[0]") == 10
     assert get_nested_value(data, "a.b[2].c") is None
     assert get_nested_value(data, "a.b.c") is None
+    assert get_nested_value(data, "missing.path", default="fallback") == "fallback"
 
 
 def test_str_to_callable_success():
