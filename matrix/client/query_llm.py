@@ -301,7 +301,7 @@ async def make_request(
                             },
                         }
                         if response.choices[0].message.content:
-                            result["response"]["text"] = ([response.choices[i].message.content for i in range(n)],)  # type: ignore[attr-defined]
+                            result["response"]["text"] = [response.choices[i].message.content for i in range(n)]  # type: ignore[attr-defined]
                         if response.choices[0].message.tool_calls:
                             result["response"]["tool_calls"] = [
                                 [
@@ -484,7 +484,7 @@ async def make_request(
                             },
                         }
                         if response.choices[0].message.content:
-                            result["response"]["text"] = ([response.choices[i].message.content for i in range(n)],)  # type: ignore[attr-defined]
+                            result["response"]["text"] = [response.choices[i].message.content for i in range(n)]  # type: ignore[attr-defined]
                         if response.choices[0].message.tool_calls:
                             result["response"]["tool_calls"] = [
                                 [
