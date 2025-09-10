@@ -105,7 +105,7 @@ def get_nested_value(d, path: str, default: Any | None = None) -> Any:
     Args:
         d: Root dictionary/list to traverse.
         path: Dotted path string such as ``"a.b[0].c"``.
-        default: Value returned when the path does not exist.
+        default (Optional): Value returned when the path does not exist.
 
     Returns:
         The resolved value or ``default`` if any part of the path is missing.
