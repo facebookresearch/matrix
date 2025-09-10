@@ -4,10 +4,10 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-# pip install lighteval[litellm]
+# pip install "git+https://github.com/huggingface/lighteval.git#egg=lighteval[litellm]"
 
 import time
-
+import typing as tp
 import fire
 import lighteval
 import yaml
@@ -28,8 +28,24 @@ def main(
     eval_task="lighteval|math_500|0",
     max_samples: int | None = None,
     cleanup=False,
+    custom_tasks_directory: str | None = None,
+    generation_parameters: dict[str, tp.Any] = None,
 ):
 
+    # default generation parameters
+    default_generation_parameters: dict[str, Any] = {
+        "temperature": 0.6,
+        "max_new_tokens": 16384,
+        "top_p": 0.95,
+        "seed": 42,
+        "repetition_penalty": 1.0,
+        "frequency_penalty": 0.0,
+    }
+
+    # override defaults if user passes something in
+    if generation_parameters is not None:
+        default_generation_parameters.update(generation_parameters)
+        
     def setup():
         cli = matrix.Cli(
             cluster_id=cluster_id,
@@ -81,6 +97,7 @@ def main(
         pipeline_params = PipelineParameters(
             launcher_type=ParallelismManager.OPENAI,
             max_samples=max_samples,
+            custom_tasks_directory=custom_tasks_directory,
         )
 
         yaml_str = f"""
@@ -89,15 +106,10 @@ def main(
             provider: "openai"
             base_url: {base_url}
             api_key: "EMPTY"
-            generation_parameters:
-                temperature: 0.6
-                max_new_tokens: 16384
-                top_p: 0.95
-                seed: 42
-                repetition_penalty: 1.0
-                frequency_penalty: 0.0
+            generation_parameters: {default_generation_parameters}
         """
         data: dict = yaml.safe_load(yaml_str)
+        print("lighteval config data:", data)
 
         model_config = LiteLLMModelConfig(**data["model_parameters"])
 
