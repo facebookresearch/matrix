@@ -4,10 +4,12 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+# lighteval > 0.10.0 is required
 # pip install "git+https://github.com/huggingface/lighteval.git#egg=lighteval[litellm]"
 
 import time
 import typing as tp
+
 import fire
 import lighteval
 import yaml
@@ -33,7 +35,7 @@ def main(
 ):
 
     # default generation parameters
-    default_generation_parameters: dict[str, Any] = {
+    default_generation_parameters: dict[str, tp.Any] = {
         "temperature": 0.6,
         "max_new_tokens": 16384,
         "top_p": 0.95,
@@ -45,7 +47,7 @@ def main(
     # override defaults if user passes something in
     if generation_parameters is not None:
         default_generation_parameters.update(generation_parameters)
-        
+
     def setup():
         cli = matrix.Cli(
             cluster_id=cluster_id,
