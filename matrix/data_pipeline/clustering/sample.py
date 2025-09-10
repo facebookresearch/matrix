@@ -24,12 +24,7 @@ from sklearn.metrics import pairwise_distances
 from .fit import generate_embeddings, generate_ump_embeddings
 
 # Import shared utilities
-from .utils import (
-    get_outputs_path,
-    inner_join,
-    logger,
-    summarize_clustering_stats,
-)
+from .utils import get_outputs_path, inner_join, logger, summarize_clustering_stats
 
 
 @ray.remote

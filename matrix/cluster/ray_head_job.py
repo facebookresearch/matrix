@@ -20,10 +20,7 @@ from pathlib import Path
 import ray
 
 from matrix.common.cluster_info import ClusterInfo
-from matrix.utils.os import (
-    find_free_ports,
-    read_stdout_lines,
-)
+from matrix.utils.os import find_free_ports, read_stdout_lines
 
 
 class RayHeadJob:

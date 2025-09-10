@@ -13,10 +13,7 @@ import pytest
 import ray
 
 from matrix.cli import Cli
-from matrix.utils.ray import (
-    status_is_pending,
-    status_is_success,
-)
+from matrix.utils.ray import status_is_pending, status_is_success
 
 
 @pytest.fixture(scope="module")

@@ -110,7 +110,7 @@ def get_nested_value(d, path: str, default: Any | None = None) -> Any:
     Returns:
         The resolved value or ``default`` if any part of the path is missing.
     """
-    
+
     tokens = re.findall(r"[^\[\].]+|\[\d+\]", path)
     try:
         for token in tokens:

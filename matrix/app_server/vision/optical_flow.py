@@ -20,10 +20,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from torch.utils.data import DataLoader, Dataset
 
-from matrix.app_server.vision.utils import (
-    SamplingMode,
-    TorchCodecVideoDataset,
-)
+from matrix.app_server.vision.utils import SamplingMode, TorchCodecVideoDataset
 
 logger = logging.getLogger("ray.serve")
 logging.getLogger("httpx").setLevel(logging.WARNING)
