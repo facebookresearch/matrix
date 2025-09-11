@@ -268,6 +268,7 @@ class Cli:
         prompt: str | None = None,
         use_curl: bool = True,
         use_chat: bool = True,
+        use_tools: bool = False,
         **kwargs,
     ) -> bool:
         """
@@ -285,6 +286,7 @@ class Cli:
                 Defaults to True.
             use_chat (bool, optional): If True, uses chat format for the request.
                 Defaults to True.
+            use_tools (bool, optional): If True, enables tool usage in the request.
             **kwargs: Additional parameters for the test request.
 
             Returns:
@@ -342,7 +344,39 @@ class Cli:
 
                 return run_async(run_container())
             else:
-                prompt = prompt or "What is 2+4=?"
+                prompt = (
+                    prompt or "What is 2+4=?"
+                    if not use_tools
+                    else "Get the weather in SF"
+                )
+                tools = (
+                    [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "description": "Get the current weather in a given location",
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "location": {
+                                            "type": "string",
+                                            "description": "City and state, e.g., 'San Francisco, CA'",
+                                        },
+                                        "unit": {
+                                            "type": "string",
+                                            "enum": ["celsius", "fahrenheit"],
+                                        },
+                                    },
+                                    "required": ["location", "unit"],
+                                },
+                            },
+                        }
+                    ]
+                    if use_tools
+                    else None
+                )
+                tool_choice = "auto" if use_tools else None
                 data_payload = {
                     "model": metadata["model_name"],
                     "messages": [
@@ -352,6 +386,8 @@ class Cli:
                             "content": prompt,
                         },
                     ],
+                    "tools": tools,
+                    "tool_choice": tool_choice,
                     "temperature": 0.7,
                 }
                 if use_curl and not metadata["use_grpc"]:
@@ -369,6 +405,8 @@ class Cli:
                 else:
                     from matrix.client import query_llm
 
+                    data_payload.pop("tools", None)
+                    data_payload.pop("tool_choice", None)
                     if not use_chat:
                         data_payload = {"prompt": prompt}
                     response = query_llm.batch_requests(
@@ -376,9 +414,51 @@ class Cli:
                         metadata["model_name"],
                         [data_payload],
                         app_name=app_name,
+                        tool_choice=tool_choice,
+                        tools=tools,
                         **kwargs,
                     )[0]
                     print(response)
+
+                    only_response: dict[str, tp.Any] = response["response"]  # type: ignore
+                    if use_tools and "tool_calls" in only_response:
+                        # just one function anyway
+                        function_call = only_response["tool_calls"][0][0]
+                        function_name = function_call["name"]
+                        function_args = json.loads(function_call["arguments"])
+                        call_id = function_call["id"]
+                        data_payload["messages"].append(
+                            {
+                                "role": "assistant",
+                                "tool_calls": [
+                                    {
+                                        "id": call_id,
+                                        "type": "function",
+                                        "function": {
+                                            "name": function_name,
+                                            "arguments": function_call["arguments"],
+                                        },
+                                    }
+                                ],
+                            }
+                        )
+                        data_payload["messages"].append(
+                            {
+                                "role": "tool",
+                                "tool_call_id": call_id,  # A unique ID for the tool call
+                                "content": "30",
+                            }
+                        )
+                        response = query_llm.batch_requests(
+                            metadata["endpoints"]["head"],
+                            metadata["model_name"],
+                            [data_payload],
+                            app_name=app_name,
+                            tool_choice=tool_choice,
+                            tools=tools,
+                            **kwargs,
+                        )[0]
+                        print(response)
                     return "error" not in response["response"]  # type: ignore[index]
 
     @property
