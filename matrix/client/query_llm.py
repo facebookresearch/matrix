@@ -12,6 +12,7 @@ import os
 import random
 import time
 import typing as tp
+import uuid
 from functools import partial, reduce
 
 import grpc
@@ -308,6 +309,7 @@ async def make_request(
                                     {
                                         "name": tool_call.function.name,  # type: ignore[union-attr]
                                         "arguments": tool_call.function.arguments,  # type: ignore[union-attr]
+                                        "id": tool_call.id or str(uuid.uuid4()),
                                     }
                                     for tool_call in response.choices[
                                         i
@@ -491,6 +493,7 @@ async def make_request(
                                     {
                                         "name": tool_call.function.name,  # type: ignore[union-attr]
                                         "arguments": tool_call.function.arguments,  # type: ignore[union-attr]
+                                        "id": tool_call.id or str(uuid.uuid4()),
                                     }
                                     for tool_call in response.choices[
                                         i
