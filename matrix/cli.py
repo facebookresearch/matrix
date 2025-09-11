@@ -349,7 +349,7 @@ class Cli:
                     if not use_tools
                     else "Get the weather in SF"
                 )
-                tools = tools = tools = (
+                tools = (
                     [
                         {
                             "type": "function",
