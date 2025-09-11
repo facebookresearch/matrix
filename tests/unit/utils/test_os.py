@@ -7,10 +7,13 @@
 from __future__ import annotations
 
 import asyncio
+import multiprocessing
 import os
 import signal
 import socket
 import subprocess
+import threading
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -19,16 +22,24 @@ import pytest
 from matrix.utils.os import (
     batch_requests_async,
     create_symlinks,
+    download_s3_dir,
     find_free_ports,
     is_port_available,
     is_port_open,
     kill_proc_tree,
+    lock_file,
     read_stdout_lines,
     run_and_stream,
     run_async,
     run_subprocess,
     stop_process,
 )
+
+
+def _hold(path, evt, duration: float) -> None:
+    with lock_file(path, "w"):
+        evt.set()
+        time.sleep(duration)
 
 
 def test_kill_proc_tree():
@@ -116,6 +127,8 @@ def test_read_stdout_lines():
     try:
         assert list(read_stdout_lines(proc)) == ["a", "b"]
     finally:
+        if proc.stdout:
+            proc.stdout.close()
         proc.wait()
 
     proc2 = subprocess.Popen(["bash", "-c", "echo hi"])
@@ -179,11 +192,80 @@ def test_run_subprocess():
         assert run_subprocess(["echo", "hi"]) is False
 
 
-def test_run_async_sync_context():
-    async def sample():
-        return 5
+def test_lock_file_timeout_and_retry(tmp_path):
+    path = tmp_path / "lock.txt"
 
-    assert run_async(sample()) == 5
+    ctx = multiprocessing.get_context("spawn")
+
+    # Acquire in background process to test timeout
+    evt1 = ctx.Event()
+    p1 = ctx.Process(target=_hold, args=(path, evt1, 0.2))
+    p1.start()
+    assert evt1.wait(5)
+    with pytest.raises(TimeoutError):
+        with lock_file(path, "w", timeout=0.1, poll_interval=0.02):
+            pass
+    p1.join()
+    p1.close()
+
+    # Acquire again with enough timeout to succeed
+    evt2 = ctx.Event()
+    p2 = ctx.Process(target=_hold, args=(path, evt2, 0.2))
+    p2.start()
+    assert evt2.wait(5)
+    with lock_file(path, "w", timeout=1, poll_interval=0.02):
+        pass
+    p2.join()
+    p2.close()
+
+
+def test_download_s3_dir_builds_command(tmp_path):
+    with patch("matrix.utils.os.run_subprocess", return_value=True) as mock_run:
+        downloaded, dest = download_s3_dir("s3://bucket/path", str(tmp_path))
+
+    expected_dest = tmp_path / "path"
+    assert downloaded is True
+    assert dest == str(expected_dest)
+    mock_run.assert_called_once_with(
+        ["aws", "s3", "cp", "s3://bucket/path/", str(expected_dest), "--recursive"]
+    )
+
+
+def test_download_s3_dir_with_exclude(tmp_path):
+    with patch("matrix.utils.os.run_subprocess", return_value=False) as mock_run:
+        downloaded, dest = download_s3_dir(
+            "s3://bucket/dir", str(tmp_path), exclude="*.tmp"
+        )
+
+    expected_dest = tmp_path / "dir"
+    assert downloaded is False
+    assert dest == str(expected_dest)
+    mock_run.assert_called_once_with(
+        [
+            "aws",
+            "s3",
+            "cp",
+            "s3://bucket/dir/",
+            str(expected_dest),
+            "--recursive",
+            "--exclude",
+            "*.tmp",
+        ]
+    )
+
+
+def test_run_async_sync_context():
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+
+        async def sample():
+            return 5
+
+        assert run_async(sample()) == 5
+    finally:
+        loop.close()
+        asyncio.set_event_loop(None)
 
 
 @pytest.mark.asyncio
@@ -212,7 +294,3 @@ async def test_batch_requests_async():
     results = await batch_requests_async(func, args_list, batch_size=2)
     assert results[:2] == [2, 4]
     assert isinstance(results[2], Exception)
-
-
-if __name__ == "__main__":
-    pytest.main()
