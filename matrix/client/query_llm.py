@@ -457,12 +457,29 @@ async def make_request(
                     )  # add multiplexed_model_id https://docs.ray.io/en/latest/serve/advanced-guides/grpc-guide.html
 
                     if "messages" in data:
-                        messages = [
-                            openai_pb2.CompletionMessage(  # type: ignore[attr-defined]
-                                role=msg["role"], content=msg["content"]
+                        messages = []
+                        for msg in data["messages"]:
+                            tool_calls = []
+                            for tc in msg.get("tool_calls", []):
+                                tool_calls.append(
+                                    openai_pb2.ToolCall(  # type: ignore[attr-defined]
+                                        id=tc["id"],
+                                        type="function",
+                                        function=openai_pb2.FunctionCall(  # type: ignore[attr-defined]
+                                            name=tc["function"]["name"],
+                                            arguments=tc["function"].get(
+                                                "arguments", ""
+                                            ),
+                                        ),
+                                    )
+                                )
+                            msg_proto = openai_pb2.CompletionMessage(  # type: ignore[attr-defined]
+                                role=msg["role"],
+                                content=msg.get("content"),
+                                tool_calls=tool_calls or None,
+                                tool_call_id=msg.get("tool_call_id"),
                             )
-                            for msg in data["messages"]
-                        ]
+                            messages.append(msg_proto)
                         request = openai_pb2.ChatCompletionRequest(  # type: ignore[attr-defined]
                             model=model,
                             messages=messages,
@@ -641,6 +658,9 @@ async def make_request(
                                 endpoint_cache, multiplexed_model_id, True
                             )
                 except Exception as e:
+                    import traceback
+
+                    logger.error(traceback.format_exc())
                     exception = e
     return make_error_response(data, exception)
 

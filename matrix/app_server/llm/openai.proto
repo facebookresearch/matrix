@@ -63,6 +63,7 @@ message CompletionMessage {
 
   // vLLM-specific fields that are not in OpenAI spec
   string reasoning_content = 6;
+  string tool_call_id = 7;
 }
 
 message ChatCompletionResponseChoice {
