@@ -420,9 +420,10 @@ class Cli:
                     )[0]
                     print(response)
 
-                    if use_tools and "tool_calls" in response["response"]:
+                    only_response: dict[str, tp.Any] = response["response"]  # type: ignore
+                    if use_tools and "tool_calls" in only_response:
                         # just one function anyway
-                        function_call = response["response"]["tool_calls"][0][0]
+                        function_call = only_response["tool_calls"][0][0]
                         function_name = function_call["name"]
                         function_args = json.loads(function_call["arguments"])
                         call_id = function_call["id"]
