@@ -38,6 +38,7 @@ async def test_fetch_url(unused_tcp_port):
         assert status == 200
         assert content == "hello"
     finally:
+        await site.stop()
         await runner.cleanup()
 
 
@@ -75,6 +76,7 @@ async def test_post_url(unused_tcp_port):
         assert status == 200
         assert json.loads(content) == {"foo": "bar"}
     finally:
+        await site.stop()
         await runner.cleanup()
 
 
@@ -114,6 +116,7 @@ def test_fetch_url_sync(unused_tcp_port):
     finally:
         server.shutdown()
         thread.join()
+        server.server_close()
 
     with patch("requests.get") as mock_get:
         mock_get.side_effect = Exception("boom")
