@@ -504,7 +504,14 @@ class GrpcDeployment(BaseDeployment):
                     choice["logprobs"].pop("top_logprobs")
                 if "prompt_logprobs" in choice:
                     for index, logprobs in enumerate(choice["prompt_logprobs"]):
-                        choice["prompt_logprobs"][index] = {"token_map": logprobs or {}}
+                        # JSON representation for protobuf maps requires string keys.
+                        # vLLM returns prompt logprobs with integer token ids as keys,
+                        # so cast them to strings to avoid parsing issues.
+                        token_map = {
+                            str(token_id): info
+                            for token_id, info in (logprobs or {}).items()
+                        }
+                        choice["prompt_logprobs"][index] = {"token_map": token_map}
             json_format.ParseDict(response_dict, response)
             return response
         except AsyncEngineDeadError as e:
