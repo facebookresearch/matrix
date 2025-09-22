@@ -138,7 +138,7 @@ class ContainerClient:
         if cwd is not None:
             payload["cwd"] = cwd
         if env is not None:
-            payload["env"] = env
+            payload["env"] = env  # type: ignore[assignment]
         if forward_env is not None:
             payload["forward_env"] = forward_env
 
@@ -226,7 +226,7 @@ class ManagedContainer:
 
     async def execute(
         self,
-        cmd: str,
+        cmd: Union[List[str], str],
         cwd: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
         forward_env: Optional[List[str]] = None,

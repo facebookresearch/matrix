@@ -276,7 +276,7 @@ async def make_request(
             ) as client:
                 try:
                     if "messages" in data:
-                        response = await client.chat.completions.create(
+                        response = await client.chat.completions.create(  # type: ignore[misc]
                             model=model,
                             messages=data["messages"],
                             temperature=temperature,
@@ -285,8 +285,8 @@ async def make_request(
                             seed=seed,
                             n=n,
                             timeout=timeout_secs,  # 10 minutes
-                            tools=tools,
-                            tool_choice=tool_choice,
+                            tools=tools,  # type: ignore[arg-type]
+                            tool_choice=tool_choice,  # type: ignore[arg-type]
                             logprobs=logprobs or top_logprobs is not None,
                             top_logprobs=top_logprobs,
                             extra_headers=extra_headers,
