@@ -7,7 +7,7 @@
 import asyncio
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import aiohttp
 from tqdm import tqdm
@@ -62,6 +62,7 @@ class ContainerClient:
         image: str,
         executable: str = "apptainer",
         run_args: Optional[List[str]] = None,
+        start_script_args: Optional[List[str]] = None,
         timeout: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
@@ -71,18 +72,17 @@ class ContainerClient:
             image: Container image (e.g., "docker://ubuntu:22.04")
             executable: Container runtime executable (default: "apptainer")
             run_args: Additional arguments for container run (default: [])
+            start_script_args: Arguments to pass to the container start script (default: [])
             timeout: Timeout for container acquisition
 
         Returns:
             Dict with either {"container_id": "..."} or {"error": "..."}
         """
-        if run_args is None:
-            run_args = []
-
         payload = {
             "image": image,
             "executable": executable,
             "run_args": run_args,
+            "start_script_args": start_script_args,
             "timeout": timeout,
         }
 
@@ -114,7 +114,7 @@ class ContainerClient:
     async def execute(
         self,
         container_id: str,
-        cmd: str,
+        cmd: Union[List[str], str],
         cwd: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
         forward_env: Optional[List[str]] = None,
@@ -193,12 +193,14 @@ class ManagedContainer:
         image: str,
         executable: str = "apptainer",
         run_args: Optional[List[str]] = None,
+        start_script_args: Optional[List[str]] = None,
         timeout: int = 300,
     ):
         self.client = client
         self.image = image
         self.executable = executable
-        self.run_args = run_args or []
+        self.run_args = run_args
+        self.start_script_args = start_script_args
         self.timeout = timeout
         self.container_id: Optional[str] = None
 
@@ -208,6 +210,7 @@ class ManagedContainer:
             image=self.image,
             executable=self.executable,
             run_args=self.run_args,
+            start_script_args=self.start_script_args,
             timeout=self.timeout,
         )
         if "error" in result:

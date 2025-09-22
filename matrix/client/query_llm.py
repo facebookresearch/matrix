@@ -227,7 +227,7 @@ async def make_request(
     multiplexed_model_id: str = "",
     timeout_secs: int = 600,
     tools: tp.Iterable[ChatCompletionToolUnionParam] | NotGiven = NOT_GIVEN,
-    tool_choice: ChatCompletionToolChoiceOptionParam = "none",
+    tool_choice: ChatCompletionToolChoiceOptionParam = None,
     prompt_logprobs: tp.Optional[int] = None,
     endpoint_cache: tp.Optional[EndpointCache] = None,
     top_k: int = -1,

@@ -340,7 +340,7 @@ class Cli:
                         ContainerClient(metadata["endpoints"]["head"]),
                         image="docker://ubuntu:22.04",
                     ) as client:
-                        return await client.execute("echo Hello World")
+                        return await client.execute(["echo", "Hello World"])
 
                 return run_async(run_container())
             else:

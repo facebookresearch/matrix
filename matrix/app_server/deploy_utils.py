@@ -101,7 +101,7 @@ vllm_app_template = """
   {% endif %}
     max_ongoing_requests: {{ app.max_ongoing_requests }}
     autoscaling_config:
-      target_ongoing_requests: {{ (app.max_ongoing_requests * 0.8) | int }}
+      target_ongoing_requests: {{ [ (app.max_ongoing_requests * 0.8) | int , 1 ] | max }}
       min_replicas: {{ app.min_replica }}
       max_replicas: {{ app.max_replica }}
 """
@@ -211,7 +211,7 @@ other_app_template = """
   - name: ContainerDeployment
     max_ongoing_requests: {{ app.max_ongoing_requests }}
     autoscaling_config:
-      target_ongoing_requests: {{ (app.max_ongoing_requests * 0.8) | int }}
+      target_ongoing_requests: {{ [ (app.max_ongoing_requests * 0.8) | int , 1 ] | max }}
       min_replicas: {{ app.min_replica }}
       max_replicas: {{ app.max_replica }}
 {% elif app.app_type == 'hello' %}
