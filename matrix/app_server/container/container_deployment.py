@@ -6,6 +6,7 @@
 
 import asyncio
 import atexit
+import json
 import logging
 import os
 import random
@@ -15,7 +16,7 @@ import threading
 import time
 import uuid
 from functools import partial
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import ray
 from fastapi import FastAPI, HTTPException
@@ -134,8 +135,9 @@ class ContainerActor:
         self.config = config
         cmd = [self.config["executable"], "instance", "start", "--fakeroot"]
         cmd.append("--writable-tmpfs")
-        cmd.extend(self.config["run_args"])
+        cmd.extend(self.config.get("run_args") or [])
         cmd.extend([self.config["image"], self.config["container_id"]])
+        cmd.extend(self.config.get("start_script_args") or [])
 
         print(f"Starting instance with command: {shlex.join(cmd)}")
         # Start the instance (blocking call, exits when daemon is launched)
@@ -143,7 +145,7 @@ class ContainerActor:
 
     def execute(
         self,
-        command: str,
+        command: Union[List[str], str],
         cwd: str = "",
         env: dict[str, str] = None,
         forward_env: list[str] = None,
@@ -159,8 +161,10 @@ class ContainerActor:
         work_dir = cwd or self.config.get("cwd")
 
         cmd = [self.config["executable"], "exec"]
-        if work_dir and work_dir != "/":
+        if work_dir:
             cmd.extend(["--pwd", work_dir])
+        else:
+            cmd.extend(["--pwd", "/"])
 
         for key in forward_env or []:
             if (value := os.getenv(key)) is not None:
@@ -169,7 +173,16 @@ class ContainerActor:
             cmd.extend(["--env", f"{key}={value}"])
 
         cmd.append(f"instance://{container_id}")
-        cmd.extend(["bash", "-lc", command])
+        if isinstance(command, list):
+            cmd_fixed = []
+            for _cmd in command:
+                if isinstance(_cmd, dict):
+                    cmd_fixed.append(json.dumps(_cmd))
+                else:
+                    cmd_fixed.append(_cmd)
+            cmd.extend(cmd_fixed)
+        else:
+            cmd.extend(["bash", "-lc", command])
 
         result = subprocess.run(
             cmd,
@@ -273,7 +286,8 @@ class ContainerDeployment:
         if not image:
             raise HTTPException(status_code=400, detail="image required")
         executable = payload.get("executable", "apptainer")
-        run_args = payload.get("run_args", [])
+        run_args = payload.get("run_args")
+        start_script_args = payload.get("start_script_args")
 
         container_id = payload.get("container_id", None)
         assert container_id is None, "container_id unexpected"
@@ -290,6 +304,7 @@ class ContainerDeployment:
                         executable=executable,
                         image=image,
                         run_args=run_args,
+                        start_script_args=start_script_args,
                         container_id=container_id,
                         timeout=timeout,
                     )
