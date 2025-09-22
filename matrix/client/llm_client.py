@@ -3,9 +3,9 @@ import json
 from multiprocessing import Process, Queue
 from typing import Any, Callable, Iterator, Optional
 
-import query_llm
 from tqdm import tqdm
 
+import matrix.client.query_llm as query_llm
 from matrix import Cli
 from matrix.app_server.app_api import AppApi
 
