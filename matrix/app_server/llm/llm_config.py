@@ -190,7 +190,7 @@ llm_model_default_parameters = {
         "tensor-parallel-size": 2,
         "pipeline-parallel-size": 1,
         "enable-prefix-caching": True,
-        "max_ongoing_requests": 150,
+        "max_ongoing_requests": 100,
         "max-model-len": 32768,
         "gpu-memory-utilization": 0.8,
         "tool-call-parser": "hermes",
@@ -214,6 +214,7 @@ llm_model_default_parameters = {
         "gpu-memory-utilization": 0.85,
         "max_ongoing_requests": 64,
         "use_v1_engine": "true",
+        "tool-call-parser": "openai",
     },
     # need to install vllm_0101_gptoss
     "openai/gpt-oss-120b": {
@@ -224,6 +225,7 @@ llm_model_default_parameters = {
         "gpu-memory-utilization": 0.85,
         "max_ongoing_requests": 64,
         "use_v1_engine": "true",
+        "tool-call-parser": "openai",
     },
     "google/gemma-3-27b-it": {
         "name": "gemma-3-27b-it",
