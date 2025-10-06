@@ -25,7 +25,7 @@ class _RayWorkerConfiguration:
     worker_wait_timeout_seconds: int = 60
     start_wait_time_seconds: int = 60
     environment: Dict[str, str] = field(default_factory=dict)
-    logical_resources: Dict[str, Any] = field(default_factory=dict)
+    logical_resources: str = "{}"
 
     def _determine_resource_allocation(self) -> tuple:
         """Dynamically determine CPU and GPU resources based on execution environment."""
@@ -84,7 +84,7 @@ class _RayWorkerJobExecutor:
         worker_env: Dict[str, str],
         num_cpus: int,
         num_gpus: int,
-        logical_resources: Dict[str, str],
+        logical_resources: str,
     ) -> None:
         """
         Start Ray worker with specified environment and resources.
