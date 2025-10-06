@@ -11,7 +11,7 @@ matrix.
 Multi-Agent daTa geneRation Infra and eXperimentation framework.
 """
 
-__version__ = "0.2.3"
+__version__ = "0.2.4"
 __author__ = "FAIR"
 __credits__ = "FAIR - Meta"
 __description__ = "Multi-Agent daTa geneRation Infra and eXperimentation framework."
