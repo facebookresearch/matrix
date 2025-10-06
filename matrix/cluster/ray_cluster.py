@@ -32,6 +32,7 @@ from matrix.utils.ray import ACTOR_NAME_SPACE, get_ray_head_node, init_ray_if_ne
 _SLURM_KEY_ALIASES: dict[str, str] = {
     "slurm_account": "account",
     "slurm_qos": "qos",
+    "slurm_partition": "partition",
 }
 
 
@@ -329,6 +330,12 @@ class RayCluster:
             with (
                 s_executor.batch()
             ):  # TODO set slurm array max parallelism here, because we really want all jobs to be scheduled at the same time
+                logical_resources = {
+                    f"{key}-{value}": 1
+                    for key, value in requirements.items()
+                    if key in _SLURM_KEY_ALIASES.values()
+                }
+
                 for i in range(add_workers):
                     jobs.append(
                         s_executor.submit(
@@ -336,6 +343,7 @@ class RayCluster:
                                 cluster_info,
                                 worker_wait_timeout_seconds,
                                 start_wait_time_seconds,
+                                logical_resources,
                             )
                         )
                     )

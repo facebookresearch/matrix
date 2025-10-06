@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import json
 import os
 import shutil
 import subprocess
@@ -24,6 +25,7 @@ class _RayWorkerConfiguration:
     worker_wait_timeout_seconds: int = 60
     start_wait_time_seconds: int = 60
     environment: Dict[str, str] = field(default_factory=dict)
+    logical_resources: Dict[str, Any] = field(default_factory=dict)
 
     def _determine_resource_allocation(self) -> tuple:
         """Dynamically determine CPU and GPU resources based on execution environment."""
@@ -70,14 +72,19 @@ class _RayWorkerJobExecutor:
         print(f"CUDA_VISIBLE_DEVICES: {os.environ.get('CUDA_VISIBLE_DEVICES', 'NULL')}")
 
         try:
-            _RayWorkerJobExecutor._start_ray_worker(worker_env, num_cpus, num_gpus)
+            _RayWorkerJobExecutor._start_ray_worker(
+                worker_env, num_cpus, num_gpus, config.logical_resources
+            )
         finally:
             if os.path.exists(config.cluster_info.temp_dir):
                 shutil.rmtree(config.cluster_info.temp_dir)
 
     @staticmethod
     def _start_ray_worker(
-        worker_env: Dict[str, str], num_cpus: int, num_gpus: int
+        worker_env: Dict[str, str],
+        num_cpus: int,
+        num_gpus: int,
+        logical_resources: Dict[str, str],
     ) -> None:
         """
         Start Ray worker with specified environment and resources.
@@ -98,6 +105,8 @@ class _RayWorkerJobExecutor:
                 str(num_cpus),
                 "--num-gpus",
                 str(num_gpus),
+                "--resources",
+                logical_resources,
             ],
             env=worker_env,
         )
@@ -110,6 +119,7 @@ class RayWorkerJob:
         cluster_info: ClusterInfo,
         worker_wait_timeout_seconds: int,
         start_wait_time_seconds: int,  # TODO pass this around properly
+        logical_resources: dict[str, Any],
     ):
         # Store the cluster information for later use
         self.cluster_info = cluster_info
@@ -119,6 +129,7 @@ class RayWorkerJob:
 
         # Initial wait time for Ray worker to start
         self.start_wait_time_seconds = 60
+        self.logical_resources = logical_resources
 
     def __call__(
         self,
@@ -134,6 +145,7 @@ class RayWorkerJob:
             cluster_info=self.cluster_info,
             worker_wait_timeout_seconds=self.worker_wait_timeout_seconds,
             start_wait_time_seconds=self.start_wait_time_seconds,
+            logical_resources=json.dumps(self.logical_resources),
         )
         _RayWorkerJobExecutor.execute(config)
 
