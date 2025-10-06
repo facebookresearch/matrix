@@ -388,7 +388,7 @@ class Cli:
                     ],
                     "temperature": 0.7,
                 }
-                if tools:
+                if use_tools:
                     data_payload |= {
                         "tools": tools,
                         "tool_choice": tool_choice,
