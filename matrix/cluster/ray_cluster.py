@@ -18,6 +18,8 @@ import time
 import typing as tp
 from pathlib import Path
 
+import clusterscope
+
 from matrix.common import JOB_MANAGER_STORE
 from matrix.common.cluster_info import ClusterInfo
 from matrix.utils.basics import convert_to_json_compatible
