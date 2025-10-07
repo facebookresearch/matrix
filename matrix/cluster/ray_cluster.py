@@ -248,7 +248,7 @@ class RayCluster:
             if executor == "slurm":
                 # clusterscope assigns the proportionate amount of resources based on gpus/cpus being requested.
                 resources = clusterscope.job_gen_task_slurm(
-                    partition=requirements["partition"],
+                    partition=str(requirements["partition"]),
                     cpus_per_task=default_params["cpus_per_task"],
                 )
                 default_params["mem_gb"] = resources["mem_gb"]
@@ -323,9 +323,9 @@ class RayCluster:
             if executor == "slurm":
                 # clusterscope assigns the proportionate amount of resources based on gpus/cpus being requested.
                 resources = clusterscope.job_gen_task_slurm(
-                    partition=requirements["partition"],
+                    partition=str(requirements["partition"]),
                     gpus_per_task=default_params["gpus_per_node"],
-                    ntasks_per_node=default_params["ntasks_per_node"],
+                    tasks_per_node=default_params["ntasks_per_node"],
                 )
                 default_params["cpus_per_task"] = resources["cpus_per_task"]
                 default_params["mem_gb"] = resources["mem_gb"]
