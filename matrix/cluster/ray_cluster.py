@@ -242,7 +242,14 @@ class RayCluster:
                 folder=str(self._log_dir),
                 cluster=executor,
             )
-            default_params = {"cpus_per_task": 20, "timeout_min": 10080}
+            default_params = {"timeout_min": 10080, "cpus_per_task": 20}
+            if executor == "slurm":
+                # clusterscope assigns the proportionate amount of resources based on gpus/cpus being requested.
+                resources = clusterscope.job_gen_task_slurm(
+                    partition=requirements["partition"],
+                    cpus_per_task=default_params["cpus_per_task"],
+                )
+                default_params["mem_gb"] = resources["mem_gb"]
             if add_workers == 0:
                 head_params = requirements
             else:
@@ -308,10 +315,18 @@ class RayCluster:
             )
             default_params = {
                 "ntasks_per_node": 1,
-                "cpus_per_task": 96,
                 "timeout_min": 10080,
                 "gpus_per_node": 8,
             }
+            if executor == "slurm":
+                # clusterscope assigns the proportionate amount of resources based on gpus/cpus being requested.
+                resources = clusterscope.job_gen_task_slurm(
+                    partition=requirements["partition"],
+                    gpus_per_task=default_params["gpus_per_node"],
+                    ntasks_per_node=default_params["ntasks_per_node"],
+                )
+                default_params["cpus_per_task"] = resources["cpus_per_task"]
+                default_params["mem_gb"] = resources["mem_gb"]
             requirements.update(
                 {
                     key: value
