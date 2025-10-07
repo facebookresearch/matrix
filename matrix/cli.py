@@ -386,10 +386,13 @@ class Cli:
                             "content": prompt,
                         },
                     ],
-                    "tools": tools,
-                    "tool_choice": tool_choice,
                     "temperature": 0.7,
                 }
+                if use_tools:
+                    data_payload |= {
+                        "tools": tools,
+                        "tool_choice": tool_choice,
+                    }
                 if use_curl and not metadata["use_grpc"]:
                     url = f"{metadata['endpoints']['head']}/chat/completions"
                     data_json = json.dumps(data_payload)

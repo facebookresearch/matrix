@@ -227,7 +227,7 @@ async def make_request(
     multiplexed_model_id: str = "",
     timeout_secs: int = 600,
     tools: tp.Iterable[ChatCompletionToolUnionParam] | NotGiven = NOT_GIVEN,
-    tool_choice: ChatCompletionToolChoiceOptionParam = None,
+    tool_choice: ChatCompletionToolChoiceOptionParam | NotGiven = NOT_GIVEN,
     prompt_logprobs: tp.Optional[int] = None,
     endpoint_cache: tp.Optional[EndpointCache] = None,
     top_k: int = -1,
@@ -485,7 +485,9 @@ async def make_request(
                             messages=messages,
                             top_p=top_p,
                             temperature=temperature,
-                            tool_choice=tool_choice,
+                            tool_choice=(
+                                tool_choice if tool_choice is not NOT_GIVEN else None
+                            ),
                             tools=tools if tools is not NOT_GIVEN else None,
                             n=n,
                             seed=seed,

@@ -205,6 +205,9 @@ class RayDashboardJob:
         )
 
         head_env["GF_SERVER_HTTP_PORT"] = str(port)
+        head_env["GF_DATABASE_PATH"] = (
+            f"{temp_dir}/session_latest/metrics/grafana/grafana.db"
+        )
         conda_prefix = os.environ.get("CONDA_PREFIX")
         with (
             open(f"{temp_dir}/session_latest/logs/grafana.out", "w") as stdout_file,
