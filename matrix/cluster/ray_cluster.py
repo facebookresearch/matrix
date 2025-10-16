@@ -219,6 +219,15 @@ class RayCluster:
         requirements = slurm or local or {}
         requirements = _normalize_slurm_keys(requirements)
         executor = "slurm" if slurm else "local"
+        if executor == "slurm" and "partition" not in requirements:
+            output = subprocess.check_output(["sinfo", "-h", "-o", "%P"])
+            default_partition = [
+                line.split("*")[0]
+                for line in output.decode().splitlines()
+                if "*" in line
+            ]
+            assert len(default_partition) == 1, f"Add partition to --slurm"
+            requirements["partition"] = default_partition[0]
 
         if self._cluster_json.exists():
             cluster = self.cluster_info()
