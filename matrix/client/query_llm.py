@@ -405,13 +405,8 @@ async def make_request(
                             ]
                             result["response"]["logprobs"] = lp
                         if prompt_logprobs is not None and response.choices[0].prompt_logprobs is not None:  # type: ignore[attr-defined]
-                            lp = [
-                                [
-                                    _convert_token_log_probs(elem)
-                                    for elem in response.choices[i].prompt_logprobs  # type: ignore[attr-defined]
-                                ]
-                                for i in range(n)
-                            ]
+                            # note: only grpc need conversion
+                            lp = [response.choices[i].prompt_logprobs for i in range(n)]  # type: ignore[attr-defined]
                             result["response"]["prompt_logprobs"] = lp
                     else:
                         raise Exception(
@@ -592,13 +587,12 @@ async def make_request(
                                     for token, lp_token, top_lp in zip(
                                         response.choices[i].logprobs.tokens,  # type: ignore[union-attr]
                                         response.choices[i].logprobs.token_logprobs,  # type: ignore[union-attr]
-                                        response.choices[i].logprobs.top_logprobs  # type: ignore[union-attr]
-                                        or [
+                                        [
                                             None
                                             for _ in range(
                                                 len(response.choices[i].logprobs.tokens)  # type: ignore[union-attr]
                                             )
-                                        ],
+                                        ],  # top_logprobs not supported,
                                     )
                                 ]
                                 for i in range(n)
