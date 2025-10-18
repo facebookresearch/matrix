@@ -330,7 +330,7 @@ class RayCluster:
                 "gpus_per_node": 8,
             }
             default_params.update(
-                {k: requirements[k] for k in default_params if k in requirements}
+                {k: requirements[k] for k in default_params if k in requirements}  # type: ignore[misc]
             )
             if executor == "slurm":
                 # clusterscope assigns the proportionate amount of resources based on gpus/cpus being requested.
