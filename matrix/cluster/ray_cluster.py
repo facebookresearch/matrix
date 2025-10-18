@@ -329,6 +329,9 @@ class RayCluster:
                 "timeout_min": 10080,
                 "gpus_per_node": 8,
             }
+            default_params.update(
+                {k: requirements[k] for k in default_params if k in requirements}
+            )
             if executor == "slurm":
                 # clusterscope assigns the proportionate amount of resources based on gpus/cpus being requested.
                 resources = clusterscope.job_gen_task_slurm(
