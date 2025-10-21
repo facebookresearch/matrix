@@ -18,8 +18,6 @@ import time
 import typing as tp
 from pathlib import Path
 
-import clusterscope
-
 from matrix.common import JOB_MANAGER_STORE
 from matrix.common.cluster_info import ClusterInfo
 from matrix.utils.basics import convert_to_json_compatible
@@ -46,6 +44,98 @@ def _normalize_slurm_keys(
     for key, value in config.items():
         normalized[_SLURM_KEY_ALIASES.get(key, key)] = value
     return normalized
+
+
+def _get_slurm_default_requirements(requirements: dict[str, tp.Any]):
+    """
+    Extract SLURM partition info including CPU and memory requirements.
+
+    Returns:
+        dict: Requirements dictionary with partition, CPU, and memory info
+    """
+    try:
+        partition = requirements.get("partition")
+        if partition is None:
+            # Get default partition
+            output = subprocess.check_output(
+                ["sinfo", "-h", "-o", "%P"], stderr=subprocess.PIPE
+            )
+            default_partition = [
+                line.split("*")[0]
+                for line in output.decode().splitlines()
+                if "*" in line
+            ]
+            assert len(default_partition) == 1, f"Add partition to --slurm"
+            partition = default_partition[0]
+            requirements["partition"] = partition
+
+        # Get detailed info for the partition
+        # %P=partition, %c=CPUs, %m=memory(MB), %l=time_limit, %N=nodes
+        sinfo_output = (
+            subprocess.check_output(
+                ["sinfo", "-h", "-p", partition, "-o", "%G %c %m"],
+                stderr=subprocess.PIPE,
+            )
+            .decode()
+            .strip()
+        )
+
+        if sinfo_output:
+            lines = sinfo_output.splitlines()
+            max_cpus = 0
+            max_memory = 0
+            max_gpus = 0
+            gpu_type = None
+
+            for line in lines:
+                parts = line.split()
+                if len(parts) >= 3:
+                    gpu_info = _parse_gpu_gres(parts[0])
+                    if gpu_info:
+                        if gpu_info["count"] > max_gpus:
+                            max_gpus = gpu_info["count"]
+                            gpu_type = gpu_info["type"]
+
+                    cpus = _parse_slurm_value(parts[1])
+                    max_cpus = max(max_cpus, cpus)
+                    memory = _parse_slurm_value(parts[2])
+                    max_memory = max(max_memory, memory)
+
+            requirements["cpus_per_task"] = max_cpus
+            requirements["mem_gb"] = max_memory // 1024
+            if max_gpus > 0:
+                requirements["gpus_per_node"] = max_gpus
+
+    except subprocess.CalledProcessError as e:
+        print(f"Error running sinfo: {e}")
+        raise
+    except Exception as e:
+        print(f"Error parsing sinfo output: {e}")
+        raise
+
+    return requirements
+
+
+def _parse_slurm_value(value_str):
+    """Parse SLURM numeric values (handles ranges and suffixes)."""
+    value_str = value_str.rstrip("+")
+    if "-" in value_str:
+        return int(value_str.split("-")[-1])
+    try:
+        return int(value_str)
+    except ValueError:
+        numbers = re.findall(r"\d+", value_str)
+        return int(numbers[-1]) if numbers else 0
+
+
+def _parse_gpu_gres(gres_str):
+    """Parse GPU GRES string: gpu:TYPE:COUNT(...)"""
+    if not gres_str or gres_str == "(null)" or not gres_str.startswith("gpu:"):
+        return None
+    match = re.match(r"gpu:([^:]+):(\d+)", gres_str)
+    if match:
+        return {"type": match.group(1), "count": int(match.group(2))}
+    return None
 
 
 class RayCluster:
@@ -219,15 +309,6 @@ class RayCluster:
         requirements = slurm or local or {}
         requirements = _normalize_slurm_keys(requirements)
         executor = "slurm" if slurm else "local"
-        if executor == "slurm" and "partition" not in requirements:
-            output = subprocess.check_output(["sinfo", "-h", "-o", "%P"])
-            default_partition = [
-                line.split("*")[0]
-                for line in output.decode().splitlines()
-                if "*" in line
-            ]
-            assert len(default_partition) == 1, f"Add partition to --slurm"
-            requirements["partition"] = default_partition[0]
 
         if self._cluster_json.exists():
             cluster = self.cluster_info()
@@ -253,14 +334,7 @@ class RayCluster:
                 folder=str(self._log_dir),
                 cluster=executor,
             )
-            default_params = {"timeout_min": 10080, "cpus_per_task": 20}
-            if executor == "slurm":
-                # clusterscope assigns the proportionate amount of resources based on gpus/cpus being requested.
-                resources = clusterscope.job_gen_task_slurm(
-                    partition=str(requirements["partition"]),
-                    cpus_per_task=default_params["cpus_per_task"],
-                )
-                default_params["mem_gb"] = resources["mem_gb"]
+            head_default_params = {"timeout_min": 10080, "cpus_per_task": 20}
             if add_workers == 0:
                 head_params = requirements
             else:
@@ -270,7 +344,7 @@ class RayCluster:
             head_params.update(
                 {
                     key: value
-                    for key, value in default_params.items()
+                    for key, value in head_default_params.items()
                     if key not in head_params
                 }
             )
@@ -324,23 +398,15 @@ class RayCluster:
             s_executor = submitit.AutoExecutor(
                 folder=str(self._log_dir), cluster=executor
             )
-            default_params = {
+            default_params: dict[str, tp.Any] = {
                 "ntasks_per_node": 1,
                 "timeout_min": 10080,
-                "gpus_per_node": 8,
             }
-            default_params.update(
-                {k: requirements[k] for k in default_params if k in requirements}  # type: ignore[misc]
-            )
+            partition = requirements.get("partition")
+            if partition:
+                default_params["partition"] = partition
             if executor == "slurm":
-                # clusterscope assigns the proportionate amount of resources based on gpus/cpus being requested.
-                resources = clusterscope.job_gen_task_slurm(
-                    partition=str(requirements["partition"]),
-                    gpus_per_task=default_params["gpus_per_node"],
-                    tasks_per_node=default_params["ntasks_per_node"],
-                )
-                default_params["cpus_per_task"] = resources["cpus_per_task"]
-                default_params["mem_gb"] = resources["mem_gb"]
+                default_params = _get_slurm_default_requirements(default_params)
             requirements.update(
                 {
                     key: value
@@ -348,6 +414,7 @@ class RayCluster:
                     if key not in requirements
                 }
             )
+            print(requirements)
             s_executor.update_parameters(
                 name=f"ray_worker_{self.cluster_id}",
                 **requirements,
