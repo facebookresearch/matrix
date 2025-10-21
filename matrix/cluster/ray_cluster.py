@@ -69,9 +69,6 @@ def _get_slurm_default_requirements(requirements: dict[str, tp.Any]):
             partition = default_partition[0]
             requirements["partition"] = partition
 
-        import pdb
-
-        pdb.set_trace()
         # Get detailed info for the partition
         # %P=partition, %c=CPUs, %m=memory(MB), %l=time_limit, %N=nodes
         sinfo_output = (
@@ -91,9 +88,6 @@ def _get_slurm_default_requirements(requirements: dict[str, tp.Any]):
             gpu_type = None
 
             for line in lines:
-                import pdb
-
-                pdb.set_trace()
                 parts = line.split()
                 if len(parts) >= 3:
                     gpu_info = _parse_gpu_gres(parts[0])
@@ -404,7 +398,7 @@ class RayCluster:
             s_executor = submitit.AutoExecutor(
                 folder=str(self._log_dir), cluster=executor
             )
-            default_params = {
+            default_params: dict[str, tp.Any] = {
                 "ntasks_per_node": 1,
                 "timeout_min": 10080,
             }
