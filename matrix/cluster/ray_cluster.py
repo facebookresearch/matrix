@@ -334,7 +334,7 @@ class RayCluster:
                 folder=str(self._log_dir),
                 cluster=executor,
             )
-            default_params = {"timeout_min": 10080, "cpus_per_task": 20}
+            head_default_params = {"timeout_min": 10080, "cpus_per_task": 20}
             if add_workers == 0:
                 head_params = requirements
             else:
@@ -344,7 +344,7 @@ class RayCluster:
             head_params.update(
                 {
                     key: value
-                    for key, value in default_params.items()
+                    for key, value in head_default_params.items()
                     if key not in head_params
                 }
             )
