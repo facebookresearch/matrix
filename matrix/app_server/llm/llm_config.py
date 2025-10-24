@@ -259,4 +259,16 @@ llm_model_default_parameters = {
         "max_ongoing_requests": 64,
         "limit_mm_per_prompt": "image=128",
     },
+    "moonshotai/Kimi-K2-Instruct-0905": {
+        "name": "kimi-k2",
+        "tensor-parallel-size": 8,
+        "pipeline-parallel-size": 2,
+        "enable-prefix-caching": True,
+        "max-model-len": 131072,
+        "gpu-memory-utilization": 0.85,
+        "max_ongoing_requests": 64,
+        "trust-remote-code": True,
+        "use_v1_engine": "true",
+        "tool-call-parser": "kimi_k2",
+    },
 }
