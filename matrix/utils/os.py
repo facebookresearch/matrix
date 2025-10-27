@@ -347,6 +347,7 @@ async def batch_requests_async(
     func: Callable[..., Any],
     args_list: List[Dict[str, Any]],
     batch_size: int = 32,
+    verbose=False,
 ) -> List[Any]:
 
     semaphore = asyncio.Semaphore(batch_size)
@@ -366,6 +367,7 @@ async def batch_requests_async(
     pbar = tqdm(
         total=len(tasks),
         desc=f"Batch {func.__name__ if hasattr(func, '__name__') else 'func'}",
+        disable=not verbose,
     )
     for coro in asyncio.as_completed(tasks):
         await coro
