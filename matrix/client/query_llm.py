@@ -667,6 +667,7 @@ def batch_requests(
     requests: tp.List[tp.Dict[str, tp.Any]],
     batch_size: int | None = None,
     text_response_only: bool = False,
+    verbose: bool = False,
     **kwargs,
 ) -> tp.List[tp.Dict[str, tp.Any] | str]:
     """
@@ -686,6 +687,7 @@ def batch_requests(
             func=partial(make_request, url, model, **kwargs),
             args_list=[{"data": req} for req in requests],
             batch_size=batch_size or len(requests),
+            verbose=verbose,
         )
     )
 
@@ -707,7 +709,7 @@ def batch_requests(
         else:
             outputs.append(result)
 
-    logger.info(f"complete {len(outputs)} samples, {num_error} request errors")
+    logger.debug(f"complete {len(outputs)} samples, {num_error} request errors")
     return outputs
 
 

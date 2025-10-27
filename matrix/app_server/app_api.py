@@ -544,4 +544,6 @@ class AppApi:
         assert metadata["app_type"] == "container"
         base_url = metadata["endpoints"]["head"]
         client = ContainerClient(base_url)
-        return run_async(client.release_all_containers())
+        result = run_async(client.release_all_containers())
+        run_async(client.close())
+        return result

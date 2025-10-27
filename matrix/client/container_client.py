@@ -3,32 +3,148 @@
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-
 import asyncio
 import json
 import logging
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
-from tqdm import tqdm
 
-from matrix.utils.http import fetch_url, post_url
+from matrix.utils.http import post_url
 
 logger = logging.getLogger(__name__)
 
 
 class ContainerClient:
-    """Client for interacting with the ContainerDeployment HTTP server."""
+    """Picklable, scalable client for interacting with the ContainerDeployment HTTP server.
 
-    def __init__(self, base_url: str):
+    This client is safe to use across different event loops and threads.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        max_connections: int = 500,
+        max_connections_per_host: int = 0,
+        timeout: Optional[float] = 60.0,
+    ):
         """
         Initialize the container client.
 
         Args:
             base_url: Base URL of the container deployment server (e.g., "http://localhost:8000")
+            max_connections: Maximum number of concurrent connections (default: 100)
+            max_connections_per_host: Max connections per host, 0 for unlimited (default: 0)
+            timeout: Default timeout in seconds for all requests (default: 60.0)
         """
         self.base_url = base_url.rstrip("/")
         self.containers: list[str] = []
+
+        # Store configuration (these are picklable)
+        self._max_connections = max_connections
+        self._max_connections_per_host = max_connections_per_host
+        self._timeout = timeout
+
+        # Per-loop session storage - each event loop gets its own session
+        self._sessions: Dict[asyncio.AbstractEventLoop, aiohttp.ClientSession] = {}
+        self._connectors: Dict[asyncio.AbstractEventLoop, aiohttp.TCPConnector] = {}
+        self._locks: Dict[asyncio.AbstractEventLoop, asyncio.Lock] = {}
+
+    def __getstate__(self):
+        """Custom pickle serialization - exclude non-picklable objects."""
+        state = self.__dict__.copy()
+        # Remove non-picklable session and connector dictionaries
+        state["_sessions"] = {}
+        state["_connectors"] = {}
+        state["_locks"] = {}
+        return state
+
+    def __setstate__(self, state):
+        """Custom pickle deserialization - restore state."""
+        self.__dict__.update(state)
+        # Recreate empty dictionaries after unpickling
+        self._sessions = {}
+        self._connectors = {}
+        self._locks = {}
+
+    def _get_lock(self) -> asyncio.Lock:
+        """Get or create a lock for the current event loop."""
+        loop = asyncio.get_event_loop()
+        if loop not in self._locks:
+            self._locks[loop] = asyncio.Lock()
+        return self._locks[loop]
+
+    async def _ensure_session(self) -> aiohttp.ClientSession:
+        """Ensure the session is created for the current event loop (thread-safe)."""
+        loop = asyncio.get_event_loop()
+
+        # Check if we have a valid session for this loop
+        if loop in self._sessions and not self._sessions[loop].closed:
+            return self._sessions[loop]
+
+        # Need to create a new session for this loop
+        lock = self._get_lock()
+        async with lock:
+            # Double-check after acquiring lock
+            if loop in self._sessions and not self._sessions[loop].closed:
+                return self._sessions[loop]
+
+            # Clean up old session if it exists
+            if loop in self._sessions:
+                try:
+                    await self._sessions[loop].close()
+                except:
+                    pass
+            if loop in self._connectors:
+                try:
+                    await self._connectors[loop].close()
+                except:
+                    pass
+
+            # Create new connector and session for this loop
+            connector = aiohttp.TCPConnector(
+                limit=self._max_connections,
+                limit_per_host=self._max_connections_per_host,
+                ttl_dns_cache=300,
+            )
+
+            timeout = aiohttp.ClientTimeout(total=self._timeout)
+            session = aiohttp.ClientSession(
+                connector=connector,
+                timeout=timeout,
+                connector_owner=False,
+            )
+
+            self._connectors[loop] = connector
+            self._sessions[loop] = session
+
+            return session
+
+    async def close(self):
+        """Close all client sessions and connectors."""
+        # Get all loops to close
+        loops_to_close = list(self._sessions.keys())
+
+        for loop in loops_to_close:
+            if loop in self._sessions:
+                try:
+                    session = self._sessions[loop]
+                    if not session.closed:
+                        await session.close()
+                except:
+                    pass
+
+            if loop in self._connectors:
+                try:
+                    connector = self._connectors[loop]
+                    if not connector.closed:
+                        await connector.close()
+                except:
+                    pass
+
+        # Clear dictionaries
+        self._sessions.clear()
+        self._connectors.clear()
 
     async def _handle_response(
         self, status: Optional[int], content: str
@@ -78,6 +194,8 @@ class ContainerClient:
         Returns:
             Dict with either {"container_id": "..."} or {"error": "..."}
         """
+        session = await self._ensure_session()
+
         payload = {
             "image": image,
             "executable": executable,
@@ -86,12 +204,17 @@ class ContainerClient:
             "timeout": timeout,
         }
 
-        session_timeout = aiohttp.ClientTimeout(total=timeout + 5) if timeout else None
-        async with aiohttp.ClientSession(timeout=session_timeout) as session:
+        try:
             status, content = await post_url(
                 session, f"{self.base_url}/acquire", payload
             )
             return await self._handle_response(status, content)
+        except asyncio.TimeoutError:
+            return {
+                "error": f"Request timed out after {timeout + 5 if timeout else self._timeout} seconds"
+            }
+        except aiohttp.ClientError as e:
+            return {"error": f"Client error: {repr(e)}"}
 
     async def release_container(self, container_id: str) -> Dict[str, Any]:
         """
@@ -103,13 +226,19 @@ class ContainerClient:
         Returns:
             Dict with either {"container_id": "..."} or {"error": "..."}
         """
+        session = await self._ensure_session()
+
         payload = {"container_id": container_id}
 
-        async with aiohttp.ClientSession() as session:
+        try:
             status, content = await post_url(
                 session, f"{self.base_url}/release", payload
             )
             return await self._handle_response(status, content)
+        except asyncio.TimeoutError:
+            return {"error": f"Request timed out after {self._timeout} seconds"}
+        except aiohttp.ClientError as e:
+            return {"error": f"Client error: {repr(e)}"}
 
     async def execute(
         self,
@@ -134,6 +263,8 @@ class ContainerClient:
         Returns:
             Dict with either {"returncode": int, "output": str} or {"error": "..."}
         """
+        session = await self._ensure_session()
+
         payload = {"container_id": container_id, "cmd": cmd, "timeout": timeout}
         if cwd is not None:
             payload["cwd"] = cwd
@@ -142,12 +273,15 @@ class ContainerClient:
         if forward_env is not None:
             payload["forward_env"] = forward_env
 
-        session_timeout = aiohttp.ClientTimeout(total=timeout + 5) if timeout else None
-        async with aiohttp.ClientSession(timeout=session_timeout) as session:
+        try:
             status, content = await post_url(
                 session, f"{self.base_url}/execute", payload
             )
             return await self._handle_response(status, content)
+        except asyncio.TimeoutError:
+            return {"error": f"Request timed out after {timeout + 5} seconds"}
+        except aiohttp.ClientError as e:
+            return {"error": f"Client error: {repr(e)}"}
 
     async def get_status(self) -> Dict[str, Any]:
         """
@@ -156,8 +290,17 @@ class ContainerClient:
         Returns:
             Dict with either {"actors": {...}, "containers": {...}} or {"error": "..."}
         """
-        status, content = await fetch_url(f"{self.base_url}/status")
-        return await self._handle_response(status, content)
+        session = await self._ensure_session()
+
+        try:
+            async with session.get(f"{self.base_url}/status") as response:
+                status = response.status
+                content = await response.text()
+                return await self._handle_response(status, content)
+        except asyncio.TimeoutError:
+            return {"error": f"Request timed out after {self._timeout} seconds"}
+        except aiohttp.ClientError as e:
+            return {"error": f"Client error: {repr(e)}"}
 
     async def release_all_containers(self) -> Dict[str, Any]:
         """
@@ -166,20 +309,28 @@ class ContainerClient:
         Returns:
             Dict with either {"container_ids": []} or {"error": "..."}
         """
-        async with aiohttp.ClientSession() as session:
+        session = await self._ensure_session()
+
+        try:
             status, content = await post_url(
                 session, f"{self.base_url}/release_all", {}
             )
             return await self._handle_response(status, content)
+        except asyncio.TimeoutError:
+            return {"error": f"Request timed out after {self._timeout} seconds"}
+        except aiohttp.ClientError as e:
+            return {"error": f"Client error: {repr(e)}"}
 
     async def __aenter__(self):
+        await self._ensure_session()
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
-        if self.containers:
-            print(f"Releasing containers {self.containers}")
-            tasks = [self.release_container(cid) for cid in self.containers]
-            await asyncio.gather(*tasks, return_exceptions=False)
+        try:
+            if self.containers:
+                await self.release_all_containers()
+        finally:
+            await self.close()
         return False  # re-raise exception if one happened
 
 
@@ -189,14 +340,14 @@ class ManagedContainer:
 
     def __init__(
         self,
-        client: ContainerClient,
+        base_url: str,
         image: str,
         executable: str = "apptainer",
         run_args: Optional[List[str]] = None,
         start_script_args: Optional[List[str]] = None,
         timeout: int = 300,
     ):
-        self.client = client
+        self.client = ContainerClient(base_url)
         self.image = image
         self.executable = executable
         self.run_args = run_args
@@ -206,6 +357,7 @@ class ManagedContainer:
 
     async def __aenter__(self) -> "ManagedContainer":
         """Acquire container on entering context."""
+        await self.client.__aenter__()
         result = await self.client.acquire_container(
             image=self.image,
             executable=self.executable,
@@ -220,9 +372,8 @@ class ManagedContainer:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Release container on exiting context."""
-        if self.container_id:
-            await self.client.release_container(self.container_id)
-            self.container_id = None
+        await self.client.__aexit__(exc_type, exc_val, exc_tb)
+        self.container_id = None
 
     async def execute(
         self,
