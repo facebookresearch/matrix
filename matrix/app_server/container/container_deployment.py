@@ -120,7 +120,7 @@ class ContainerRegistry:
 # ----------------------------
 # Generic ContainerActor base
 # ----------------------------
-@ray.remote(num_cpus=0.5)
+@ray.remote(num_cpus=1)
 class ContainerActor:
     def __init__(self):
         self.actor_id = f"actor-{uuid.uuid4().hex[:8]}"
