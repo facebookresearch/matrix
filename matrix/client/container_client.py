@@ -328,9 +328,7 @@ class ContainerClient:
     async def __aexit__(self, exc_type, exc, tb):
         try:
             if self.containers:
-                print(f"Releasing containers {self.containers}")
-                tasks = [self.release_container(cid) for cid in self.containers]
-                await asyncio.gather(*tasks, return_exceptions=False)
+                await self.release_all_containers()
         finally:
             await self.close()
         return False  # re-raise exception if one happened
