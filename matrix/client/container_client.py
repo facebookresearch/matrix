@@ -342,14 +342,14 @@ class ManagedContainer:
 
     def __init__(
         self,
-        client: ContainerClient,
+        base_url: str,
         image: str,
         executable: str = "apptainer",
         run_args: Optional[List[str]] = None,
         start_script_args: Optional[List[str]] = None,
         timeout: int = 300,
     ):
-        self.client = client
+        self.client = ContainerClient(base_url)
         self.image = image
         self.executable = executable
         self.run_args = run_args
@@ -359,6 +359,7 @@ class ManagedContainer:
 
     async def __aenter__(self) -> "ManagedContainer":
         """Acquire container on entering context."""
+        await self.client.__aenter__()
         result = await self.client.acquire_container(
             image=self.image,
             executable=self.executable,
@@ -373,9 +374,8 @@ class ManagedContainer:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Release container on exiting context."""
-        if self.container_id:
-            await self.client.release_container(self.container_id)
-            self.container_id = None
+        await self.client.__aexit__(exc_type, exc_val, exc_tb)
+        self.container_id = None
 
     async def execute(
         self,
