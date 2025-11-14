@@ -21,8 +21,9 @@ from starlette.responses import JSONResponse
 from torch.utils.data import DataLoader, Dataset
 
 from matrix.app_server.vision.utils import SamplingMode, TorchCodecVideoDataset
+from matrix.utils.logging import get_logger
 
-logger = logging.getLogger("ray.serve")
+logger = get_logger("ray.serve")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 

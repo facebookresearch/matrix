@@ -15,9 +15,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from matrix.app_server.code.sandbox_runner import SandboxRunner
+from matrix.utils.logging import get_logger
 
 CODE_EXEC_TIMEOUT = 10
-logger = logging.getLogger("ray.serve")
+logger = get_logger("ray.serve")
 
 
 @serve.deployment(ray_actor_options={"num_cpus": 1, "num_gpus": 0})

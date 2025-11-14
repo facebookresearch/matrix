@@ -29,8 +29,9 @@ from matrix.app_server.vision.utils import (
     execute_with_retry,
     get_image_transform,
 )
+from matrix.utils.logging import get_logger
 
-logger = logging.getLogger("ray.serve")
+logger = get_logger("ray.serve")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 

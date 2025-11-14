@@ -15,7 +15,9 @@ import ray
 from fire import Fire
 from vllm import LLM, SamplingParams
 
-logger = logging.getLogger(__name__)
+from matrix.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 USER_MESSAGE = "<user_message>"
 

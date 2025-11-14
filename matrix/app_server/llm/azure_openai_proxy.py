@@ -23,7 +23,9 @@ from vllm.entrypoints.openai.protocol import (
     ErrorResponse,
 )
 
-logger = logging.getLogger("ray.serve")
+from matrix.utils.logging import get_logger
+
+logger = get_logger("ray.serve")
 
 app = FastAPI()
 

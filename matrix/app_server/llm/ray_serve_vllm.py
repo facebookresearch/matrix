@@ -41,6 +41,7 @@ from vllm.entrypoints.openai.protocol import (
 )
 
 from matrix.app_server.llm import openai_pb2
+from matrix.utils.logging import get_logger
 
 try:
     from vllm.entrypoints.openai.serving_engine import (  # type: ignore[attr-defined]
@@ -76,7 +77,7 @@ vllm_deploy_args = [
     "enable_tools",
 ]
 
-logger = logging.getLogger("ray.serve")
+logger = get_logger("ray.serve")
 
 app = FastAPI()
 

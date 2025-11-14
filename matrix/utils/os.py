@@ -26,7 +26,9 @@ import portalocker
 import psutil
 from tqdm import tqdm
 
-logger = logging.getLogger(__name__)
+from matrix.utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 def kill_proc_tree(pid, including_parent=True):

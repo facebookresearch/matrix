@@ -18,7 +18,9 @@ from ray import serve
 from starlette.requests import Request
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest
 
-logger = logging.getLogger("ray.serve")
+from matrix.utils.logging import get_logger
+
+logger = get_logger("ray.serve")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 

@@ -31,7 +31,9 @@ from ray.actor import ActorHandle
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from torch.distributed.device_mesh import DeviceMesh, init_device_mesh
 
-logger = logging.getLogger("ray.serve")
+from matrix.utils.logging import get_logger
+
+logger = get_logger("ray.serve")
 
 app = FastAPI()
 
