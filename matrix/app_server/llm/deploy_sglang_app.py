@@ -26,8 +26,8 @@ from sglang.srt.utils import kill_process_tree
 from sglang_router.launch_router import launch_router, parse_router_args
 
 from matrix.common.cluster_info import ClusterInfo
-from matrix.utils.logging import get_logger
 from matrix.utils.http import fetch_url, post_url
+from matrix.utils.logging import get_logger
 from matrix.utils.os import run_and_stream, stop_process
 from matrix.utils.ray import ACTOR_NAME_SPACE, get_matrix_actors, get_ray_head_node
 

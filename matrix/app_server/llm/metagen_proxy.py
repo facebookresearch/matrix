@@ -23,8 +23,8 @@ from vllm.entrypoints.openai.protocol import (
     ErrorResponse,
 )
 
-from matrix.utils.logging import get_logger
 from matrix.utils.http import post_url
+from matrix.utils.logging import get_logger
 
 logger = get_logger("ray.serve")
 

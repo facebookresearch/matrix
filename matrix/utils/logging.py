@@ -11,7 +11,7 @@ Automatically uses Scuba/Hive when running in Meta cloud environments.
 
 import logging
 import os
-from enum import auto, Enum, unique
+from enum import Enum, auto, unique
 from typing import Optional
 
 # Try to import frogger2, fall back to None if not available

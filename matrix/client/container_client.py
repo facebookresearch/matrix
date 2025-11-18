@@ -10,8 +10,8 @@ from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 
-from matrix.utils.logging import get_logger
 from matrix.utils.http import post_url
+from matrix.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
