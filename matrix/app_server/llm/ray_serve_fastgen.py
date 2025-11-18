@@ -352,7 +352,7 @@ def parse_args(cli_args: Dict[str, str]):
             arg_strings.extend([f"--{key}"])
         else:
             arg_strings.extend([f"--{key}", str(value)])
-    logger.info(arg_strings)
+    logger.info(",".join(arg_strings))
     parsed_args = parser.parse_args(args=arg_strings)
     return parsed_args
 

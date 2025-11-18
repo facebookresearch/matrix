@@ -124,11 +124,11 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
             arg_strings.extend([f"--{key}"])
         else:
             arg_strings.extend([f"--{key}", str(value)])
-    logger.info(arg_strings)
+    logger.info(",".join(arg_strings))
 
     args = argparse.parse_args(args=arg_strings)
 
-    logger.log(logging.INFO, f"args: {args}")
+    logger.info(f"args: {args}")
 
     return SageMakerDeployment.options(  # type: ignore[attr-defined]
         placement_group_bundles=pg_resources,

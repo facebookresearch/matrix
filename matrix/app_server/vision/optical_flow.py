@@ -208,7 +208,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     for key, value in cli_args.items():
         if value is not None:
             arg_strings.extend([f"--{key}", str(value)])
-    logger.info(arg_strings)
+    logger.info(",".join(arg_strings))
 
     args = argparse.parse_args(arg_strings)
 

@@ -99,20 +99,20 @@ class MatrixLogger:
             else:
                 local_log(message)
 
-        def debug(self, message: str, **kwargs) -> None:
-            self._log(level=MatrixLogLevel.DEBUG, message=message, **kwargs)
+    def debug(self, message: str, **kwargs) -> None:
+        self._log(level=MatrixLogLevel.DEBUG, message=message, **kwargs)
 
-        def info(self, message: str, **kwargs) -> None:
-            self._log(level=MatrixLogLevel.INFO, message=message, **kwargs)
+    def info(self, message: str, **kwargs) -> None:
+        self._log(level=MatrixLogLevel.INFO, message=message, **kwargs)
 
-        def warning(self, message: str, **kwargs) -> None:
-            self._log(level=MatrixLogLevel.WARNING, message=message, **kwargs)
+    def warning(self, message: str, **kwargs) -> None:
+        self._log(level=MatrixLogLevel.WARNING, message=message, **kwargs)
 
-        def error(self, message: str, **kwargs) -> None:
-            self._log(level=MatrixLogLevel.ERROR, message=message, **kwargs)
+    def error(self, message: str, **kwargs) -> None:
+        self._log(level=MatrixLogLevel.ERROR, message=message, **kwargs)
 
-        def critical(self, message: str, **kwargs) -> None:
-            self._log(level=MatrixLogLevel.CRITICAL, message=message, **kwargs)
+    def critical(self, message: str, **kwargs) -> None:
+        self._log(level=MatrixLogLevel.CRITICAL, message=message, **kwargs)
 
 
 def get_logger(

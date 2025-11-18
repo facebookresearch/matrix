@@ -131,7 +131,7 @@ def run_remotely(
         else:
             embeddings = np.vstack(cluster_df["embedding"])
             centroid = np.mean(embeddings, axis=0)
-            logger.info(embeddings.shape, centroid.shape)
+            logger.info(f"{embeddings.shape}, {centroid.shape}")
             distances_to_centroid = np.linalg.norm(embeddings - centroid, axis=1)
 
             # First pick the closest point to centroid
