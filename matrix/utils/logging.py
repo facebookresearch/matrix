@@ -28,6 +28,7 @@ except ImportError:
     FROGGER_AVAILABLE = False
     OTEL_EXPORTER_OTLP_ENDPOINT = None
 
+
 @unique
 class MatrixLogLevel(Enum):
     DEBUG = auto()
