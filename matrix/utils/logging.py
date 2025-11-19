@@ -72,7 +72,7 @@ class MatrixLogger:
     def transmit(self, level: MatrixLogLevel, message: str, **kwargs):
         """Log to Scuba if available."""
         try:
-            matrix_logger(log_level=level, log_message=message, **kwargs)
+            matrix_logger(log_level=level.name, log_message=message, **kwargs)
         except Exception as exn:
             self.logger.error(f"MatrixLogger failed to transmit payload: {exn}")
 
