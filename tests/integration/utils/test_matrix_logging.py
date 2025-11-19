@@ -8,6 +8,7 @@ import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from matrix.utils.logging import MatrixLogger, MatrixLogLevel, get_logger
 
 
