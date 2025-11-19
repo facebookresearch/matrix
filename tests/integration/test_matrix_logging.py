@@ -21,7 +21,7 @@ class TestMatrixLogger:
         assert logger.logger.name == TEST_LOGGER
 
     def test_get_logger_returns_matrix_logger_with_forgger(self):
-        with patch("matrix.utilities.logging.FROGGER_AVAILABLE", True):
+        with patch("matrix.utils.logging.FROGGER_AVAILABLE", True):
             with patch(
                 "matrix.utils.logging.OTEL_EXPORTER_OTLP_ENDPOINT",
                 "http://localhost:4317",
@@ -30,13 +30,13 @@ class TestMatrixLogger:
                 assert isinstance(logger, MatrixLogger)
 
     def test_get_logger_returns_standard_logger_without_frogger(self):
-        with patch("matrix.utilities.logging.FROGGER_AVAILABLE", False):
+        with patch("matrix.utils.logging.FROGGER_AVAILABLE", False):
             logger = get_logger("test")
             assert isinstance(logger, logging.Logger)
             assert not isinstance(logger, MatrixLogger)
 
     def test_matrix_logger_info_with_frogger(self):
-        with patch("matrix.utilities.logging.FROGGER_AVAILABLE", True):
+        with patch("matrix.utils.logging.FROGGER_AVAILABLE", True):
             with patch(
                 "matrix.utils.logging.OTEL_EXPORTER_OTLP_ENDPOINT",
                 "http://localhost:4317",
@@ -55,7 +55,7 @@ class TestMatrixLogger:
                         # Verify  frogger transmit was called
                         mock_frogger.assert_called_once_with(
                             log_level=MatrixLogLevel.INFO,
-                            message="Test message",
+                            log_message="Test message",
                             job_id="123",
                         )
 
@@ -135,7 +135,7 @@ class TestMatrixLoggerIntegration:
 
         with patch.object(logger, "info") as mock_info:
             logger.info("Test log message")
-            mock_info.assert_called_once("Test log message")
+            mock_info.assert_called_once()
 
     def test_logger_with_structured_data(self):
         logger = MatrixLogger(name="test")
@@ -168,11 +168,11 @@ class TestMatrixLoggerWithFrogger:
         reason="Requires frogger2 and an OTel gateway",
     )
     def test_transmission(self):
-        from matri.utils.logging import matrix_logger
+        from matri.utils.logging import FROGGER_AVAILABLE
 
         assert FROGGER_AVAILABLE, "frogger2 must be available for this test"
         logger = MatrixLogger(name="test_frogger")
-        assert logger.use_frogger, "Logger should be confiugred to use frogger"
+        assert logger.use_frogger, "Logger should be configured to use frogger2"
 
         success: bool = False
         try:
