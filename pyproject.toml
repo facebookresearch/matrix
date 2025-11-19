@@ -182,7 +182,7 @@ classifiers=[
       "fastgen @ git+https://github.com/dongwang218/fastgen.git"
   ]
   meta = [
-      "frogger2 @ git+ssh://git@github.com:fairinternal/frogger2.git"
+      "frogger2 @ git+ssh://git@github.com/fairinternal/frogger2.git"
   ]
 
 [project.scripts]
