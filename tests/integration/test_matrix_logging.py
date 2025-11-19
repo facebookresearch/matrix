@@ -54,7 +54,7 @@ class TestMatrixLogger:
 
                         # Verify  frogger transmit was called
                         mock_frogger.assert_called_once_with(
-                            log_level=MatrixLogLevel.INFO,
+                            log_level=MatrixLogLevel.INFO.name,
                             log_message="Test message",
                             job_id="123",
                         )
@@ -188,6 +188,10 @@ class TestMatrixLoggerWithFrogger:
 
             assert success, "Transmission should complete without errors"
 
+    @pytest.mark.skipif(
+        not FROGGER_AVAILABLE or not OTEL_EXPORTER_OTLP_ENDPOINT,
+        reason="Requires frogger2 and an OTel gateway",
+    )
     def test_frogger_transmission_with_all_log_levels(self):
         """Test transmission at all log levels."""
         logger = MatrixLogger(name="test_levels")
@@ -206,6 +210,10 @@ class TestMatrixLoggerWithFrogger:
             except Exception as exn:
                 pytest.fail(f"Failed to transmit {level.name}: {exn}")
 
+    @pytest.mark.skipif(
+        not FROGGER_AVAILABLE or not OTEL_EXPORTER_OTLP_ENDPOINT,
+        reason="Requires frogger2 and an OTel gateway",
+    )
     def test_frogger_transmission_with_structured_fields(self):
         """Test that structured fields are properly transmitted."""
         logger = MatrixLogger(name="test_structured")
@@ -223,6 +231,10 @@ class TestMatrixLoggerWithFrogger:
         except Exception as e:
             pytest.fail(f"Structured transmission failed: {e}")
 
+    @pytest.mark.skipif(
+        not FROGGER_AVAILABLE or not OTEL_EXPORTER_OTLP_ENDPOINT,
+        reason="Requires frogger2 and an OTel gateway",
+    )
     def test_verify_local_and_remote_logging_both_occur(self):
         """Verify that both local logging and remote transmission happen."""
         logger = MatrixLogger(name="test_dual")
