@@ -245,9 +245,9 @@ class TestMatrixLoggerWithFrogger:
         # Verify local log was written
         log_output = log_capture.getvalue()
         assert test_message in log_output, "Local log should contain the message"
-        assert "job_id=dual_test_001" in log_output or "dual_test_001" in log_output, (
-            "Local log should contain job_id"
-        )
+        assert (
+            "job_id=dual_test_001" in log_output or "dual_test_001" in log_output
+        ), f"Local log should contain job_id: {log_output}"
 
         # Note: We can't easily verify remote transmission without querying the OTLP endpoint,
         # but if no exception was raised, transmission was attempted

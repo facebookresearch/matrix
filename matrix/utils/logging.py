@@ -12,11 +12,10 @@ Automatically uses Scuba/Hive when running in Meta cloud environments.
 import logging
 import os
 from enum import Enum, auto, unique
-from typing import Optional
 
 # Try to import frogger2, fall back to None if not available
 FROGGER_AVAILABLE: bool = False
-OTEL_EXPORTER_OTLP_ENDPOINT: Optional[str] = None
+OTEL_EXPORTER_OTLP_ENDPOINT: str | None = None
 try:
     from frogger2.applications.matrix import log  # type: ignore
 
@@ -41,7 +40,7 @@ class MatrixLogLevel(Enum):
 class MatrixLogger:
     """Logger that supports both standard logging and Scuba logging."""
 
-    def __init__(self, name: Optional[str] = None, level: int = logging.INFO):
+    def __init__(self, name: str | None = None, level: int = logging.INFO):
         """
         Initialize a Matrix logger.
 
@@ -117,7 +116,7 @@ class MatrixLogger:
 
 
 def get_logger(
-    name: Optional[str] = None, level: int = logging.INFO
+    name: str | None = None, level: int = logging.INFO
 ) -> MatrixLogger | logging.Logger:
     """
     Get a logger instance
