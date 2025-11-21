@@ -232,6 +232,7 @@ async def make_request(
     endpoint_cache: tp.Optional[EndpointCache] = None,
     top_k: int = -1,
     guided_decoding: tp.Optional[tp.Dict[str, tp.Any]] = None,
+    extra_body: tp.Optional[tp.Dict[str, tp.Any]] = None,
 ) -> tp.Dict[str, tp.Any]:
     if "metadata" not in data:
         data["metadata"] = {}
@@ -239,7 +240,7 @@ async def make_request(
     max_retries = max(1, max_retries)
     exception: tp.Optional[Exception] = None
 
-    extra_body = {}
+    extra_body = extra_body or {}
     if top_k != -1:
         extra_body["top_k"] = top_k
     if guided_decoding:
