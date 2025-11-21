@@ -734,6 +734,7 @@ async def main(
     batch_mode=False,
     input_hf_dataset: str | None = None,
     hf_dataset_split: str = "train",
+    **kwargs,
 ) -> tp.Dict[str, int]:
     """Send jsonl llama3 instruct prompt for inference and save both the request and response as jsonl.
     params:
@@ -799,6 +800,7 @@ async def main(
                 temperature=temperature,
                 logprobs=logprobs,
                 timeout_secs=timeout_secs,
+                **kwargs,
             ),
             args_list=[{"data": line} for line in lines],
             batch_size=batch_size,
@@ -854,6 +856,7 @@ async def main(
                     temperature=temperature,
                     logprobs=logprobs,
                     timeout_secs=timeout_secs,
+                    **kwargs,
                 )
             )
             pending_tasks.add(task)
