@@ -184,6 +184,20 @@ other_app_template = """
   - name: BedrockDeployment
     max_ongoing_requests: {{ app.max_ongoing_requests }}
     autoscaling_config:
+      target_ongoing_requests: {{ [ (app.max_ongoing_requests * 0.8) | int , 1 ] | max }}
+      min_replicas: {{ app.min_replica }}
+      max_replicas: {{ app.max_replica }}
+{% elif app.app_type == 'llama_api' %}
+- name: {{ app.name }}
+  route_prefix: /{{ app.name }}
+  import_path: matrix.app_server.llm.llama_api_proxy:build_app
+  args:
+    model: {{ app.model_name }}
+    api_key: {{ app.api_key }}
+  deployments:
+  - name: LlamaApiDeployment
+    max_ongoing_requests: {{ app.max_ongoing_requests }}
+    autoscaling_config:
       target_ongoing_requests: 64
       min_replicas: {{ app.min_replica }}
       max_replicas: {{ app.max_replica }}
@@ -294,6 +308,7 @@ def get_app_type(app):
         "FastgenDeployment": "fastgen",
         "PerceptionEncoderDeployment": "perception_encoder",
         "OpticalFlowDeployment": "optical_flow",
+        "LlamaApiDeployment": "llama_api",
     }
     app_type = deploy_type.get(deployment)
     if app_type is None and deployment.endswith("Deployment"):
@@ -396,6 +411,7 @@ def get_yaml_for_deployment(
                 "sagemaker",
                 "gemini",
                 "bedrock",
+                "llama_api",
                 "perception_encoder",
                 "optical_flow",
             ], f"unknown app_type {app_type}"
@@ -486,6 +502,14 @@ def get_yaml_for_deployment(
                 assert "model_name" in app, "add model_name to bedrock app"
                 env = {k: v for k, v in os.environ.items() if k.startswith("AWS_")}
                 yaml_str += Template(other_app_template).render(app=app, env=os.environ)
+            elif app_type == "llama_api":
+                default_params = {
+                    "name": "llama_api",
+                    "max_ongoing_requests": 128,
+                }
+                app.update({k: v for k, v in default_params.items() if k not in app})
+                assert "api_key" in app, "add api_key to llama_api app"
+                yaml_str += Template(other_app_template).render(app=app)
             else:
                 assert "name" in app, "add name to app"
                 yaml_str += Template(other_app_template).render(app=app)

@@ -444,6 +444,7 @@ class AppApi:
             "sagemaker",
             "gemini",
             "bedrock",
+            "llama_api",
         ]:
             from matrix.client.query_llm import main as query_llm
 
