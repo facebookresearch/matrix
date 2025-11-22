@@ -505,7 +505,6 @@ def get_yaml_for_deployment(
             elif app_type == "llama_api":
                 default_params = {
                     "name": "llama_api",
-                    "model_name": "Llama-4-Maverick-17B-128E-Instruct-FP8",
                     "max_ongoing_requests": 128,
                 }
                 app.update({k: v for k, v in default_params.items() if k not in app})
