@@ -73,7 +73,9 @@ class LlamaApiDeployment:
                 }
                 # Create a Choice instance
                 choice = Choice(
-                    index=0, message=message, finish_reason=msg.get("stop_reason", "")
+                    index=0,
+                    message=message,  # type: ignore[arg-type]
+                    finish_reason=msg.get("stop_reason", ""),
                 )
                 response.choices = [choice]
                 # Create a CompletionUsage instance
