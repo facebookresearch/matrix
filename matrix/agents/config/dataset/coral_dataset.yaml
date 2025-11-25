@@ -1,0 +1,5 @@
+_target_: matrix.agents.examples.ts_interaction.CoralDatasetLoader
+name: "TIGER-Lab/MMLU-Pro"
+split: "test"
+cut_off: null  # Set to number to limit dataset size
+data_files: null

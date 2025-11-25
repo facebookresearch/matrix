@@ -1,0 +1,26 @@
+container:
+  _target_: matrix.agents.examples.mini_swe_agent.SweContainerClient
+  matrix_service: container
+  docker_cache: ~/checkpoint/cache/apptainer_sif
+  start_config:
+    run_args: ["--fakeroot", "--writable-tmpfs"]  # has internet access
+  exec_params:
+    cwd: "/testbed"
+    timeout_secs: 60  # allow command to timeout
+    env:
+      PAGER: cat
+      MANPAGER: cat
+      LESS: -R
+      PIP_PROGRESS_BAR: 'off'
+      TQDM_DISABLE: '1'
+
+coder_llm:
+  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  matrix_service: coder_llm
+  sampling_params:
+    temperature: 0.0
+    max_tokens: 1024
+    top_p: 0.9
+  exec_params:
+    timeout_secs: 1800
+    sticky_routing_prefix: coder_

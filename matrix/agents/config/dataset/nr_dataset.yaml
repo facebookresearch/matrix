@@ -1,0 +1,5 @@
+_target_: matrix.agents.p2p_extended.HuggingfaceDatasetLoader
+name: "json"
+split: "train"
+data_files: "~/checkpoint/natural_reasoning_exp/dclm-baseline-1.0/global-shard_01_of_10/local-shard_9_of_10/shard_00000*.jsonl.zst"
+cut_off: null  # Set to number to limit dataset size

@@ -210,7 +210,7 @@ def make_error_response(
 
 
 async def make_request(
-    url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
+    url: tp.Union[None, str, tp.Callable[[], tp.Awaitable[str]]],
     model: str,
     data: tp.Dict[str, tp.Any],
     seed: tp.Optional[int] = None,

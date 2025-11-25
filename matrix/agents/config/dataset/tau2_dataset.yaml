@@ -1,0 +1,6 @@
+_target_: matrix.agents.p2p_extended.HuggingfaceDatasetLoader
+name: "HuggingFaceH4/tau2-bench-data"
+split: "train"
+data_files: "domains/${domain}/tasks.json"
+cut_off: null  # Set to number to limit dataset size
+hub_download: True

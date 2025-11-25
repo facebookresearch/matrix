@@ -1,0 +1,17 @@
+
+matrix:
+  cluster_id: null
+  matrix_dir: null
+  
+# Simulation framework settings
+max_concurrent_tasks: 100
+rate_limit_enqueue: false
+
+debug: false
+seed: 42
+num_trial: 1
+
+# Default output settings
+output:
+  path: "simulation_results.jsonl"
+  success_only: False

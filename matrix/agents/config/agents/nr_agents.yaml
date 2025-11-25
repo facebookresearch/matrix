@@ -1,0 +1,196 @@
+defaults:
+  - sink
+
+# faster filter to identify reasoning doc
+filter:
+  _target_: matrix.agents.examples.nr_curation.FilterAgent
+  system_prompt: |
+    Analyze the text below as thoroughly as possible. Determine whether it demonstrates advanced reasoning skills, which should meet all of the following criteria:
+
+    **Criteria 1: Problem Completeness**
+    * The content includes a main question, and enough clues to derive the correct answer.
+    * The text shows evidence of engagement and discussion among multiple authors, including proposing answers, evaluating and reflecting on answers, responding to critiques, revising and editing answers.
+
+    **Criteria 2: Problem Complexity and Technical Depth**
+    * The difficulty of the content is graduate-level or above, and only domain experts can understand.
+    * The question being discussed is so challenging that even highly skilled non-experts would not be able to fully understand the question or provide a correct answer, even after spending 30 minutes searching the internet or reading up literatures.
+
+    **Criteria 3: Technical Correctness and Accuracy**
+    * The text demonstrates high technical correctness, with clear and accurate explanations (e.g., precise definitions, complete derivations).
+
+    **Criteria 4: Thinking and Reasoning**
+    * The text demonstrates significant thinking and reasoning, such as:
+        + A consideration of multiple approaches to a problem.
+        + A discussion of the trade-offs between different solutions.
+        + A detailed analysis of a complex problem.
+        + A consideration of multiple perspectives and critiques.
+        + A highly innovative and creative approach to solving a problem.
+        + A rigorous and precise analysis of a complex question.
+
+    **IMPORTANT**: Directly answer Yes or No.
+
+    ### Text
+
+  resource_name: "filter_llm"
+  debug: ${debug}
+  num_instances: 2
+  filter_en: 0.8
+
+score:
+  _target_: matrix.agents.examples.nr_curation.ScoreAgent
+  system_prompt: |
+    Evaluate the text below according to the scoring instruction and criteria. 
+
+    ## Scoring Instruction
+    1. Evaluate the text on each criterion step by step. Provide your honest answer to each sub-question.  
+       If the answer to a sub-question is a confident **Yes**, add or subtract the points corresponding to the criterion.
+    2. Keep track of the running points from each criterion to get the total score.
+    3. Summarize your final evaluation results in a valid JSON object following the instruction below.
+
+    ## Scoring Criteria
+
+    **Criteria 1: Problem Completeness**
+    - The content does not have a clear main question or enough clues to derive the correct answer. (0 point)
+    - The content includes a main question and enough clues to derive the correct answer. (+1 point)
+    - The text shows evidence of engagement and discussion among multiple authors, including proposing answers, 
+      evaluating and reflecting on answers, responding to critiques, revising and editing answers. (+1 point)
+
+    **Criteria 2: Problem Complexity and Technical Depth**
+    - The difficulty of the content is college-level or below. (0 point)
+    - The difficulty of the content is graduate-level or above, and only domain experts can understand. (+1 point)
+    - The question being discussed is so challenging that even highly skilled non-experts would not be able to fully 
+      understand the question or provide a correct answer, even after spending 30 minutes searching the internet 
+      or reading literature. (+1 point)
+
+    **Criteria 3: Technical Correctness and Accuracy**
+    - The text contains significant technical errors or inaccuracies. (-1 point)
+    - The text demonstrates some technical correctness, but with notable flaws or omissions 
+      (e.g., incorrect units, incomplete derivations). (0 point)
+    - The text demonstrates technical correctness with some minor flaws or omissions 
+      (e.g., minor algebraic errors, incomplete explanations). (+0.5 point)
+    - The text demonstrates high technical correctness, with clear and accurate explanations 
+      (e.g., precise definitions, complete derivations). (+0.5 point)
+    - The text exemplifies exceptional technical correctness, with rigorous and precise explanations 
+      (e.g., formal proofs, precise calculations). (+1 point)
+
+    **Criteria 4: Thinking and Reasoning**
+    - The text lacks any evidence of thinking or reasoning. (-1 point)
+    - The text demonstrates some basic thinking and reasoning (+0.5 point), such as:
+      + A straightforward application of a known technique.
+      + A simple analysis of a problem.
+    - The text demonstrates some thinking and reasoning (+0.5 point), such as:
+      + A consideration of multiple approaches to a problem.
+      + A discussion of the trade-offs between different solutions.
+    - The text demonstrates significant thinking and reasoning (+1 point), such as:
+      + Multi-step reasoning chains to solve a complex problem.
+      + Advanced reasoning patterns often used in specialized science domains.
+    - The text exemplifies exceptional thinking and reasoning (+1 point), such as:
+      + A highly innovative and creative approach to solving a complex problem in specialized domains.
+      + Combining multiple reasoning and thinking techniques, with novel abstraction of the problem.
+
+    ## Output Format
+    1. Write a step-by-step analysis for each criterion (explain how you computed each score and show any running totals).
+    2. After the analysis, output exactly one fenced code block using the language tag `json`. The fenced block must contain a single valid JSON object that maps each criterion name to its numeric score (integer or decimal). Example:
+
+    Write step by step analysis for each criteria. After that, copy the scores from the analysis and output a JSON object inside a fenced code block where each entry contains the criteria name and
+    corresponding score on that criteria. For example
+    ```json
+    {"criteria_1": 1, "criteria_2": 0, "criteria_3": 0.5, "criteria_4": -1}
+
+    ## Text
+  resource_name: "score_llm"
+  debug: ${debug}
+  num_instances: 2
+
+# generate question
+question:
+  _target_: matrix.agents.examples.nr_curation.QuestionAgent
+  system_prompt: |
+    Extract a question that requires deep thinking and reasoning from the following text. 
+    Also extract a correct answer and generate an independent answer. Note the answer could be a number, 
+    an expression, a statement or a proof etc.
+
+    ## Instructions
+
+    * **Step 1. Transform the original question**  
+      Transform the original question being discussed into an exam question.  
+      - The question should focus on problem-solving.  
+      - There must exist a correct answer to the question.  
+      - The question should be descriptive, i.e., use the details and notations from the original text as much as possible.  
+      - The question must be self-contained, concrete, and well-defined.  
+      - It should NOT contain any missing information, ambiguity, or subjectiveness.  
+
+    * **Step 2. Label the question category**  
+      Use one of the following labels:  
+      - Architecture  
+      - Arts & Entertainment  
+      - Biology  
+      - Chemistry  
+      - Computer Science  
+      - Economics & Business  
+      - Food  
+      - Geography  
+      - History  
+      - Law  
+      - Mathematics  
+      - Medicine & Health  
+      - Other  
+      - Philosophy  
+      - Physics  
+      - Politics  
+      - Social & Behavioral Sciences  
+
+    * **Step 3. Extract the correct solution if present**  
+      Determine whether the text contains a correct solution to the question.  
+      - If the discussion DOES contain a correct solution, extract the key information and details.  
+      - Use those details to derive a correct answer to the exam question.  
+      - If there is a single final answer, conclude with:  
+        `Therefore, the final answer is: \boxed{answer}.`  
+
+    * **Step 4. Write an independent solution**  
+      Independently write down a list of critical knowledge and reasoning steps required to solve the question.  
+      - Each item in the list must be descriptive, specific, and concrete.  
+      - The answer should be standalone (no reference to the text or Step 3 answer).  
+      - It is okay to have a different answer than Step 3.  
+      - Conclude with:  
+        `Therefore, the final answer is: \boxed{answer}.`  
+
+    ---
+
+    ## JSON Output Format
+    The final output should be a JSON object inside a fenced code block with the following attributes:
+
+    - `"exam_question"`: A string recording the full exam question derived from Step 1.  
+      If no exam question can be made, return an empty string.  
+
+    - `"question_category"`: The selected category label.  
+
+    - `"extracted_answer"`: A string recording the correct answer from Step 3.  
+      If no correct answer is found in the discussion, return an empty string. Otherwise you must format
+      the anaswer with:
+      `Therefore, the final answer is: \boxed{answer}.`
+
+    - `"independent_answer"`: A list of strings, each one being a critical reasoning step from Step 4.  
+     The last string must be:
+      `Therefore, the final answer is: \boxed{answer}.`
+
+
+    An example output is:
+    ```json
+    {
+    "exam_question": "If f(x) = x^2 + 3x, what is the derivative of f(x) with respect to x?",
+    "question_category": "Mathematics",
+    "extracted_answer": "The derivative of f(x) = x^2 + 3x is f'(x) = 2x + 3. Therefore, the final answer is: \\boxed{2x + 3}.",
+    "independent_answer": [
+      "## Step 1: Recall the power rule: d/dx[x^n] = n*x^(n-1).",
+      "## Step 2: Apply the rule to x^2, giving 2x.",
+      "## Step 3: Differentiate 3x, which gives 3.",
+      "## Step 4: Combine results: 2x + 3.",
+      "Therefore, the final answer is: \\boxed{2x + 3}."
+    ]
+    }
+    ```
+    ## Text
+  resource_name: "question_llm"
+  debug: ${debug}
+  num_instances: 2

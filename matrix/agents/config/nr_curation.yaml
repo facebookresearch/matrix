@@ -1,0 +1,19 @@
+defaults:
+  - /simulation               # Import base simulation.yaml from config root
+  - /agents: nr_agents      # Select coral_agents from agents/ group
+  - /dataset: nr_dataset    # Select coral_dataset from dataset/ group  
+  - /metrics: nr_metrics    # Select coral_metrics from metrics/ group
+  - /orchestrator: nr_sequential
+  - /resources: nr_resources
+
+# Override specific settings for this experiment
+max_concurrent_tasks: 100
+
+dataset:
+  cut_off: 1000  # Limit to 100 samples for testing
+
+output:
+  path: "nr_dclm.jsonl.zst"
+  success_only: true
+  
+parallelism: 4

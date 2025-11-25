@@ -1,0 +1,2 @@
+_target_: matrix.agents.examples.mini_swe_agent.SweMetricsAccumulator
+pred_file: mini_swe_agent_preds.json

@@ -1,0 +1,34 @@
+Bootstrap: docker
+From: python:3.11-slim
+
+%labels
+    Author Dong Wang
+    Version v1.0
+    Description "Apptainer image for tau2-bench"
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        git build-essential curl \
+        && rm -rf /var/lib/apt/lists/*
+
+    # Clone tau2-bench repo
+    cd /opt
+    git clone https://github.com/dongwang218/tau2-bench.git
+    cd tau2-bench
+    git checkout dockerize
+
+    # Install with pip
+    pip install --no-cache-dir .
+
+%environment
+    export PATH=/opt/tau2-bench:$PATH
+
+%startscript
+export TAU2_DATA_DIR=/opt/tau2-bench/data
+if [ $# -lt 1 ]; then
+    echo "Usage: apptainer run tau2_bench.sif <domain>"
+    exit 1
+fi
+domain=$1
+shift
+tau2 domain "$domain" "$@"

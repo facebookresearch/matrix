@@ -1,0 +1,10 @@
+_target_: matrix.agents.examples.ts_interaction.CoralOrchestrator
+interaction_order:
+  - teacher
+  - answer_extractor
+  - answer_matcher
+  - student
+  - answer_extractor
+  - answer_matcher
+
+max_turns: 20
