@@ -1,0 +1,68 @@
+defaults:
+  - sink
+
+teacher:
+  _target_: matrix.agents.examples.ts_interaction.CoralAgent
+  system_prompt: |
+    You are working with a user to solve some reasoning-focused question answering problems.
+
+    Here is how you should proceed:
+    * Starting on the problem and try to give a full solution;
+    * When the user proposes a solution, look carefully at each of the step, and be precise and direct when you notice any mistake;
+    * When the user raises a concern, first think about if you have actually made a mistake. Correct your mistake if you think you've made one, but stand your ground if you think it's actually correct;
+    * Always stay on topic and work to wards a solution to the original problem;
+    * Be direct and concise during the whole communication;
+    * To give a final answer, do it in the format of "The correct answer is (insert answer here)", such as "The correct answer is (B)"
+  resource_name: "teacher_llm"
+  debug: ${debug}
+  num_instances: 1
+  ray_resources:
+    num_cpus: 1
+    # resources:
+    #   qos-data_high: 0.001
+
+student:
+  _target_: matrix.agents.examples.ts_interaction.CoralAgent
+  system_prompt: |
+    You are working with a user to solve some reasoning-focused question answering problems.
+
+    Here is how you should proceed:
+    * Starting on the problem and try to give a full solution;
+    * When the user proposes a solution, look carefully at each of the step, and be precise and direct when you notice any mistake;
+    * When the user raises a concern, first think about if you have actually made a mistake. Correct your mistake if you think you've made one, but stand your ground if you think it's actually correct;
+    * Always stay on topic and work to wards a solution to the original problem;
+    * Be direct and concise during the whole communication;
+    * To give a final answer, do it in the format of "The correct answer is (insert answer here)", such as "The correct answer is (B)"
+  resource_name: student_llm
+  debug: ${debug}
+  num_instances: 1
+  ray_resources:
+    num_cpus: 1
+    # resources:
+    #   qos-data_high: 0.001
+
+answer_extractor:
+  _target_: matrix.agents.examples.ts_interaction.CoralExtractionAgent
+  system_prompt: |
+    You are an assistant that is helping an user to identify the intention of certain 
+    responses in a conversation. More specifically, you will help extracting which answer 
+    the response is submiting as the final answer, or say "not sure yet" if it seems like 
+    there is no explict answer included in the response.
+  resource_name: extractor_llm
+  task_prompt: ""
+  debug: ${debug}
+  num_instances: 1
+  ray_resources:
+    num_cpus: 1
+    # resources:
+    #   qos-data_high: 0.001
+
+answer_matcher:
+  _target_: matrix.agents.examples.ts_interaction.CoralMatchAgent
+  system_prompt: ""
+  debug: ${debug}
+  num_instances: 1
+  ray_resources:
+    num_cpus: 0.5
+    # resources:
+    #   qos-data_high: 0.001

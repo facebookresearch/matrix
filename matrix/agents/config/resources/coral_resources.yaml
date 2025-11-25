@@ -1,0 +1,35 @@
+teacher_llm:
+  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  matrix_service: teacher
+  sampling_params:
+    temperature: 0.2
+    max_tokens: 1024
+    top_p: 0.9
+  exec_params:
+    timeout_secs: 1800
+    max_retries: 3
+    # sticky_routing_prefix: teacher_
+
+student_llm:
+  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  matrix_service: student
+  sampling_params:
+    temperature: 0.2
+    max_tokens: 1024
+    top_p: 0.9
+  exec_params:
+    timeout_secs: 1800
+    max_retries: 3
+    # sticky_routing_prefix: student_
+
+extractor_llm:
+  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  matrix_service: extractor
+  sampling_params:
+    temperature: 0.0
+    max_tokens: 32
+    top_p: 0.9
+  exec_params:
+    timeout_secs: 1800
+    max_retries: 3
+    # sticky_routing_prefix: extractor_

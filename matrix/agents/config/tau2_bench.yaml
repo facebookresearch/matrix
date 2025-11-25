@@ -1,0 +1,19 @@
+defaults:
+  - /simulation               # Import base simulation.yaml from config root
+  - /agents: tau2_agents      # Select coral_agents from agents/ group
+  - /dataset: tau2_dataset    # Select swe_dataset from dataset/ group
+  - /metrics: tau2_metrics    # Select tau2_metrics from metrics/ group
+  - /orchestrator: tau2_orchestrator
+  - /resources: tau2_resources
+
+# Override specific settings for this experiment
+max_concurrent_tasks: 100
+
+domain: airline
+tmp_dir: ~/temp  # Temporary directory for sharing data between host and container
+
+dataset:
+  cut_off: 1000  # Limit to 100 samples for testing
+
+output:
+  path: "tau2_bench_${domain}_trajectory.jsonl"

@@ -1,0 +1,7 @@
+_sink:
+  _target_: matrix.agents.p2p_agents.Sink
+  debug: ${debug}
+  ray_resources:
+    num_cpus: 2
+    # resources:
+    #   qos-data_high: 0.001

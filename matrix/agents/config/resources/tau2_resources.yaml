@@ -1,0 +1,35 @@
+container:
+  _target_: matrix.agents.p2p_extended.ContainerResourceClient
+  matrix_service: container
+  start_config:
+    image: ~/checkpoint/cache/apptainer_sif/tau2_bench.sif
+    bind_dir: "${tmp_dir}"
+    run_args: ["--fakeroot", "--writable-tmpfs", "--net", "--network=none"]  # avoid expose internal port, which cause conflict
+    start_script_args: ["${domain}"] 
+  exec_params:
+    cwd: null
+    timeout_secs: 60
+    env: null
+
+user_simulator_llm:
+  _target_: matrix.agents.examples.tau2_bench.Tau2LLMResourceClient
+  matrix_service: user_llm
+  sampling_params:
+    temperature: 0.0
+    max_tokens: 25000
+    top_p: 0.9
+  exec_params:
+    timeout_secs: 1800
+    sticky_routing_prefix: user_
+
+
+llm_agent_llm:
+  _target_: matrix.agents.examples.tau2_bench.Tau2LLMResourceClient
+  matrix_service: agent_llm
+  sampling_params:
+    temperature: 0.0
+    max_tokens: 25000
+    top_p: 0.9
+  exec_params:
+    timeout_secs: 1800
+    sticky_routing_prefix: agent_

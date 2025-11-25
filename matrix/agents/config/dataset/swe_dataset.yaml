@@ -1,0 +1,12 @@
+_target_: matrix.agents.examples.mini_swe_agent.SweDatasetLoader
+name: "lite"
+split: test
+cut_off: null  # Set to number to limit dataset size
+dataset_mapping:
+    full: "princeton-nlp/SWE-Bench"
+    verified: "princeton-nlp/SWE-Bench_Verified"
+    lite: "princeton-nlp/SWE-Bench_Lite"
+    multimodal: "princeton-nlp/SWE-Bench_Multimodal"
+    multilingual: "swe-bench/SWE-Bench_Multilingual"
+    smith: "SWE-bench/SWE-smith"
+    _test: "klieret/swe-bench-dummy-test-dataset"

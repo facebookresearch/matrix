@@ -1,0 +1,7 @@
+_target_: matrix.agents.examples.nr_curation.NROrchestrator
+interaction_order:
+  - filter
+  - score
+  - question
+  - _sink
+

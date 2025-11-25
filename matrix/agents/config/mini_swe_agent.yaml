@@ -1,0 +1,16 @@
+defaults:
+  - /simulation               # Import base simulation.yaml from config root
+  - /agents: swe_agents      # Select coral_agents from agents/ group
+  - /dataset: swe_dataset    # Select swe_dataset from dataset/ group
+  - /metrics: swe_metrics    # Select swe_metrics from metrics/ group
+  - /orchestrator: swe_orchestrator
+  - /resources: swe_resources
+
+# Override specific settings for this experiment
+max_concurrent_tasks: 100
+
+dataset:
+  cut_off: 1000  # Limit to 100 samples for testing
+
+output:
+  path: "mini_swe_agent_trace.jsonl"

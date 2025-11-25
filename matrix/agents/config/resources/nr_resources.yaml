@@ -1,0 +1,32 @@
+filter_llm:
+  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  matrix_service: filter
+  sampling_params:
+    temperature: 1
+    max_tokens: 8
+    top_p: 0.95
+  exec_params:
+    timeout_secs: 1800
+    max_retries: 3
+
+score_llm:
+  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  matrix_service: score
+  sampling_params:
+    temperature: 0.2
+    max_tokens: 10240
+    top_p: 0.9
+  exec_params:
+    timeout_secs: 1800
+    max_retries: 3
+
+question_llm:
+  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  matrix_service: question
+  sampling_params:
+    temperature: 0.0
+    max_tokens: 20480
+    top_p: 0.9
+  exec_params:
+    timeout_secs: 1800
+    max_retries: 3

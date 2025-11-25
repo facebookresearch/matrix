@@ -1,0 +1,2 @@
+_target_: matrix.agents.examples.mini_swe_agent.SweOrchestrator
+step_limit: 250
