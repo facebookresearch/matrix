@@ -267,6 +267,7 @@ async def make_request(
             url = await get_an_endpoint_url(endpoint_cache, multiplexed_model_id)
             base_url = url
         else:
+            assert url is not None
             base_url = url
 
         if base_url.startswith("http"):
