@@ -22,7 +22,13 @@ from ray.serve import scripts
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.engine.async_llm_engine import AsyncEngineDeadError, AsyncLLMEngine
+
+try:
+    from vllm.engine.async_llm_engine import AsyncEngineDeadError, AsyncLLMEngine
+
+    _has_v0 = True
+except ImportError:
+    _has_v0 = False
 
 try:
     from vllm.v1.engine.async_llm import AsyncLLM
@@ -30,7 +36,11 @@ try:
     _has_v1 = True
 except ImportError:
     _has_v1 = False
-from vllm.engine.metrics import RayPrometheusStatLogger
+try:
+    from vllm.engine.metrics import RayPrometheusStatLogger
+except ImportError:
+    from vllm.v1.metrics.ray_wrappers import RayPrometheusStatLogger
+
 from vllm.entrypoints.openai.cli_args import make_arg_parser
 from vllm.entrypoints.openai.protocol import (
     ChatCompletionRequest,
@@ -67,9 +77,14 @@ try:
         LoRAModulePath,
     )
 except:
-    from vllm.entrypoints.openai.serving_models import LoRAModulePath  # type: ignore[no-redef]
+    from vllm.entrypoints.openai.serving_models import (
+        LoRAModulePath,  # type: ignore[no-redef]
+    )
 
-from vllm.utils import FlexibleArgumentParser
+try:
+    from vllm.utils import FlexibleArgumentParser
+except:
+    from vllm.utils.argparse_utils import FlexibleArgumentParser
 
 vllm_deploy_args = [
     "use_v1_engine",
@@ -139,7 +154,7 @@ class BaseDeployment:
         self.chat_template = chat_template
         self.use_v1_engine = (
             _has_v1 and use_v1_engine is not None and use_v1_engine == True
-        )
+        ) or not _has_v0
         self.enable_tools = enable_tools
         self.tool_parser = tool_parser
         # AsyncLLMEngine._get_executor_cls = classmethod(use_ray_executor)
@@ -188,7 +203,6 @@ class BaseDeployment:
         # Prepare arguments dynamically based on detected parameters
         kwargs = {
             "engine_client": self.engine,
-            "model_config": model_config,
             "request_logger": self.request_logger,
             "chat_template": self.chat_template,
             "response_role": self.response_role,
@@ -207,13 +221,15 @@ class BaseDeployment:
         if "models" in init_params:
             from vllm.entrypoints.openai.serving_models import OpenAIServingModels
 
+            model_kwargs = {
+                "engine_client": self.engine,
+                "base_model_paths": base_model_paths,
+                "lora_modules": self.lora_modules,
+            }
+            if "model_config" in signature(OpenAIServingModels.__init__).parameters:
+                model_kwargs["model_config"] = model_config
             # New version: Use `models` and `chat_template_content_format`
-            kwargs["models"] = OpenAIServingModels(
-                self.engine,
-                model_config,
-                base_model_paths,  # type: ignore[arg-type]
-                lora_modules=self.lora_modules,
-            )
+            kwargs["models"] = OpenAIServingModels(**model_kwargs)
         if "chat_template_content_format" in init_params:
             kwargs["chat_template_content_format"] = "auto"
 
@@ -227,6 +243,9 @@ class BaseDeployment:
         if self.enable_tools:
             kwargs["enable_auto_tools"] = True
             kwargs["tool_parser"] = self.tool_parser
+
+        if "model_config" in init_params:
+            kwargs["model_config"] = model_config
 
         self.openai_serving_chat = OpenAIServingChat(**kwargs)  # type: ignore[arg-type]
         completion_exclude = [

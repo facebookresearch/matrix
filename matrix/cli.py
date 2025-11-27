@@ -347,7 +347,7 @@ class Cli:
                 prompt = (
                     prompt or "What is 2+4=?"
                     if not use_tools
-                    else "Get the weather in SF"
+                    else "Get the weather in SF using the given tool"
                 )
                 tools = (
                     [

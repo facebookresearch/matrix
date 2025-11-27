@@ -271,4 +271,14 @@ llm_model_default_parameters = {
         "use_v1_engine": "true",
         "tool-call-parser": "kimi_k2",
     },
+    "facebook/cwm": {
+        "name": "cwm",
+        "tensor-parallel-size": 2,
+        "pipeline-parallel-size": 1,
+        "enable-prefix-caching": True,
+        "max_ongoing_requests": 150,
+        "max-model-len": 131072,
+        "gpu-memory-utilization": 0.85,
+        "tool-call-parser": "llama3_json",
+    },
 }
