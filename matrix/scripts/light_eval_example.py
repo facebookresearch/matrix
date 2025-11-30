@@ -18,6 +18,7 @@ from lighteval.models.endpoints.litellm_model import LiteLLMModelConfig
 from lighteval.pipeline import ParallelismManager, Pipeline, PipelineParameters
 
 import matrix
+import matrix.utils.ray
 
 
 def main(

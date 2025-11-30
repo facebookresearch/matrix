@@ -12,6 +12,7 @@ from pathlib import Path
 from fire import Fire
 
 import matrix
+import matrix.utils.os
 from matrix import Cli
 from matrix.job.job_api import JobApi
 
