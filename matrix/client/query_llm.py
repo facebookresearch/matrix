@@ -303,9 +303,15 @@ async def make_request(
                                 "response_timestamp": time.time(),
                             },
                         }
-                        if response.choices[0].message.content:
+                        message0 = response.choices[0].message
+                        if message0.content:
                             result["response"]["text"] = [response.choices[i].message.content for i in range(n)]  # type: ignore[attr-defined]
-                        if response.choices[0].message.tool_calls:
+                        if (
+                            hasattr(message0, "reasoning_content")
+                            and message0.reasoning_content
+                        ):
+                            result["response"]["reasoning_content"] = [response.choices[i].message.reasoning_content for i in range(n)]  # type: ignore[attr-defined]
+                        if message0.tool_calls:
                             result["response"]["tool_calls"] = [
                                 [
                                     {
@@ -501,9 +507,15 @@ async def make_request(
                                 "response_timestamp": time.time(),
                             },
                         }
-                        if response.choices[0].message.content:
+                        message0 = response.choices[0].message
+                        if message0.content:
                             result["response"]["text"] = [response.choices[i].message.content for i in range(n)]  # type: ignore[attr-defined]
-                        if response.choices[0].message.tool_calls:
+                        if (
+                            hasattr(message0, "reasoning_content")
+                            and message0.reasoning_content
+                        ):
+                            result["response"]["reasoning_content"] = [response.choices[i].message.reasoning_content for i in range(n)]  # type: ignore[attr-defined]
+                        if message0.tool_calls:
                             result["response"]["tool_calls"] = [
                                 [
                                     {

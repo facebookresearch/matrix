@@ -29,6 +29,7 @@ try:
     _has_v0 = True
 except ImportError:
     _has_v0 = False
+    from vllm.v1.engine.async_llm import EngineDeadError as AsyncEngineDeadError
 
 try:
     from vllm.v1.engine.async_llm import AsyncLLM
@@ -469,6 +470,10 @@ class GrpcDeployment(BaseDeployment):
             for choice in response_dict["choices"]:
                 if "stop_reason" in choice:
                     choice["stop_reason"] = str(choice["stop_reason"])
+                if "reasoning_content" in choice.get("message", {}):
+                    choice["message"].pop(
+                        "reasoning", None
+                    )  # gpt-oss has reasoning, duplicate of reasoning_content
             json_format.ParseDict(response_dict, response)
             return response
         except AsyncEngineDeadError as e:
