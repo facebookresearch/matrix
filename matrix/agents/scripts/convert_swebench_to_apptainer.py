@@ -31,6 +31,7 @@ def download(
     output_dir: str = os.path.expanduser("~/checkpoint/cache/apptainer_sif"),
     sleep_seconds: int = 10 * 60,
 ):
+    os.makedirs(output_dir, exist_ok=True)
     dataset_val = load_dataset(dataset_name, split=split).to_list()
     for item in tqdm.tqdm(dataset_val):
         image = get_swebench_docker_image_name(item)
@@ -45,7 +46,8 @@ def download(
                     check=True,
                 )
             except Exception as e:
-                print(f"{image}: {repr(e)} {e.stderr}")  # type: ignore[attr-defined]
+                estderr = e.stderr if hasattr(e, "stderr") else None
+                print(f"{image}: {repr(e)} {estderr}")  # type: ignore[attr-defined]
                 time.sleep(sleep_seconds)
 
 
