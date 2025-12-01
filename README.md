@@ -18,6 +18,7 @@ Fast, scalable, and easy-to-use LLM-generation engine
 ---
 
 *Latest News*
+* 11/2025: paper [Matrix: Peer-to-Peer Multi-Agent Synthetic Data Generation Framework](https://arxiv.org/abs/2511.21686) is released.
 * 04/2025: 🔥 We officially released Matrix with [Collaborative Reasoner](https://github.com/facebookresearch/collaborative-reasoner), showcasing the generation of multi-agent collaborative conversation with Matrix as inference engine. 
 
 ---
@@ -35,6 +36,11 @@ Matrix runs on top of a [Ray](https://github.com/ray-project/ray) cluster for sc
 **Data pipelines** of high-throughput data processing and quality checks
 - Code execution service as a wrapper of [bubblewrap](https://github.com/containers/bubblewrap).
 - Data curation, quality filtering, and augmentation with classifiers.
+
+**Peer-to-peer** multi-agent orchestration
+- 2-15× higher throughput.
+- 10,000s of concurrent workflows.
+- Adapts to diverse generation tasks.
 
 ### Matrix vs. Existing Frameworks
 
@@ -58,6 +64,7 @@ Matrix is designed for scalable LLM inference on [Slurm](https://slurm.schedmd.c
   - [LLM Inference](#llm-inference)
   - [Job Manager](#job-manager)
   - [Data pipelines](#data-pipelines)
+  - [Peer-to-peer](#peer-to-peer)
   - [Contributing](#contributing)
   - [Citation](#citation)
 
@@ -317,6 +324,12 @@ python -m matrix.data_pipeline.generate.vllm_generate $ray_head:$client_server_p
 ```
 ---
 
+## Peer-to-peer
+
+Peer-to-peer framework avoids the single orchestration botttleneck and supports diverse synthetic data generaion tasks. More details are in [here](matrix/agents/README.md).
+
+---
+
 ## Contributing
 We always welcome contributions to matrix! Please refer to
 [Contribution Guidelines](CONTRIBUTING.md) to learn how to format, test, and
@@ -328,6 +341,16 @@ If you use matrix in your research and wish to refer to it, please use the
 following BibTeX entry.
 
 ```bibtex
+@misc{wang2025matrixpeertopeermultiagentsynthetic,
+      title={Matrix: Peer-to-Peer Multi-Agent Synthetic Data Generation Framework},
+      author={Dong Wang and Yang Li and Ansong Ni and Ching-Feng Yeh and Youssef Emad and Xinjie Lei and Liam Robbins and Karthik Padthe and Hu Xu and Xian Li and Asli Celikyilmaz and Ramya Raghavendra and Lifei Huang and Carole-Jean Wu and Shang-Wen Li},
+      year={2025},
+      eprint={2511.21686},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2511.21686},
+}
+
 @software{matrix2025,
   author = {Dong Wang and Yang Li and Ansong Ni and Youssef Emad and Xinjie Lei and Ruta Desai and Karthik Padthe and Xian Li and Asli Celikyilmaz and Ramya Raghavendra and Leo Huang and Daniel Li},
   title = {Matrix: Multi-Agent daTa geneRation Infra and eXperimentation},
