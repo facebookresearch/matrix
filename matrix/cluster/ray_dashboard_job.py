@@ -15,11 +15,13 @@ from typing import List
 
 import ray
 
+from matrix.utils.logging import get_logger
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger("RayDashboardJob")
+logger = get_logger("RayDashboardJob")
 
 
 @ray.remote(max_restarts=10)

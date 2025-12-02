@@ -11,9 +11,10 @@ import time
 
 from matrix.common.cluster_info import ClusterInfo, get_head_http_host
 from matrix.utils.http import fetch_url
+from matrix.utils.logging import get_logger
 from matrix.utils.ray import get_ray_dashboard_address
 
-logger = logging.getLogger("endpoint_cache")
+logger = get_logger("endpoint_cache")
 
 
 class EndpointCache:

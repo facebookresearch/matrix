@@ -32,6 +32,7 @@ from matrix.app_server.deploy_utils import (
 from matrix.client.endpoint_cache import EndpointCache
 from matrix.common.cluster_info import ClusterInfo, get_head_http_host
 from matrix.utils.basics import convert_to_json_compatible, sanitize_app_name
+from matrix.utils.logging import get_logger
 from matrix.utils.os import download_s3_dir, lock_file, run_and_stream, run_async
 from matrix.utils.ray import (
     ACTOR_NAME_SPACE,
@@ -42,7 +43,7 @@ from matrix.utils.ray import (
     kill_matrix_actors,
 )
 
-logger = logging.getLogger("ray.serve")
+logger = get_logger("ray.serve")
 
 DEPLOYMENT_YAML = "deployment.yaml"
 DEPLOYMENT_SGLANG_YAML = "deployment_sglang.yaml"
