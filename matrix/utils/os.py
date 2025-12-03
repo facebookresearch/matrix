@@ -273,18 +273,13 @@ def run_subprocess(command: tp.List[str]) -> bool:
 
 
 def lock_file(filepath, mode, timeout=10, poll_interval=0.1):
-    start_time = time.time()
-    while True:
-        try:
-            return portalocker.Lock(
-                filepath, mode, flags=portalocker.LockFlags.EXCLUSIVE
-            )
-        except portalocker.exceptions.AlreadyLocked:
-            if (time.time() - start_time) >= timeout:
-                raise TimeoutError(
-                    f"Could not acquire lock for {filepath} within {timeout} seconds."
-                )
-            time.sleep(poll_interval)
+    return portalocker.Lock(
+        filepath,
+        mode,
+        flags=portalocker.LockFlags.EXCLUSIVE,
+        timeout=timeout,
+        check_interval=poll_interval,
+    )
 
 
 def run_async(coro: tp.Awaitable[tp.Any]) -> tp.Any:
