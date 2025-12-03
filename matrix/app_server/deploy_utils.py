@@ -289,6 +289,100 @@ def update_vllm_app_params(app: Dict[str, Union[str, int]]):
     return app
 
 
+def get_gpu_requirements_per_replica(app: Dict[str, Union[str, int]]) -> int:
+    """
+    Calculate the number of GPUs required per replica for an application.
+    
+    For LLM models, this is determined by tensor_parallel_size.
+    For other app types, returns 0 (no GPU requirement) or 1 if specified.
+    
+    Args:
+        app: Application configuration dictionary
+        
+    Returns:
+        Number of GPUs required per replica
+    """
+    app_type = app.get("app_type", "llm")
+    
+    # For LLM models, GPU requirement is tensor_parallel_size
+    if app_type in ["llm", "sglang_llm", "fastgen"]:
+        # Get tensor_parallel_size from app config (check both formats)
+        tensor_parallel = app.get("tensor-parallel-size") or app.get("tensor_parallel_size")
+        if tensor_parallel is None:
+            # Try to get from model defaults
+            model_name = str(app.get("model_name", ""))
+            default_params = llm_model_default_parameters.get(model_name)
+            if default_params:
+                tensor_parallel = default_params.get("tensor-parallel-size", 1)
+            else:
+                # Default to 1 if we can't determine
+                tensor_parallel = 1
+        return int(tensor_parallel)
+    
+    # For vision models, typically 1 GPU
+    elif app_type in ["perception_encoder", "optical_flow"]:
+        return 1
+    
+    # For other app types (code, container, proxies), no GPU requirement
+    else:
+        return 0
+
+
+def sort_apps_by_gpu_requirements(
+    applications: List[Dict[str, Union[str, int]]]
+) -> List[Dict[str, Union[str, int]]]:
+    """
+    Sort applications by GPU requirements (largest first) to minimize fragmentation.
+    
+    This helps prevent resource fragmentation by deploying models requiring more GPUs
+    first, leaving smaller contiguous blocks for models requiring fewer GPUs.
+    This addresses issue #111: https://github.com/facebookresearch/matrix/issues/111
+    
+    Args:
+        applications: List of application configuration dictionaries
+        
+    Returns:
+        Sorted list of applications (largest GPU requirement first)
+    """
+    # Calculate GPU requirements for each app
+    # We try to get accurate tensor_parallel_size from defaults if not specified
+    apps_with_gpus = []
+    for app in applications:
+        app_type = app.get("app_type", "llm")
+        gpu_req = 0
+        
+        if app_type in ["llm", "sglang_llm", "fastgen"]:
+            # Try to get tensor_parallel_size from app config first
+            tensor_parallel = app.get("tensor-parallel-size") or app.get("tensor_parallel_size")
+            if tensor_parallel is None:
+                # Try to get from model defaults without modifying the app
+                model_name = str(app.get("model_name", ""))
+                default_params = llm_model_default_parameters.get(model_name)
+                if default_params:
+                    tensor_parallel = default_params.get("tensor-parallel-size", 1)
+                else:
+                    tensor_parallel = 1
+            gpu_req = int(tensor_parallel)
+        elif app_type in ["perception_encoder", "optical_flow"]:
+            gpu_req = 1
+        else:
+            gpu_req = 0
+        
+        apps_with_gpus.append((gpu_req, app))
+    
+    # Sort by GPU requirements (descending), then by min_replica (descending)
+    # This ensures largest models are deployed first
+    sorted_apps = sorted(
+        apps_with_gpus,
+        key=lambda x: (
+            -x[0],  # GPU requirement (negative for descending)
+            -x[1].get("min_replica", 1),  # min_replica (negative for descending)
+        ),
+    )
+    
+    return [app for _, app in sorted_apps]
+
+
 def is_sglang_app(app):
     if "deployments" in app:
         return "sglang" in app["deployments"][0]["name"].lower()
