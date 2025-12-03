@@ -29,7 +29,7 @@ Matrix is a library for fast, scalable, and easy-to-use LLM-generation engine, f
 
 Matrix runs on top of a [Ray](https://github.com/ray-project/ray) cluster for scalability. Cluster resources are acquired from [Slurm](https://slurm.schedmd.com/documentation.html) or local through [submitit](https://github.com/facebookincubator/submitit). Matrix has following main features:
 
-**Large scale inference** for maintstream opensourced and proprietary LLMs
+**Large scale inference** for mainstream opensourced and proprietary LLMs
 - Hugging Face LLMs via seamless integration with [vLLM](https://github.com/vllm-project/vllm) and [SGLang](https://github.com/sgl-project/sglang). Native multi-node inference support.
 - Azure OpenAI, SageMaker, Gemini models with Proxy server
 
@@ -97,7 +97,7 @@ matrix deploy_applications --applications "[{'model_name': 'meta-llama/Llama-3.1
 matrix check_health --app_name 8B
 ```
 
-- Shudown ray cluster
+- Shutdown ray cluster
 ```bash
 matrix stop_cluster
 ```
@@ -138,7 +138,7 @@ vLLM Engine [Arguments](https://docs.vllm.ai/en/latest/serving/engine_args.html)
 * `name`: the default app_name.
 * `model_size`: template to apply when model is from a directory, such as 8B, 70B, 405B etc, templates are from the llm_config.py file.
 * `max_ongoing_requests`: the max concurrent requests to each replica.
-* `min_replia` and `max_replica`: the num of replicas ranges auto-scaled based on num of Ray workers.
+* `min_replica` and `max_replica`: the num of replicas ranges auto-scaled based on num of Ray workers.
 * `use_grpc`: enable grpc by adding `{'use_grpc':  'true'}`.
 
 ### OpenAI Azure Model
@@ -152,7 +152,7 @@ matrix deploy_applications --applications "[{'api_version': \"$AZURE_API_VERSION
 - Note: no GPU is required, in start_workers, can add `--slurm "{'gpus_per_node': 0}"`
 
 ```bash
-matrix deploy_applications --applications "[{'app_type': 'gemini', 'name': "gemini", 'api_key': \"$GOOGLE_API_KEY\",  'model_name': 'gemini-2.0-flash'}]"
+matrix deploy_applications --applications "[{'app_type': 'gemini', 'name': 'gemini', 'api_key': \"$GOOGLE_API_KEY\",  'model_name': 'gemini-2.0-flash'}]"
 ```
 
 ### Deepseek R1
@@ -161,7 +161,7 @@ vLLM >=0.8.3 supports DS R1. An alternative backend is sglang.
 # install sglang
 pip install fair-matrix[sglang_045]
 
-matrix deploy_applications --applications "[{'model_name': 'deepseek-ai/DeepSeek-R1', 'pipeline-parallel-size': 2, 'app_type': sglang_llm, 'name': 'r1'}]"
+matrix deploy_applications --applications "[{'model_name': 'deepseek-ai/DeepSeek-R1', 'pipeline-parallel-size': 2, 'app_type': 'sglang_llm', 'name': 'r1'}]"
 ```
 ### Llama 4
 ```bash
@@ -326,7 +326,7 @@ python -m matrix.data_pipeline.generate.vllm_generate $ray_head:$client_server_p
 
 ## Peer-to-peer
 
-Peer-to-peer framework avoids the single orchestration botttleneck and supports diverse synthetic data generaion tasks. More details are in [here](matrix/agents/README.md).
+Peer-to-peer framework avoids the single orchestration bottleneck and supports diverse synthetic data generation tasks. More details are in [here](matrix/agents/README.md).
 
 ---
 
