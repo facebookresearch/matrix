@@ -341,6 +341,7 @@ class AppApi:
 
         prefix = app["route_prefix"].strip("/")  # type: ignore
         model = app["args"].get("model")  # type: ignore
+        served_model_name = app["args"].get("served_model_name")  # type: ignore
         deployment_name = app["deployments"][0]["name"]  # type: ignore
         use_grpc = "GrpcDeployment" in deployment_name
 
@@ -368,7 +369,7 @@ class AppApi:
             "http_port": http_port,
             "grpc_port": grpc_port,
             "route_prefix": prefix,
-            "model_name": model,
+            "model_name": served_model_name if served_model_name else model,
             "deployment_name": deployment_name,
             "use_grpc": use_grpc,
             "endpoint_template": endpoint_template,
