@@ -209,7 +209,10 @@ class BaseDeployment:
             "response_role": self.response_role,
         }
         if self.engine_args.served_model_name is not None:
-            base_model_paths = self.engine_args.served_model_name
+            base_model_paths = [
+                BaseModelPath(name=name, model_path=self.engine_args.model)
+                for name in self.engine_args.served_model_name
+            ]
         else:
             if has_base_model_path:
                 base_model_paths = [
