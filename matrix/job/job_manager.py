@@ -24,11 +24,12 @@ from typing import cast
 import ray
 
 from matrix.job.job_utils import JobAlreadyExist, JobNotFound, generate_task_id
+from matrix.utils.logging import get_logger
 from matrix.utils.ray import status_is_failure, status_is_pending, status_is_success
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # --- Constants ---
 MAX_RETRIES = 3

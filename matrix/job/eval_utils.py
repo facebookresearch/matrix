@@ -15,9 +15,11 @@ from collections import defaultdict
 
 import numpy as np
 
+from matrix.utils.logging import get_logger
+
 # Set up logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Checkpoint evaluation constants and helper functions
 DEFAULT_CONFIG = [
