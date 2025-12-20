@@ -56,7 +56,7 @@ class CoralOrchestrator(SequentialOrchestrator):
         logger: logging.Logger,
     ) -> None:
         task = metadata["task"]
-        self._id = (task["question_id"],)
+        self._id = task["question_id"]
         await super().init(
             simulation_id, first_agent, sink, metadata, resources, logger
         )

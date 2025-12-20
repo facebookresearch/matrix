@@ -453,7 +453,7 @@ class BaseMetricsAccumulator(abc.ABC):
         return result
 
 
-@ray.remote
+# @ray.remote
 class Sink(AgentActor):
     def __init__(
         self,
@@ -782,10 +782,14 @@ class P2PAgentFramework:
         logger.info(f"Configuration:\n{OmegaConf.to_yaml(self.cfg, resolve=True)}")
         cli = Cli(**self.cfg.matrix)
         if not ray.is_initialized():
-            ray.init(
-                address=get_ray_address(cli.cluster.cluster_info()),  # type: ignore[arg-type]
-                log_to_driver=True,
-            )
+            if os.environ.get("RAY_ADDRESS"):
+                # already inside ray
+                ray.init()
+            else:
+                ray.init(
+                    address=get_ray_address(cli.cluster.cluster_info()),  # type: ignore[arg-type]
+                    log_to_driver=True,
+                )
 
         # Load tasks
         self.data_loader = instantiate(self.cfg.dataset)
@@ -862,10 +866,14 @@ def main(cfg: DictConfig):
         setup_logging(logger, cfg.get("debug", False))
         cli = Cli(**cfg.matrix)
         if not ray.is_initialized():
-            ray.init(
-                address=get_ray_address(cli.cluster.cluster_info()),  # type: ignore[arg-type]
-                log_to_driver=True,
-            )
+            if os.environ.get("RAY_ADDRESS"):
+                # already inside ray
+                ray.init()
+            else:
+                ray.init(
+                    address=get_ray_address(cli.cluster.cluster_info()),  # type: ignore[arg-type]
+                    log_to_driver=True,
+                )
 
         logger.info(f"Launching {num_tasks} Ray actors for parallel processing")
 
