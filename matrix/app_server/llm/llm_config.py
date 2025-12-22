@@ -279,6 +279,7 @@ llm_model_default_parameters = {
         "max_ongoing_requests": 150,
         "max-model-len": 131072,
         "gpu-memory-utilization": 0.85,
+        "use_v1_engine": "true",
         "tool-call-parser": "llama3_json",
     },
 }
