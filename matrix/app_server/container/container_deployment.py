@@ -230,7 +230,12 @@ app = FastAPI()
 )
 @serve.ingress(app)
 class ContainerDeployment:
-    def __init__(self, registry: ray.actor.ActorHandle, num_containers_per_replica: int = 32, ray_resources: Dict[str, Any]=None):
+    def __init__(
+        self,
+        registry: ray.actor.ActorHandle,
+        num_containers_per_replica: int = 32,
+        ray_resources: Dict[str, Any] = None,
+    ):
         self.registry = registry
         # identify this replica
         # keep this simple: use a uuid per replica
