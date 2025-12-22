@@ -120,7 +120,7 @@ class ContainerRegistry:
 # ----------------------------
 # Generic ContainerActor base
 # ----------------------------
-@ray.remote(num_cpus=1)
+@ray.remote
 class ContainerActor:
     def __init__(self):
         self.actor_id = f"actor-{uuid.uuid4().hex[:8]}"
@@ -230,10 +230,8 @@ app = FastAPI()
 )
 @serve.ingress(app)
 class ContainerDeployment:
-    def __init__(self, num_containers_per_replica: int = 32):
-        self.registry = ray.get_actor(
-            ContainerRegistry.name, namespace=ACTOR_NAME_SPACE
-        )
+    def __init__(self, registry: ray.actor.ActorHandle, num_containers_per_replica: int = 32, ray_resources: Dict[str, Any]=None):
+        self.registry = registry
         # identify this replica
         # keep this simple: use a uuid per replica
         self.replica_id = f"replica-{uuid.uuid4().hex[:8]}"
@@ -243,6 +241,7 @@ class ContainerDeployment:
         self.local_actors: list[Any] = []  # actor ids hex owned by this replica
         # Cancellation event
         self._stop_event = threading.Event()
+        self.ray_resources = ray_resources if ray_resources else {"num_cpus": 1}
 
         # Start background thread
         self._thread = threading.Thread(target=self._launch_actors, daemon=True)
@@ -253,7 +252,7 @@ class ContainerDeployment:
         for _ in range(self.num_containers_per_replica):
             if self._stop_event.is_set():
                 break
-            actor_handle = ContainerActor.remote()  # type: ignore[attr-defined]
+            actor_handle = ContainerActor.options(**self.ray_resources).remote()  # type: ignore[attr-defined]
             while not self._stop_event.is_set():
                 try:
                     # Use non-blocking wait with timeout
@@ -448,13 +447,14 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     """Builds the Serve app based on CLI arguments."""  # noqa: E501
 
     head_node = get_ray_head_node()
-
+    name = cli_args.pop("name")
+    full_name = f"{name}_{ContainerRegistry.name}"
     # Get or create the detached global registry by name
     try:
-        registry = ray.get_actor(ContainerRegistry.name, namespace=ACTOR_NAME_SPACE)
+        registry = ray.get_actor(full_name, namespace=ACTOR_NAME_SPACE)
     except ValueError:
         registry = ContainerRegistry.options(  # type: ignore[attr-defined]
-            name=ContainerRegistry.name,
+            name=full_name,
             namespace=ACTOR_NAME_SPACE,
             lifetime="detached",
             scheduling_strategy=NodeAffinitySchedulingStrategy(
@@ -467,4 +467,4 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
             max_task_retries=-1,
         ).remote()
 
-    return ContainerDeployment.options().bind(**cli_args)  # type: ignore[attr-defined]
+    return ContainerDeployment.options().bind(registry, **cli_args)  # type: ignore[attr-defined]

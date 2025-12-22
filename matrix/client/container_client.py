@@ -38,7 +38,6 @@ class ContainerClient:
             timeout: Default timeout in seconds for all requests (default: 60.0)
         """
         self.base_url = base_url.rstrip("/")
-        self.containers: list[str] = []
 
         # Store configuration (these are picklable)
         self._max_connections = max_connections
@@ -327,8 +326,7 @@ class ContainerClient:
 
     async def __aexit__(self, exc_type, exc, tb):
         try:
-            if self.containers:
-                await self.release_all_containers()
+            await self.release_all_containers()
         finally:
             await self.close()
         return False  # re-raise exception if one happened
@@ -347,6 +345,7 @@ class ManagedContainer:
         start_script_args: Optional[List[str]] = None,
         timeout: int = 300,
     ):
+        self.base_url = base_url
         self.client = ContainerClient(base_url)
         self.image = image
         self.executable = executable

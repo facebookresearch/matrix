@@ -374,6 +374,7 @@ class AppApi:
             "use_grpc": use_grpc,
             "endpoint_template": endpoint_template,
             "app_type": get_app_type(app),
+            "args": app["args"]
         }
 
         head = metadata["endpoint_template"].format(

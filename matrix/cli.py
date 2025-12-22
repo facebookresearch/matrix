@@ -335,13 +335,26 @@ class Cli:
                         ContainerClient,
                         ManagedContainer,
                     )
-
-                    async with ManagedContainer(
-                        metadata["endpoints"]["head"],
-                        image="docker://ubuntu:22.04",
-                    ) as client:
-                        return await client.execute(["echo", "Hello World"])
-
+                    if metadata["args"].get("ray_resources", {}).get("num_gpus", 0) > 0:
+                        async with ManagedContainer(
+                            metadata["endpoints"]["head"],
+                            image="docker://pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime",
+                            run_args=["--nv"],
+                        ) as client:
+                            return await client.execute([
+                                "python",
+                                "-c",
+                                "import torch; "
+                                "print('CUDA available:', torch.cuda.is_available()); "
+                                "print('Device count:', torch.cuda.device_count()); "
+                                "print(torch.randn(2,3).cuda())"
+                            ])
+                    else:
+                        async with ManagedContainer(
+                            metadata["endpoints"]["head"],
+                            image="docker://ubuntu:22.04",
+                        ) as client:
+                            return await client.execute(["echo", "Hello World"])
                 return run_async(run_container())
             else:
                 prompt = (

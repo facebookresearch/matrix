@@ -62,6 +62,7 @@ non_model_params = [
     "anthropic_version",
     "thinking_budget",
     "num_containers_per_replica",
+    "ray_resources",  # for ContainerActor
     # Perception encoder and optical flow
     "torch_batch_size",
     # Optical flow
@@ -221,6 +222,8 @@ other_app_template = """
   runtime_env: {}
   args:
     num_containers_per_replica: {{ app.max_ongoing_requests }}
+    ray_resources: {{ app.ray_resources }}
+    name: {{ app.name }}
   deployments:
   - name: ContainerDeployment
     max_ongoing_requests: {{ app.max_ongoing_requests }}
