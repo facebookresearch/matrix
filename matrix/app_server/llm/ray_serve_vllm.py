@@ -566,7 +566,7 @@ def parse_vllm_args(cli_args: Dict[str, str]):
     return parsed_args, deploy_args
 
 
-def _build_app(cli_args: Dict[str, str], use_grpc) -> serve.Application:
+def _build_app(cli_args: Dict[str, Any], use_grpc) -> serve.Application:
     """Builds the Serve app based on CLI arguments.
 
     See https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html#command-line-arguments-for-the-server
