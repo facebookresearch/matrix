@@ -8,7 +8,7 @@ import logging
 import os
 from asyncio import Lock
 from inspect import Parameter, signature
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import fire
 import grpc
@@ -574,7 +574,7 @@ def _build_app(cli_args: Dict[str, str], use_grpc) -> serve.Application:
 
     Supported engine arguments: https://docs.vllm.ai/en/latest/models/engine_args.html.
     """  # noqa: E501
-    ray_resources = cli_args.pop("ray_resources", {})
+    ray_resources: Dict[str, Any] = cli_args.pop("ray_resources", {})
     accelerator = "GPU"
     cli_args["distributed-executor-backend"] = "ray"
     parsed_args, deploy_args = parse_vllm_args(cli_args)
