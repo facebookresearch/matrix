@@ -27,6 +27,7 @@ from matrix.app_server.deploy_utils import (
     get_app_type,
     get_yaml_for_deployment,
     is_sglang_app,
+    sort_apps_by_gpu_requirements,
     write_yaml_file,
 )
 from matrix.client.endpoint_cache import EndpointCache
@@ -102,6 +103,16 @@ class AppApi:
                 f"Invalid action '{action}', expected one of {[a.value for a in Action]}"
             )
         if action in [Action.ADD, Action.REPLACE]:
+            # Sort applications by GPU requirements (largest first) to minimize fragmentation
+            # This helps prevent resource fragmentation by deploying models requiring more GPUs
+            # first, leaving smaller contiguous blocks for models requiring fewer GPUs.
+            # See issue #111: https://github.com/facebookresearch/matrix/issues/111
+            if applications and len(applications) > 1:
+                logger.info(
+                    "Sorting applications by GPU requirements (largest first) to minimize fragmentation"
+                )
+                applications = sort_apps_by_gpu_requirements(applications)
+            
             for app in applications or []:
                 if str(app.get("model_name", "")).startswith("s3://"):
                     cache_dir = os.environ.get(
