@@ -162,6 +162,15 @@ classifiers=[
       "iopath",
       "jsonlines",
   ]
+  novllm = [
+      "boto3",
+      "google-genai",
+      "datasketch",
+      "s3fs",
+      "datasets",
+      "iopath",
+      "jsonlines",
+  ]
   # For video processing
   vision = [
       "submitit>=1.5.2",
