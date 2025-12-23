@@ -8,7 +8,7 @@ import logging
 import os
 from asyncio import Lock
 from inspect import Parameter, signature
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import fire
 import grpc
@@ -566,7 +566,7 @@ def parse_vllm_args(cli_args: Dict[str, str]):
     return parsed_args, deploy_args
 
 
-def _build_app(cli_args: Dict[str, str], use_grpc) -> serve.Application:
+def _build_app(cli_args: Dict[str, Any], use_grpc) -> serve.Application:
     """Builds the Serve app based on CLI arguments.
 
     See https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html#command-line-arguments-for-the-server
@@ -574,6 +574,7 @@ def _build_app(cli_args: Dict[str, str], use_grpc) -> serve.Application:
 
     Supported engine arguments: https://docs.vllm.ai/en/latest/models/engine_args.html.
     """  # noqa: E501
+    ray_resources: Dict[str, Any] = cli_args.pop("ray_resources", {})
     accelerator = "GPU"
     cli_args["distributed-executor-backend"] = "ray"
     parsed_args, deploy_args = parse_vllm_args(cli_args)
@@ -584,8 +585,12 @@ def _build_app(cli_args: Dict[str, str], use_grpc) -> serve.Application:
     logger.info(f"Tensor parallelism = {tp}, Pipeline parallelism = {pp}")
     pg_resources = []
     pg_resources.append({"CPU": 1})  # for the deployment replica
+    if ray_resources.get("num_gpus", 1) != 1:
+        logger.warning("GPU must be 1")
     for i in range(tp * pp):
-        pg_resources.append({"CPU": 4, accelerator: 1})  # for the vLLM actors
+        pg_resources.append(
+            {"CPU": ray_resources.get("num_cpus", 4), accelerator: 1}
+        )  # for the vLLM actors
 
     # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on
     # the same Ray node.
