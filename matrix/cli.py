@@ -269,6 +269,7 @@ class Cli:
         use_curl: bool = True,
         use_chat: bool = True,
         use_tools: bool = False,
+        use_image: bool = False,
         **kwargs,
     ) -> bool:
         """
@@ -361,11 +362,13 @@ class Cli:
 
                 return run_async(run_container())
             else:
-                prompt = (
-                    prompt or "What is 2+4=?"
-                    if not use_tools
-                    else "Get the weather in SF using the given tool"
-                )
+                if not prompt:
+                    if use_image:
+                        prompt = "Read all the text in the image."
+                    elif use_tools:
+                        prompt = "Get the weather in SF using the given tool"
+                    else:
+                        prompt = "What is 2+4=?"
                 tools = (
                     [
                         {
@@ -405,6 +408,17 @@ class Cli:
                     ],
                     "temperature": 0.7,
                 }
+                if use_image:
+                    text_prompt = data_payload["messages"][1]["content"]
+                    data_payload["messages"][1]["content"] = [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": "https://ofasys-multimodal-wlcb-3-toshanghai.oss-accelerate.aliyuncs.com/wpf272043/keepme/image/receipt.png"
+                            },
+                        },
+                        {"type": "text", "text": text_prompt},
+                    ]
                 if use_tools:
                     data_payload |= {
                         "tools": tools,

@@ -176,7 +176,8 @@ class BaseDeployment:
         if self.use_v1_engine:
             os.environ["VLLM_USE_V1"] = "1"
             os.environ["TORCH_CUDA_ARCH_LIST"] = "9.0"
-            os.environ["VLLM_DISABLE_COMPILE_CACHE"] = "1"
+            # might rm ~/.cache/vllm if this causing issues
+            # os.environ["VLLM_DISABLE_COMPILE_CACHE"] = "1"
 
         if self.use_v1_engine:
             self.engine = AsyncLLM.from_engine_args(engine_args)

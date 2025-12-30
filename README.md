@@ -74,9 +74,9 @@ Matrix is designed for scalable LLM inference on [Slurm](https://slurm.schedmd.c
 
 - Conda Environment
 ```bash
-conda create --name matrix python=3.10
+conda create --name matrix python=3.11
 conda activate matrix
-pip install fair-matrix[vllm_083]
+pip install fair-matrix[vllm_0112]
 ```
 
 - Launch ray cluster

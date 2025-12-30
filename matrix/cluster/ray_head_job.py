@@ -46,7 +46,8 @@ class RayHeadJob:
             grafana_port,
             sglang_dist_init_port,
             sglang_http_port,
-        ) = find_free_ports(10)
+            dashboard_agent_listen_port,
+        ) = find_free_ports(11)
         # Configure environment variables
         head_env.update(
             {
@@ -69,6 +70,7 @@ class RayHeadJob:
                     "ray",
                     "start",
                     "--head",
+                    "--disable-usage-stats",
                     f"--port={port}",
                     f"--ray-client-server-port={client_server_port}",
                     f"--dashboard-port={dashboard_port}",
@@ -79,6 +81,7 @@ class RayHeadJob:
                     "--num-gpus",
                     "0",
                     "--dashboard-host=0.0.0.0",
+                    f"--dashboard-agent-listen-port={dashboard_agent_listen_port}",
                 ],
                 env=head_env,
                 stdout=subprocess.PIPE,
@@ -107,6 +110,7 @@ class RayHeadJob:
                 grafana_port=int(grafana_port),
                 sglang_dist_init_port=int(sglang_dist_init_port),
                 sglang_http_port=int(sglang_http_port),
+                dashboard_agent_listen_port=int(dashboard_agent_listen_port),
                 temp_dir=temp_dir,
                 executor=executor,
             )

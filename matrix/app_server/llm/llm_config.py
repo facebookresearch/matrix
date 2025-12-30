@@ -205,7 +205,22 @@ llm_model_default_parameters = {
         "max_ongoing_requests": 50,
         "tool-call-parser": "hermes",
     },
-    # need to install vllm_0101_gptoss
+    # >= vllm 0.11.0
+    "Qwen/Qwen3-VL-30B-A3B-Instruct": {
+        "name": "Qwen3-VL-30B-A3B-Instruct",
+        "tensor-parallel-size": 2,
+        "pipeline-parallel-size": 1,
+        "enable-prefix-caching": True,
+        "max_ongoing_requests": 128,
+        "max-model-len": 262000,
+        "gpu-memory-utilization": 0.8,
+        "tool-call-parser": "hermes",
+        "mm-encoder-tp-mode": "data",
+        # "enable-expert-parallel": True,
+        "no-async-scheduling": True,  # async does not work with ray backend
+        "use_v1_engine": "true",
+    },
+    # >= vllm 0.10.2
     "openai/gpt-oss-20b": {
         "name": "gpt-oss-20b",
         "tensor-parallel-size": 1,
@@ -216,7 +231,7 @@ llm_model_default_parameters = {
         "use_v1_engine": "true",
         "tool-call-parser": "openai",
     },
-    # need to install vllm_0101_gptoss
+    # >= vllm 0.10.2
     "openai/gpt-oss-120b": {
         "name": "gpt-oss-120b",
         "tensor-parallel-size": 2,
