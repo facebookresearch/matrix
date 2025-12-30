@@ -70,6 +70,7 @@ class RayHeadJob:
                     "ray",
                     "start",
                     "--head",
+                    "--disable-usage-stats",
                     f"--port={port}",
                     f"--ray-client-server-port={client_server_port}",
                     f"--dashboard-port={dashboard_port}",
