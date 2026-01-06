@@ -379,9 +379,6 @@ def get_yaml_for_deployment(
 ):
     """deploy helper function.
     Return modified applications and yaml for deployment"""
-    from vllm.engine.arg_utils import AsyncEngineArgs
-
-    from matrix.app_server.llm.ray_serve_vllm import BaseDeployment
 
     temp_dir = cluster_info.temp_dir
     if yaml_config is None:
@@ -425,6 +422,10 @@ def get_yaml_for_deployment(
                 app["max_replica"] = app["min_replica"]
 
             if app_type in ["llm", "sglang_llm", "fastgen"]:
+                from vllm.engine.arg_utils import AsyncEngineArgs
+
+                from matrix.app_server.llm.ray_serve_vllm import BaseDeployment
+
                 unknown = {
                     k: v
                     for k, v in app.items()
