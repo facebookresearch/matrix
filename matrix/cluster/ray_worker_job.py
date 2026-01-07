@@ -22,25 +22,17 @@ class _RayWorkerConfiguration:
     """Configuration class for Ray worker job settings."""
 
     cluster_info: Any
+    slurm_requirements: Dict[str, Any]
     worker_wait_timeout_seconds: int = 60
     start_wait_time_seconds: int = 60
     environment: Dict[str, str] = field(default_factory=dict)
     logical_resources: str = "{}"
 
     def _determine_resource_allocation(self) -> tuple:
-        """Dynamically determine CPU and GPU resources based on execution environment."""
-        executor_type = os.environ.get("SUBMITIT_EXECUTOR", "slurm")
-
-        if executor_type == "local":
-            num_cpus = max((os.cpu_count() or 0) // 2, 1)
-            num_gpus = len(
-                [s for s in os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",") if s]
-            )
-        else:
-            num_cpus = int(os.environ.get("SLURM_CPUS_ON_NODE", 1))
-            num_gpus = int(os.environ.get("SLURM_GPUS_ON_NODE", 0))
-
-        return num_cpus, num_gpus
+        return (
+            self.slurm_requirements["cpus_per_task"],
+            self.slurm_requirements["gpus_per_node"],
+        )
 
 
 class _RayWorkerJobExecutor:
@@ -120,6 +112,7 @@ class RayWorkerJob:
         worker_wait_timeout_seconds: int,
         start_wait_time_seconds: int,  # TODO pass this around properly
         logical_resources: dict[str, Any],
+        slurm_requirements: dict[str, Any],
     ):
         # Store the cluster information for later use
         self.cluster_info = cluster_info
@@ -130,6 +123,7 @@ class RayWorkerJob:
         # Initial wait time for Ray worker to start
         self.start_wait_time_seconds = 60
         self.logical_resources = logical_resources
+        self.slurm_requirements = slurm_requirements
 
     def __call__(
         self,
@@ -146,6 +140,7 @@ class RayWorkerJob:
             worker_wait_timeout_seconds=self.worker_wait_timeout_seconds,
             start_wait_time_seconds=self.start_wait_time_seconds,
             logical_resources=json.dumps(self.logical_resources),
+            slurm_requirements=self.slurm_requirements,
         )
         _RayWorkerJobExecutor.execute(config)
 

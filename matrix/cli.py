@@ -81,25 +81,23 @@ class Cli:
         local: tp.Dict[str, tp.Union[str, int]] | None = None,
         enable_grafana: bool = False,
         force_new_head: bool = False,
+        use_array: bool = True,
     ) -> tp.Dict[str, tp.Any]:
         """
-        Starts the Ray cluster with additional keyword arguments. Only do this for new clusters.
-
-        Args:
-            **kwargs: Arbitrary keyword arguments passed to the RayCluster's start_head method.
-        """
-        """
         Starts the Ray cluster with the specified number of workers and additional configuration.
-        
+
         Can add additional workers if the cluster already exists.
-        
+
         Args:
             add_workers (int): Number of worker nodes to add in the cluster.
             slurm (dict, optional): resources for slurm cluster.
             local (dict, optional): resources for local cluster.
             enable_grafana (bool, optional): If True, enable prometheus and grafana dashboard.
             force_new_head (bool): force to remove head.json if haven't run 'matrix stop_cluster'.
-            
+            use_array (bool): If True, use Slurm job arrays for workers (default: True).
+                When False, workers are submitted as individual jobs and the head node
+                allocates GPU when starting a new cluster with workers.
+
         Returns:
             None
         """
@@ -109,6 +107,7 @@ class Cli:
             local,
             enable_grafana=enable_grafana,
             force_new_head=force_new_head,
+            use_array=use_array,
         )
         return convert_to_json_compatible(status)
 

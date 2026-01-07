@@ -28,6 +28,7 @@ class ClusterInfo:
     dashboard_agent_listen_port: tp.Optional[int] = None
     temp_dir: tp.Optional[str] = None
     executor: tp.Optional[str] = None
+    head_is_worker: tp.Optional[bool] = None
 
 
 def get_head_http_host(cluster_info: ClusterInfo) -> str:

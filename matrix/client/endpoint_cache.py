@@ -45,7 +45,12 @@ class EndpointCache:
                             if status is not None and status == 200:
                                 ray_query_result = json.loads(content)
                                 head_ip = ray_query_result["controller_info"]["node_ip"]
-                                self.ips = set([y["node_ip"] for x, y in ray_query_result["proxies"].items() if y["status"] == "HEALTHY" and y["node_ip"] != head_ip])  # type: ignore[attr-defined]
+                                self.ips = set([y["node_ip"] for x, y in ray_query_result["proxies"].items() if y["status"] == "HEALTHY"])  # type: ignore[attr-defined]
+                                if (
+                                    len(self.ips) > 1
+                                    and not self.cluster_info.head_is_worker
+                                ):
+                                    self.ips.discard(head_ip)
                             else:
                                 raise Exception(f"status: {status}, {content}")
                         else:
