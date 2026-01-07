@@ -73,12 +73,12 @@ class RayHeadJob:
                 slurm_requirements["cpus_per_task"],
                 slurm_requirements["gpus_per_node"],
             )
-            logical_resources = json.dumps(logical_resources)
+            logical_resources_str = json.dumps(logical_resources)
         else:
             # Head only - no compute resources
             num_cpus = 0
             num_gpus = 0
-            logical_resources = json.dumps({})
+            logical_resources_str = json.dumps({})
 
         with tempfile.TemporaryDirectory(dir="/tmp") as temp_dir:
             # Start Ray head process
@@ -100,7 +100,7 @@ class RayHeadJob:
                     "--dashboard-host=0.0.0.0",
                     f"--dashboard-agent-listen-port={dashboard_agent_listen_port}",
                     "--resources",
-                    logical_resources,
+                    logical_resources_str,
                 ],
                 env=head_env,
                 stdout=subprocess.PIPE,
