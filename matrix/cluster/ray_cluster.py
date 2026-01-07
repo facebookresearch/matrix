@@ -383,16 +383,7 @@ class RayCluster:
             if self._cluster_json.exists():
                 self._cluster_json.unlink()
 
-        # the host's full resources
-        requirements_updated = _apply_default_requirements(requirements, executor)
-        logical_resources = {
-            f"{key}-{value}": 1
-            for key, value in requirements_updated.items()
-            if key in _SLURM_KEY_ALIASES.values()
-        }
-
         is_new_cluster = not self._cluster_json.exists()
-
         if not is_new_cluster:
             print(f"Adding workers to existing cluster:\n{self.cluster_info()}")
         else:
@@ -404,8 +395,13 @@ class RayCluster:
                 head_params["cpus_per_task"] = 20
 
             head_params = _apply_default_requirements(head_params, executor)
-
+            logical_resources = {
+                f"{key}-{value}": 1
+                for key, value in head_params.items()
+                if key in _SLURM_KEY_ALIASES.values()
+            }
             print(f"Head Slurm parameters: {head_params}")
+
             s_executor = submitit.AutoExecutor(
                 folder=str(self._log_dir),
                 cluster=executor,
@@ -462,18 +458,22 @@ class RayCluster:
         if is_new_cluster and not use_array:
             add_workers -= 1  # head becomes a worker too
         if add_workers > 0:
-            s_executor = submitit.AutoExecutor(
-                folder=str(self._log_dir), cluster=executor
-            )
-
             worker_params = _apply_default_requirements(requirements, executor)
             if not use_array:
                 worker_params["nodes"] = add_workers
                 num_jobs = 1
             else:
                 num_jobs = add_workers
+            logical_resources = {
+                f"{key}-{value}": 1
+                for key, value in worker_params.items()
+                if key in _SLURM_KEY_ALIASES.values()
+            }
             print(f"Worker Slurm parameters: {worker_params}")
 
+            s_executor = submitit.AutoExecutor(
+                folder=str(self._log_dir), cluster=executor
+            )
             s_executor.update_parameters(
                 name=f"ray_worker_{self.cluster_id}",
                 **worker_params,
