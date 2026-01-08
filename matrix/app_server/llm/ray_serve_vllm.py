@@ -22,6 +22,7 @@ from ray.serve import scripts
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
 from vllm.engine.arg_utils import AsyncEngineArgs
+from pydantic import ConfigDict
 
 try:
     from vllm.engine.async_llm_engine import AsyncEngineDeadError, AsyncLLMEngine
@@ -86,6 +87,9 @@ try:
     from vllm.utils import FlexibleArgumentParser
 except:
     from vllm.utils.argparse_utils import FlexibleArgumentParser
+
+class RelaxedChatCompletionRequest(ChatCompletionRequest):
+    model_config = ConfigDict(extra="allow")
 
 vllm_deploy_args = [
     "use_v1_engine",
@@ -321,7 +325,7 @@ class VLLMDeployment(BaseDeployment):
 
     @app.post("/v1/chat/completions")
     async def create_chat_completion(
-        self, request: ChatCompletionRequest, raw_request: Request
+        self, request: RelaxedChatCompletionRequest, raw_request: Request
     ):
         """OpenAI-compatible HTTP endpoint.
 

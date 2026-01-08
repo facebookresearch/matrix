@@ -79,7 +79,8 @@ def main(
         # Count alive nodes (excluding head node)
         nodes = resources["nodes"]
         num_nodes = sum(
-            1 for node in nodes
+            1
+            for node in nodes
             if node["Alive"] and not node["Resources"].get("node:__internal_head__")
         )
         cluster_exists = True
@@ -91,7 +92,7 @@ def main(
     workers_needed = max(0, num_workers - num_nodes)
 
     # Start cluster if needed
-    if not cluster_exists or num_gpu == 0:
+    if not cluster_exists:
         print(f"Starting cluster with {num_workers} workers...")
         cli.start_cluster(
             add_workers=num_workers,
@@ -102,10 +103,14 @@ def main(
         print("Reusing existing cluster")
         # Add more workers if needed
         if workers_needed > 0:
-            print(f"Adding {workers_needed} workers to existing cluster (current: {num_nodes}, needed: {num_workers})...")
+            print(
+                f"Adding {workers_needed} workers to existing cluster (current: {num_nodes}, needed: {num_workers})..."
+            )
             cli.start_cluster(add_workers=workers_needed, slurm=slurm)
         else:
-            print(f"Cluster already has sufficient workers ({num_nodes} >= {num_workers})")
+            print(
+                f"Cluster already has sufficient workers ({num_nodes} >= {num_workers})"
+            )
 
     # Deploy all applications
     print("\nDeploying applications...")
@@ -113,7 +118,9 @@ def main(
     for app_config in applications:
         app_name = app_config.get("name")
         if not app_name:
-            raise ValueError(f"Application configuration missing 'name' field: {app_config}")
+            raise ValueError(
+                f"Application configuration missing 'name' field: {app_config}"
+            )
         app_names.append(app_name)
 
     # Deploy all applications at once with REPLACE action
@@ -153,6 +160,9 @@ def main(
 
         # Check if all are RUNNING
         all_running = all(status == "RUNNING" for status in statuses.values())
+        any_failed = any(status == "DEPLOY_FAILED" for status in statuses.values())
+        if any_failed:
+            raise RuntimeError(f"Deployment failed. {statuses}")
 
         if not all_running:
             time.sleep(10)  # Poll every 10 seconds
