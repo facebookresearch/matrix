@@ -67,6 +67,7 @@ def generate(
     use_tqdm: bool = False,
     batch_size: int = 128,
     max_retries: int = 1000,
+    text_response_only: bool = True,
 ) -> tp.List[tp.Dict[str, tp.Any]]:
     metadata = cli.app.get_app_metadata(app_name)
 
@@ -75,7 +76,7 @@ def generate(
         model=metadata["model_name"],
         requests=prompts,
         batch_size=batch_size,
-        text_response_only=False,
+        text_response_only=text_response_only,
         verbose=use_tqdm,
         **sampling_params,
         endpoint_cache=metadata["endpoints"]["updater"],

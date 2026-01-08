@@ -254,6 +254,12 @@ async def make_request(
             extra_body["guided_grammar"] = guided_decoding["grammar"]
     if prompt_logprobs:
         extra_body["prompt_logprobs"] = prompt_logprobs
+    # Support vLLM's multi_modal_data field
+    if "multi_modal_data" in data:
+        extra_body["multi_modal_data"] = data["multi_modal_data"]
+    # Support vLLM's mm_processor_kwargs field
+    if "mm_processor_kwargs" in data:
+        extra_body["mm_processor_kwargs"] = data["mm_processor_kwargs"]
     if len(extra_body) == 0:
         extra_body = None  # type: ignore[assignment]
     if multiplexed_model_id:
