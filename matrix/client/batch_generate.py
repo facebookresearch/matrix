@@ -5,17 +5,17 @@
 # LICENSE file in the root directory of this source tree.
 
 """
-Chat-only, batch-first, multimodal-capable prompt schema similar to llm.generate in offline batch inference
+Chat-only, batch-first, multimodal-capable prompt schema for OpenAI-compatible API
 
 Design goals:
 - No vLLM dependency
-- Lossless conversion to vLLM PromptType
-- Supports chat + multimodal + mm_processor_kwargs
+- OpenAI-compatible chat format
+- Supports multimodal via OpenAI's image_url format
 - Safe for public API exposure
 """
 
-from typing import Any, Dict, List, Literal, Optional, TypedDict
 import typing as tp
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 from matrix.client.query_llm import batch_requests
 
@@ -29,9 +29,6 @@ class ChatMessage(TypedDict):
     content: str
 
 
-MultiModalValue = Any
-
-
 class ChatPrompt(TypedDict, total=False):
     """
     A single chat request.
@@ -42,12 +39,6 @@ class ChatPrompt(TypedDict, total=False):
 
     # Non-chat models
     prompt: str
-
-    # OPTIONAL — multimodal payloads (image, video, audio, etc.)
-    multi_modal_data: Dict[str, MultiModalValue]
-
-    # OPTIONAL — multimodal processor configuration
-    mm_processor_kwargs: Dict[str, Any]
 
     # OPTIONAL — ignored by model, useful for tracing / routing
     metadata: Dict[str, Any]
@@ -104,9 +95,7 @@ def validate_chat_prompt(prompt: ChatPrompt) -> None:
     has_prompt = "prompt" in prompt
 
     if has_messages == has_prompt:
-        raise ValueError(
-            "Exactly one of 'messages' or 'prompt' must be provided"
-        )
+        raise ValueError("Exactly one of 'messages' or 'prompt' must be provided")
 
     if has_messages:
         validate_messages(prompt["messages"])
@@ -114,15 +103,6 @@ def validate_chat_prompt(prompt: ChatPrompt) -> None:
     if has_prompt:
         if not isinstance(prompt["prompt"], str):
             raise ValueError("'prompt' must be a string")
-
-    if "multi_modal_data" in prompt:
-        if not isinstance(prompt["multi_modal_data"], dict):
-            raise ValueError("'multi_modal_data' must be a dict")
-
-    if "mm_processor_kwargs" in prompt:
-        if not isinstance(prompt["mm_processor_kwargs"], dict):
-            raise ValueError("'mm_processor_kwargs' must be a dict")
-
 
 
 def validate_batch(prompts: List[ChatPrompt]) -> None:
@@ -156,13 +136,6 @@ def to_vllm_prompts(prompts: List[ChatPrompt]) -> List[Dict[str, Any]]:
         if "prompt" in p:
             vp["prompt"] = p["prompt"]
 
-
-        if "multi_modal_data" in p:
-            vp["multi_modal_data"] = p["multi_modal_data"]
-
-        if "mm_processor_kwargs" in p:
-            vp["mm_processor_kwargs"] = p["mm_processor_kwargs"]
-
         # metadata intentionally dropped
         vllm_prompts.append(vp)
 
@@ -178,10 +151,8 @@ if __name__ == "__main__":
         {
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
-                {"role": "user", "content": "Describe the image."},
+                {"role": "user", "content": "What is 2+2?"},
             ],
-            "multi_modal_data": {"image": b"...raw image bytes..."},
-            "mm_processor_kwargs": {"image_size": 448},
             "metadata": {"request_id": "abc123"},
         }
     ]

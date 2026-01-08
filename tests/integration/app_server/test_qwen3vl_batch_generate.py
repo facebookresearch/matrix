@@ -26,7 +26,6 @@ from matrix.client import batch_generate
 from matrix.scripts import deploy_models
 from matrix.utils.ray import status_is_pending, status_is_success
 
-
 # Test media files - local paths
 IMAGE_PATH = "/checkpoint/data/shared/matrix_cluster/receipt.png"
 VIDEO_PATH = "/checkpoint/data/shared/matrix_cluster/ForBiggerBlazes.mp4"
@@ -48,22 +47,22 @@ def encode_file_to_base64(file_path: str, media_type: str = "image") -> str:
         media_data = f.read()
 
     # Encode to base64
-    base64_data = base64.b64encode(media_data).decode('utf-8')
+    base64_data = base64.b64encode(media_data).decode("utf-8")
 
     # Determine MIME type from file extension
     if media_type == "image":
-        if file_path.endswith('.png'):
+        if file_path.endswith(".png"):
             mime_type = "image/png"
-        elif file_path.endswith('.jpg') or file_path.endswith('.jpeg'):
+        elif file_path.endswith(".jpg") or file_path.endswith(".jpeg"):
             mime_type = "image/jpeg"
-        elif file_path.endswith('.gif'):
+        elif file_path.endswith(".gif"):
             mime_type = "image/gif"
         else:
             mime_type = "image/jpeg"  # default
     else:  # video
-        if file_path.endswith('.mp4'):
+        if file_path.endswith(".mp4"):
             mime_type = "video/mp4"
-        elif file_path.endswith('.webm'):
+        elif file_path.endswith(".webm"):
             mime_type = "video/webm"
         else:
             mime_type = "video/mp4"  # default
@@ -98,7 +97,7 @@ def qwen3vl_cluster() -> Generator[Cli, Any, Any]:
         print(f"Warning: Could not load video: {e}")
         VIDEO_BASE64 = None
 
-    cluster_id = None # f"test_qwen3vl_{str(uuid.uuid4())[:8]}"
+    cluster_id = None  # f"test_qwen3vl_{str(uuid.uuid4())[:8]}"
 
     # Deploy the model using deploy_models.py
     applications = [
@@ -109,6 +108,7 @@ def qwen3vl_cluster() -> Generator[Cli, Any, Any]:
             "name": "qwen3vl",
             "model_size": "Qwen3-VL-30B-A3B-Instruct",
             "enable_tools": "true",
+            "allowed-local-media-path": "/",
         }
     ]
 
@@ -131,7 +131,7 @@ def qwen3vl_cluster() -> Generator[Cli, Any, Any]:
     finally:
         # Cleanup
         try:
-            pass # cli.stop_cluster()
+            pass  # cli.stop_cluster()
         except Exception as e:
             print(f"Error stopping cluster: {e}")
 
@@ -171,7 +171,7 @@ def test_batch_generate_text(qwen3vl_cluster: Cli) -> None:
         },
     ]
 
-    # Run batch inference
+    # Run batch inference (text_response_only=False returns full response objects)
     results = batch_generate.generate(
         cli=cli,
         app_name=app_name,
@@ -181,60 +181,17 @@ def test_batch_generate_text(qwen3vl_cluster: Cli) -> None:
         text_response_only=False,
     )
 
-    print(results)
     # Verify results
     assert len(results) == len(prompts), "Number of results doesn't match prompts"
-    for result in results:
+    for i, result in enumerate(results):
         assert "response" in result
         assert "error" not in result["response"] or result["response"]["error"] is None
         assert "text" in result["response"]
-        print(f"Text response: {result['response']['text']}")
-
-
-def test_batch_generate_images_vllm_style(qwen3vl_cluster: Cli) -> None:
-    """Test batch inference with images using vLLM style (multi_modal_data)."""
-    cli = qwen3vl_cluster
-    app_name = "qwen3vl"
-
-    if IMAGE_BASE64 is None:
-        pytest.skip("Image could not be loaded")
-
-    # Create batch with vLLM style image inputs using base64 data URL
-    prompts: List[batch_generate.ChatPrompt] = [
-        {
-            "messages": [
-                {"role": "user", "content": "Read all the text in the image."},
-            ],
-            "multi_modal_data": {"image": IMAGE_BASE64},
-        },
-        {
-            "messages": [
-                {"role": "user", "content": "Describe what you see in this image."},
-            ],
-            "multi_modal_data": {"image": IMAGE_BASE64},
-        },
-        {
-            "messages": [
-                {"role": "user", "content": "What items are listed in this receipt?"},
-            ],
-            "multi_modal_data": {"image": IMAGE_BASE64},
-        },
-    ]
-
-    # Run batch inference
-    results = batch_generate.generate(
-        cli=cli,
-        app_name=app_name,
-        prompts=prompts,
-        sampling_params={"temperature": 0.7, "max_tokens": 200},
-        use_tqdm=True,
-    )
-
-    # Verify results
-    assert len(results) == len(prompts), "Number of results doesn't match prompts"
-    for result in results:
-        assert result
-        print(f"Image response (vLLM style): {result}")
+        # When text_response_only=False, response.text is a string
+        text = result["response"]["text"][0]
+        assert isinstance(text, str), f"Expected str, got {type(text)}"
+        assert text and len(text.strip()) > 0, f"Empty response for prompt {i}"
+        print(f"Text response {i}: {text}")
 
 
 def test_batch_generate_images_openai_style(qwen3vl_cluster: Cli) -> None:
@@ -247,8 +204,9 @@ def test_batch_generate_images_openai_style(qwen3vl_cluster: Cli) -> None:
 
     # Create batch with OpenAI style image inputs
     # Note: OpenAI style embeds the image in the message content
-    # Base64 data URLs work here too!
+    # Test both base64 data URLs and file paths
     prompts = [
+        # Using base64 data URL
         {
             "messages": [
                 {
@@ -262,9 +220,8 @@ def test_batch_generate_images_openai_style(qwen3vl_cluster: Cli) -> None:
                     ],
                 }
             ],
-            "temperature": 0.7,
-            "max_tokens": 200,
         },
+        # Using file path
         {
             "messages": [
                 {
@@ -272,75 +229,51 @@ def test_batch_generate_images_openai_style(qwen3vl_cluster: Cli) -> None:
                     "content": [
                         {
                             "type": "image_url",
-                            "image_url": {"url": IMAGE_BASE64},  # Use base64 data URL
+                            "image_url": {
+                                "url": f"file://{IMAGE_PATH}"
+                            },  # Use file:// URL
                         },
-                        {"type": "text", "text": "Describe what you see in this image."},
+                        {
+                            "type": "text",
+                            "text": "Describe what you see in this image.",
+                        },
                     ],
                 }
             ],
         },
     ]
 
-    # Run batch requests using batch_generate
+    # Run batch requests (text_response_only=True by default, returns list of strings)
     results = batch_generate.generate(
         cli=cli,
         app_name=app_name,
         prompts=prompts,
-        sampling_params={"temperature": 0.7, "max_tokens": 200},
+        sampling_params={"temperature": 0.7, "max_tokens": 512},
         use_tqdm=True,
     )
     print(results)
+
     # Verify results
     assert len(results) == len(prompts), "Number of results doesn't match requests"
-    for result in results:
-        assert result
-        print(f"Image response (OpenAI style): {result}")
 
+    # Expected keywords in receipt image (case-insensitive)
+    receipt_keywords = ["subtotal", "sub total", "change", "due", "total"]
 
-def test_batch_generate_videos_vllm_style(qwen3vl_cluster: Cli) -> None:
-    """Test batch inference with videos using vLLM style (multi_modal_data)."""
-    cli = qwen3vl_cluster
-    app_name = "qwen3vl"
+    for i, result in enumerate(results):
+        # When text_response_only=True (default), result is a string
+        assert isinstance(
+            result, str
+        ), f"Result {i} should be a string when text_response_only=True"
+        assert result and len(result.strip()) > 0, f"Empty text response for prompt {i}"
 
-    if VIDEO_BASE64 is None:
-        pytest.skip("Video could not be loaded")
+        # Check for receipt-related content (case-insensitive)
+        result_lower = result.lower()
+        found_keywords = [kw for kw in receipt_keywords if kw in result_lower]
+        assert (
+            len(found_keywords) > 0
+        ), f"Response {i} missing receipt keywords. Expected any of {receipt_keywords}, got: {result[:200]}"
 
-    # Create batch with vLLM style video inputs using base64 data URL
-    prompts: List[batch_generate.ChatPrompt] = [
-        {
-            "messages": [
-                {"role": "user", "content": "Describe what happens in this video."},
-            ],
-            "multi_modal_data": {"video": VIDEO_BASE64},
-        },
-        {
-            "messages": [
-                {"role": "user", "content": "What is the main action in this video?"},
-            ],
-            "multi_modal_data": {"video": VIDEO_BASE64},
-        },
-        {
-            "messages": [
-                {"role": "user", "content": "Summarize the content of this video."},
-            ],
-            "multi_modal_data": {"video": VIDEO_BASE64},
-        },
-    ]
-
-    # Run batch inference
-    results = batch_generate.generate(
-        cli=cli,
-        app_name=app_name,
-        prompts=prompts,
-        sampling_params={"temperature": 0.7, "max_tokens": 200},
-        use_tqdm=True,
-    )
-
-    # Verify results
-    assert len(results) == len(prompts), "Number of results doesn't match prompts"
-    for result in results:
-        assert result
-        print(f"Video response (vLLM style): {result}")
+        print(f"Image response {i} (found keywords: {found_keywords}): {result}")
 
 
 def test_batch_generate_videos_openai_style(qwen3vl_cluster: Cli) -> None:
@@ -351,116 +284,80 @@ def test_batch_generate_videos_openai_style(qwen3vl_cluster: Cli) -> None:
     if VIDEO_BASE64 is None:
         pytest.skip("Video could not be loaded")
 
-    # OpenAI style requests with video base64 data URL
-    # Try using type: "video_url" for videos (vLLM extension)
+    # OpenAI style requests with videos
+    # Note: Use "image_url" type even for videos - vLLM detects video from MIME type
+    # Test both base64 data URLs and file paths
     prompts = [
+        # Using base64 data URL
         {
             "messages": [
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "video_url",  # Use video_url for videos
-                            "video_url": {"url": VIDEO_BASE64},
+                            "type": "video_url",
+                            "video_url": {
+                                "url": VIDEO_BASE64
+                            },  # vLLM detects video from data:video/mp4
                         },
-                        {"type": "text", "text": "Describe what happens in this video."},
+                        {
+                            "type": "text",
+                            "text": "Describe what happens in this video.",
+                        },
                     ],
                 }
             ],
-            "temperature": 0.7,
-            "max_tokens": 200,
         },
+        # Using file path
         {
             "messages": [
                 {
                     "role": "user",
                     "content": [
                         {
-                            "type": "video_url",  # Use video_url for videos
-                            "video_url": {"url": VIDEO_BASE64},
+                            "type": "video_url",
+                            "video_url": {
+                                "url": f"file://{VIDEO_PATH}"
+                            },  # Use file:// URL
                         },
-                        {"type": "text", "text": "What is the main action in this video?"},
+                        {
+                            "type": "text",
+                            "text": "What is the main action in this video?",
+                        },
                     ],
                 }
             ],
         },
     ]
 
-    # Run batch requests using batch_generate
+    # Run batch requests using batch_generate (text_response_only=True returns strings)
     results = batch_generate.generate(
         cli=cli,
         app_name=app_name,
         prompts=prompts,
-        sampling_params={"temperature": 0.7, "max_tokens": 200},
+        sampling_params={"temperature": 0.7, "max_tokens": 512},
         use_tqdm=True,
         text_response_only=True,
     )
 
-    print(results)
     # Verify results
     assert len(results) == len(prompts), "Number of results doesn't match requests"
-    for result in results:
-        assert result
-        print(f"Video response (OpenAI style): {result}")
 
+    # Expected keywords in video (case-insensitive)
+    video_keywords = ["phone", "cell phone", "tablet", "dragon", "chromecast", "tv"]
 
-def test_batch_generate_mixed_modalities(qwen3vl_cluster: Cli) -> None:
-    """Test batch inference with mixed modalities (text, images, videos)."""
-    cli = qwen3vl_cluster
-    app_name = "qwen3vl"
-
-    if IMAGE_BASE64 is None or VIDEO_BASE64 is None:
-        pytest.skip("Image or video could not be loaded")
-
-    # Create batch with mixed inputs using base64 data URLs
-    prompts: List[batch_generate.ChatPrompt] = [
-        # Text only
-        {
-            "messages": [
-                {"role": "user", "content": "What is 5+3?"},
-            ],
-        },
-        # Image
-        {
-            "messages": [
-                {"role": "user", "content": "Read all the text in the image."},
-            ],
-            "multi_modal_data": {"image": IMAGE_BASE64},
-        },
-        # Video
-        {
-            "messages": [
-                {"role": "user", "content": "Describe what happens in this video."},
-            ],
-            "multi_modal_data": {"video": VIDEO_BASE64},
-        },
-        # Another text
-        {
-            "messages": [
-                {"role": "user", "content": "Tell me a fun fact."},
-            ],
-        },
-        # Another image with different prompt
-        {
-            "messages": [
-                {"role": "user", "content": "What type of document is this?"},
-            ],
-            "multi_modal_data": {"image": IMAGE_BASE64},
-        },
-    ]
-
-    # Run batch inference
-    results = batch_generate.generate(
-        cli=cli,
-        app_name=app_name,
-        prompts=prompts,
-        sampling_params={"temperature": 0.7, "max_tokens": 200},
-        use_tqdm=True,
-        batch_size=5,
-    )
-
-    # Verify results
-    assert len(results) == len(prompts), "Number of results doesn't match prompts"
     for i, result in enumerate(results):
-        assert result
-        print(f"Mixed batch result {i}: {result}")
+        # When text_response_only=True, result is a string
+        assert isinstance(
+            result, str
+        ), f"Result {i} should be a string when text_response_only=True"
+        assert result and len(result.strip()) > 0, f"Empty text response for prompt {i}"
+
+        # Check for video-related content (case-insensitive)
+        result_lower = result.lower()
+        found_keywords = [kw for kw in video_keywords if kw in result_lower]
+        assert (
+            len(found_keywords) > 0
+        ), f"Response {i} missing video keywords. Expected any of {video_keywords}, got: {result[:200]}"
+
+        print(f"Video response {i} (found keywords: {found_keywords}): {result}")
