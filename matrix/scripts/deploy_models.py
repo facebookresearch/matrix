@@ -29,10 +29,10 @@ from matrix.app_server import app_api
 
 
 def main(
-    cluster_id: str,
     applications: tp.List[tp.Dict[str, tp.Union[str, int]]],
-    num_workers: int = 0,
-    slurm: tp.Dict[str, tp.Union[str, int]] | None = None,
+    num_workers: int,
+    slurm: tp.Dict[str, tp.Union[str, int]],
+    cluster_id: str|None=None,
     timeout: int = 1800,  # 30 minutes default timeout
 ):
     """
@@ -56,12 +56,6 @@ def main(
     # Parse parameters if provided as JSON strings
     if isinstance(applications, str):
         applications = json.loads(applications)
-
-    if isinstance(slurm, str):
-        slurm = json.loads(slurm)
-
-    if not applications:
-        raise ValueError("At least one application must be specified")
 
     print(f"Starting deployment for cluster: {cluster_id}")
     print(f"Applications to deploy: {json.dumps(applications, indent=2)}")
