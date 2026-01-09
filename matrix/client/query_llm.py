@@ -676,7 +676,7 @@ async def make_request(
 
 
 def batch_requests(
-    url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
+    url: tp.Union[None, str, tp.Callable[[], tp.Awaitable[str]]],
     model: str,
     requests: tp.List[tp.Dict[str, tp.Any]],
     batch_size: int | None = None,
@@ -737,7 +737,7 @@ def generate(
     batch_size: int = 128,
     max_retries: int = 1000,
     text_response_only: bool = True,
-) -> tp.List[tp.Dict[str, tp.Any]]:
+) -> tp.List[tp.Dict[str, tp.Any] | str]:
     """
     Generate responses for a batch of prompts using a deployed app.
 

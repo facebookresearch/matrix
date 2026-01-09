@@ -30,9 +30,9 @@ from matrix.app_server import app_api
 
 def main(
     cluster_id: str,
-    applications: str | tp.List[tp.Dict[str, tp.Union[str, int]]],
+    applications: tp.List[tp.Dict[str, tp.Union[str, int]]],
     num_workers: int = 0,
-    slurm: tp.Dict[str, tp.Union[str, int]] | str | None = None,
+    slurm: tp.Dict[str, tp.Union[str, int]] | None = None,
     timeout: int = 1800,  # 30 minutes default timeout
 ):
     """
