@@ -22,7 +22,7 @@ from typing import Any, Dict, Generator, List
 import pytest
 
 from matrix.cli import Cli
-from matrix.client import batch_generate
+from matrix.client import query_llm
 from matrix.scripts import deploy_models
 from matrix.utils.ray import status_is_pending, status_is_success
 
@@ -97,7 +97,7 @@ def qwen3vl_cluster() -> Generator[Cli, Any, Any]:
         print(f"Warning: Could not load video: {e}")
         VIDEO_BASE64 = None
 
-    cluster_id = None  # f"test_qwen3vl_{str(uuid.uuid4())[:8]}"
+    cluster_id = f"test_qwen3vl_{str(uuid.uuid4())[:8]}"
 
     # Deploy the model using deploy_models.py
     applications = [
@@ -131,7 +131,7 @@ def qwen3vl_cluster() -> Generator[Cli, Any, Any]:
     finally:
         # Cleanup
         try:
-            pass  # cli.stop_cluster()
+            cli.stop_cluster()
         except Exception as e:
             print(f"Error stopping cluster: {e}")
 
@@ -151,7 +151,7 @@ def test_batch_generate_text(qwen3vl_cluster: Cli) -> None:
     assert status_is_success(status), f"App not ready: {status}"
 
     # Create batch of text prompts
-    prompts: List[batch_generate.ChatPrompt] = [
+    prompts: List[Dict[str, Any]] = [
         {
             "messages": [
                 {"role": "system", "content": "You are a helpful assistant."},
@@ -172,7 +172,7 @@ def test_batch_generate_text(qwen3vl_cluster: Cli) -> None:
     ]
 
     # Run batch inference (text_response_only=False returns full response objects)
-    results = batch_generate.generate(
+    results = query_llm.generate(
         cli=cli,
         app_name=app_name,
         prompts=prompts,
@@ -244,14 +244,13 @@ def test_batch_generate_images_openai_style(qwen3vl_cluster: Cli) -> None:
     ]
 
     # Run batch requests (text_response_only=True by default, returns list of strings)
-    results = batch_generate.generate(
+    results = query_llm.generate(
         cli=cli,
         app_name=app_name,
         prompts=prompts,
         sampling_params={"temperature": 0.7, "max_tokens": 512},
         use_tqdm=True,
     )
-    print(results)
 
     # Verify results
     assert len(results) == len(prompts), "Number of results doesn't match requests"
@@ -330,8 +329,8 @@ def test_batch_generate_videos_openai_style(qwen3vl_cluster: Cli) -> None:
         },
     ]
 
-    # Run batch requests using batch_generate (text_response_only=True returns strings)
-    results = batch_generate.generate(
+    # Run batch requests (text_response_only=True returns strings)
+    results = query_llm.generate(
         cli=cli,
         app_name=app_name,
         prompts=prompts,
