@@ -24,6 +24,7 @@ import fire
 
 import matrix
 from matrix.app_server import app_api
+from matrix.app_server.deploy_utils import get_resource_requirements
 
 
 def main(
@@ -106,38 +107,50 @@ def main(
 
     # Deploy all applications
     print("\nChecking existing application status...")
-    app_names = []
-    app_config_map = {}  # Map app_name to its configuration
+    app_names: tp.List[str] = []
+    app_config_map: tp.Dict[str, tp.Dict[str, tp.Any]] = {}
     for app_config in applications:
-        app_name = app_config.get("name")
+        app_name = str(app_config.get("name"))
         if not app_name:
             raise ValueError(
                 f"Application configuration missing 'name' field: {app_config}"
             )
         app_names.append(app_name)
-        app_config_map[app_name] = app_config
+        # Compute and store resource requirements (CPU and GPU)
+        resources = get_resource_requirements(app_config)
+        app_config_map[app_name] = {
+            "config": app_config,
+            "resources": resources,
+        }
 
     # Check if all models are already running with requested replicas
     all_models_running = True
     to_remove = []
+    to_add = []
     for app_name in app_names:
         try:
             status, running_replicas = cli.app.app_status(app_name)
-            requested_min_replica = app_config_map[app_name].get("min_replica", 1)
+            requested_min_replica = app_config_map[app_name]["config"].get(
+                "min_replica", 1
+            )
+            resources = app_config_map[app_name]["resources"]
 
             print(
                 f"  {app_name}: {status} "
-                f"(running: {running_replicas}, requested min: {requested_min_replica})"
+                f"(running: {running_replicas}, requested min: {requested_min_replica}, "
+                f"CPU: {resources['CPU']}, GPU: {resources['GPU']})"
             )
 
             # Check both status and replica count
             if running_replicas < requested_min_replica:
                 all_models_running = False
+                to_add.append(app_name)
                 if running_replicas == 0:  # no sign the previous deploy is working
                     to_remove.append(app_name)
         except Exception as e:
             print(f"  {app_name}: Not found or error checking status: {e}")
             all_models_running = False
+            to_add.append(app_name)
 
     if all_models_running:
         print(
@@ -150,18 +163,92 @@ def main(
             "statuses": {app_name: "RUNNING" for app_name in app_names},
             "deployment_time": 0,
         }
+
+    # Remove failed apps (those with 0 running replicas)
     if to_remove:
+        print(f"\nRemoving failed apps: {to_remove}")
         try:
             cli.deploy_applications(
                 action=app_api.Action.REMOVE,
                 applications=[{"name": name} for name in to_remove],
             )
+            time.sleep(10)
         except Exception as e:
             print(f"Failed to remove apps {to_remove}: {e}")
 
-    # Deploy all applications at once with REPLACE action
-    print(f"\nDeploying {len(applications)} application(s)...")
-    cli.deploy_applications(action=app_api.Action.REPLACE, applications=applications)
+    # Determine deployment strategy: ADD or REPLACE
+    # Use ADD if we have enough available resources (CPU and GPU) for the new apps
+    use_add = False
+    if to_add:
+        try:
+            cluster_resources = cli.cluster.get_resources()
+            available_cpus = cluster_resources["available_resources"].get("CPU", 0)
+            available_gpus = cluster_resources["available_resources"].get("GPU", 0)
+
+            # Sum up required resources for apps to add
+            required_cpus = sum(
+                app_config_map[app_name]["resources"]["CPU"] for app_name in to_add
+            )
+            required_gpus = sum(
+                app_config_map[app_name]["resources"]["GPU"] for app_name in to_add
+            )
+
+            print(
+                f"\nResource availability check:\n"
+                f"  Available: CPU={available_cpus}, GPU={available_gpus}\n"
+                f"  Required:  CPU={required_cpus}, GPU={required_gpus}"
+            )
+
+            if required_cpus <= available_cpus and required_gpus <= available_gpus:
+                use_add = True
+                print("Sufficient resources available, using ADD action")
+            else:
+                print("Insufficient available resources for ADD, will check REPLACE")
+        except Exception as e:
+            print(f"Could not determine resource availability: {e}, using REPLACE")
+
+    # Deploy applications
+    if use_add:
+        print(f"\nAdding {len(to_add)} application(s)...")
+        apps_to_add = [app_config_map[name]["config"] for name in to_add]
+        cli.deploy_applications(action=app_api.Action.ADD, applications=apps_to_add)
+    else:
+        try:
+            cluster_resources = cli.cluster.get_resources()
+            total_cpus = cluster_resources["total_resources"].get("CPU", 0)
+            total_gpus = cluster_resources["total_resources"].get("GPU", 0)
+
+            # Sum up required resources for ALL applications
+            total_required_cpus = sum(
+                app_config_map[app_name]["resources"]["CPU"] for app_name in app_names
+            )
+            total_required_gpus = sum(
+                app_config_map[app_name]["resources"]["GPU"] for app_name in app_names
+            )
+
+            print(
+                f"\nTotal resource check for REPLACE:\n"
+                f"  Total cluster: CPU={total_cpus}, GPU={total_gpus}\n"
+                f"  Total required: CPU={total_required_cpus}, GPU={total_required_gpus}"
+            )
+
+            if total_required_cpus > total_cpus or total_required_gpus > total_gpus:
+                raise ValueError(
+                    f"Insufficient total cluster resources for deployment. "
+                    f"Required: CPU={total_required_cpus}, GPU={total_required_gpus}. "
+                    f"Available: CPU={total_cpus}, GPU={total_gpus}. "
+                    f"Consider adding more workers or reducing min_replica."
+                )
+            print("Total resources sufficient for REPLACE")
+        except ValueError:
+            raise
+        except Exception as e:
+            print(f"Warning: Could not verify total resources: {e}")
+
+        print(f"\nDeploying {len(applications)} application(s) with REPLACE...")
+        cli.deploy_applications(
+            action=app_api.Action.REPLACE, applications=applications
+        )
 
     # Wait for all applications to become RUNNING
     print("\nWaiting for all applications to become RUNNING...")
