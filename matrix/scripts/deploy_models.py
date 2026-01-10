@@ -203,7 +203,7 @@ def main(
                 use_add = True
                 print("Sufficient resources available, using ADD action")
             else:
-                print("Insufficient available resources for ADD, will check REPLACE")
+                print("Insufficient available resources for ADD, using REPLACE")
         except Exception as e:
             print(f"Could not determine resource availability: {e}, using REPLACE")
 
@@ -213,38 +213,6 @@ def main(
         apps_to_add = [app_config_map[name]["config"] for name in to_add]
         cli.deploy_applications(action=app_api.Action.ADD, applications=apps_to_add)
     else:
-        try:
-            cluster_resources = cli.cluster.get_resources()
-            total_cpus = cluster_resources["total_resources"].get("CPU", 0)
-            total_gpus = cluster_resources["total_resources"].get("GPU", 0)
-
-            # Sum up required resources for ALL applications
-            total_required_cpus = sum(
-                app_config_map[app_name]["resources"]["CPU"] for app_name in app_names
-            )
-            total_required_gpus = sum(
-                app_config_map[app_name]["resources"]["GPU"] for app_name in app_names
-            )
-
-            print(
-                f"\nTotal resource check for REPLACE:\n"
-                f"  Total cluster: CPU={total_cpus}, GPU={total_gpus}\n"
-                f"  Total required: CPU={total_required_cpus}, GPU={total_required_gpus}"
-            )
-
-            if total_required_cpus > total_cpus or total_required_gpus > total_gpus:
-                raise ValueError(
-                    f"Insufficient total cluster resources for deployment. "
-                    f"Required: CPU={total_required_cpus}, GPU={total_required_gpus}. "
-                    f"Available: CPU={total_cpus}, GPU={total_gpus}. "
-                    f"Consider adding more workers or reducing min_replica."
-                )
-            print("Total resources sufficient for REPLACE")
-        except ValueError:
-            raise
-        except Exception as e:
-            print(f"Warning: Could not verify total resources: {e}")
-
         print(f"\nDeploying {len(applications)} application(s) with REPLACE...")
         cli.deploy_applications(
             action=app_api.Action.REPLACE, applications=applications
