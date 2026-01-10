@@ -83,7 +83,7 @@ def main(
                         }
                     ]
                 )
-        while (status := cli.app.app_status(app_name)) != "RUNNING":
+        while (status := cli.app.app_status(app_name)[0]) != "RUNNING":
             print(f"{app_name} not ready, current status {status}")
             time.sleep(10)
         base_url = cli.get_app_metadata(app_name)["endpoints"]["head"]

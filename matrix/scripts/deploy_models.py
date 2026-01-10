@@ -10,12 +10,10 @@ Script to start/reuse a cluster and deploy multiple models.
 Waits until all models are RUNNING or exits with timeout.
 
 Example usage:
-    python deploy_models.py \
-        --cluster_id my_cluster \
-        --num_workers 3 \
-        --slurm '{"account": "data", "qos": "h100_lowest"}' \
-        --applications '[{"model_name": "/datasets/pretrained-llms/Llama-3.1-8B-Instruct", "min_replica": 24, "model_size": "8B", "name": "8B"}]' \
-        --timeout 1800
+    python -m matrix.scripts.deploy_models \
+    --applications "[{'model_name': '/checkpoint/data/shared/pretrained-llms/Qwen3-30B-A3B-Instruct-2507', 'model_size': 'Qwen3-32B', 'name
+': 'qwen3', 'min_replica': 4}, {'model_name': '/checkpoint/data/shared/pretrained-llms/Qwen3-VL-30B-A3B-Instruct', 'model_size': 'Qwen3-VL-30B-A3B-Instruct', 'name': 'qwen3vl', 'min_replica': 4}]" \
+    --num_workers=2 --slurm "{'account': 'data', 'qos': 'h100_lowest'}"
 """
 
 import json
@@ -32,7 +30,7 @@ def main(
     applications: tp.List[tp.Dict[str, tp.Union[str, int]]],
     num_workers: int,
     slurm: tp.Dict[str, tp.Union[str, int]],
-    cluster_id: str|None=None,
+    cluster_id: str | None = None,
     timeout: int = 1800,  # 30 minutes default timeout
 ):
     """
@@ -107,8 +105,9 @@ def main(
             )
 
     # Deploy all applications
-    print("\nDeploying applications...")
+    print("\nChecking existing application status...")
     app_names = []
+    app_config_map = {}  # Map app_name to its configuration
     for app_config in applications:
         app_name = app_config.get("name")
         if not app_name:
@@ -116,9 +115,52 @@ def main(
                 f"Application configuration missing 'name' field: {app_config}"
             )
         app_names.append(app_name)
+        app_config_map[app_name] = app_config
+
+    # Check if all models are already running with requested replicas
+    all_models_running = True
+    to_remove = []
+    for app_name in app_names:
+        try:
+            status, running_replicas = cli.app.app_status(app_name)
+            requested_min_replica = app_config_map[app_name].get("min_replica", 1)
+
+            print(
+                f"  {app_name}: {status} "
+                f"(running: {running_replicas}, requested min: {requested_min_replica})"
+            )
+
+            # Check both status and replica count
+            if running_replicas < requested_min_replica:
+                all_models_running = False
+                if running_replicas == 0:  # no sign the previous deploy is working
+                    to_remove.append(app_name)
+        except Exception as e:
+            print(f"  {app_name}: Not found or error checking status: {e}")
+            all_models_running = False
+
+    if all_models_running:
+        print(
+            f"\nAll {len(app_names)} model(s) are already RUNNING with required replicas. "
+            "Skipping deployment."
+        )
+        return {
+            "cluster_id": cluster_id,
+            "app_names": app_names,
+            "statuses": {app_name: "RUNNING" for app_name in app_names},
+            "deployment_time": 0,
+        }
+    if to_remove:
+        try:
+            cli.deploy_applications(
+                action=app_api.Action.REMOVE,
+                applications=[{"name": name} for name in to_remove],
+            )
+        except Exception as e:
+            print(f"Failed to remove apps {to_remove}: {e}")
 
     # Deploy all applications at once with REPLACE action
-    print(f"Deploying {len(applications)} application(s)...")
+    print(f"\nDeploying {len(applications)} application(s)...")
     cli.deploy_applications(action=app_api.Action.REPLACE, applications=applications)
 
     # Wait for all applications to become RUNNING
@@ -133,7 +175,7 @@ def main(
         statuses = {}
         for app_name in app_names:
             try:
-                status = cli.app.app_status(app_name)
+                status, _ = cli.app.app_status(app_name)
                 statuses[app_name] = status
             except Exception as e:
                 statuses[app_name] = f"ERROR: {e}"

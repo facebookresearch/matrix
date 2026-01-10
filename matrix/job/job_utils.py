@@ -56,7 +56,8 @@ def deploy_helper(app_api, applications):
 
 
 def check_status_helper(app_api, app):
-    return app_api.app_status(app["name"])
+    status, _ = app_api.app_status(app["name"])
+    return status
 
 
 def undeploy_helper(app_api, app):

@@ -143,7 +143,7 @@ def test_batch_generate_text(qwen3vl_cluster: Cli) -> None:
 
     # Wait for app to be ready
     for _ in range(30):
-        status = cli.app.app_status(app_name)
+        status, _ = cli.app.app_status(app_name)
         if status_is_success(status):
             break
         time.sleep(10)
