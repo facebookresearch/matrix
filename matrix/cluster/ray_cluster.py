@@ -420,7 +420,9 @@ class RayCluster:
             print(f"Adding workers to existing cluster:\n{self.cluster_info()}")
         else:
             head_params = requirements.copy()
-            if add_workers > 0:  # cpu host, overwrite as the param are meant for workers
+            if (
+                add_workers > 0
+            ):  # cpu host, overwrite as the param are meant for workers
                 head_params["gpus_per_node"] = 0
                 head_params["cpus_per_task"] = 20
 
