@@ -83,6 +83,11 @@ vllm_app_template = """
         OUTLINES_CACHE_DIR: {{ temp_dir }}/.outlines
         RAY_DEBUG: legacy
         TIKTOKEN_RS_CACHE_DIR: {{ temp_dir }}
+        VLLM_CACHE_ROOT: {{ cache_dir["VLLM_CACHE_ROOT"] }}
+        TORCH_EXTENSIONS_DIR: {{ cache_dir["TORCH_EXTENSIONS_DIR"] }}
+        TORCHINDUCTOR_CACHE_DIR: {{ cache_dir["TORCHINDUCTOR_CACHE_DIR"] }}
+        TORCH_COMPILE_DEBUG_DIR: {{ cache_dir["TORCH_COMPILE_DEBUG_DIR"] }}
+        TRITON_CACHE_DIR: {{ cache_dir["TRITON_CACHE_DIR"] }}
   args:
     model: {{ app.model_name }}
     {% for key, value in app.items() %}
@@ -370,6 +375,38 @@ def delete_apps(cluster_info, apps_list: List[Dict[str, Union[str, int]]] | None
     print(f"Actors deleted {actors}")
 
 
+def setup_native_cache_dirs(base_dir=None):
+    """
+    Make Torch / vLLM caches ABI-safe across:
+      - vLLM versions
+      - PyTorch versions
+      - CUDA versions
+
+    """
+    import pathlib
+
+    import torch
+    import vllm
+
+    if base_dir is None:
+        base_dir = os.path.expanduser("~/.cache/matrix")
+
+    tag = f"torch{torch.__version__}-cuda{torch.version.cuda or 'cpu'}-vllm{vllm.__version__}"
+
+    def d(name):
+        path = pathlib.Path(base_dir) / tag / name
+        path.mkdir(parents=True, exist_ok=True)
+        return str(path)
+
+    return {
+        "VLLM_CACHE_ROOT": d("vllm"),
+        "TORCH_EXTENSIONS_DIR": d("torch-extensions"),
+        "TORCHINDUCTOR_CACHE_DIR": d("torch-inductor"),
+        "TORCH_COMPILE_DEBUG_DIR": d("torch-compile"),
+        "TRITON_CACHE_DIR": d("triton"),
+    }
+
+
 def get_yaml_for_deployment(
     cluster_info: ClusterInfo,
     action: Action,
@@ -384,6 +421,7 @@ def get_yaml_for_deployment(
     from matrix.app_server.llm.ray_serve_vllm import BaseDeployment
 
     temp_dir = cluster_info.temp_dir
+    cache_dir = setup_native_cache_dirs()
     if yaml_config is None:
         assert applications is not None
         yaml_str = Template(common_config).render(
@@ -440,7 +478,10 @@ def get_yaml_for_deployment(
             if app_type in ["llm", "sglang_llm", "fastgen"]:
                 update_vllm_app_params(app)
                 yaml_str += Template(vllm_app_template).render(
-                    temp_dir=temp_dir, non_model_params=non_model_params, app=app
+                    temp_dir=temp_dir,
+                    non_model_params=non_model_params,
+                    app=app,
+                    cache_dir=cache_dir,
                 )
             elif app_type == "code":
                 if "name" not in app:

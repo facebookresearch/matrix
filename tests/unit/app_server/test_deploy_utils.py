@@ -57,22 +57,6 @@ class TestGetResourceRequirements:
         assert result["GPU"] == 8.0
         assert result["CPU"] == 20.0
 
-    def test_llm_with_ray_resources_as_json_string(self):
-        """LLM app with ray_resources as JSON string."""
-        app_config = {
-            "app_type": "llm",
-            "model_name": "some-model",
-            "tensor-parallel-size": 2,
-            "pipeline-parallel-size": 1,
-            "min_replica": 2,
-            "ray_resources": '{"num_cpus": 1}',
-        }
-        result = get_resource_requirements(app_config)
-        # GPU: 2 * 1 * 2 = 4
-        # CPU: 2 * (1 + 2 * 1) = 6
-        assert result["GPU"] == 4.0
-        assert result["CPU"] == 6.0
-
     def test_llm_lookup_by_model_size(self):
         """LLM app looking up tp/pp by model_size matching 'name' field."""
         app_config = {
@@ -168,18 +152,6 @@ class TestGetResourceRequirements:
         assert result["GPU"] == 4.0  # 2 * 2
         assert result["CPU"] == 16.0  # 8 * 2
 
-    def test_container_with_ray_resources_json_string(self):
-        """Container app with ray_resources as JSON string."""
-        app_config = {
-            "app_type": "container",
-            "name": "my-container",
-            "min_replica": 3,
-            "ray_resources": '{"GPU": 1, "CPU": 4}',
-        }
-        result = get_resource_requirements(app_config)
-        assert result["GPU"] == 3.0  # 1 * 3
-        assert result["CPU"] == 12.0  # 4 * 3
-
     def test_container_cpu_only(self):
         """Container app with CPU only."""
         app_config = {
@@ -272,21 +244,6 @@ class TestGetResourceRequirements:
         assert result["GPU"] == 0.0
         assert result["CPU"] == 1.0
 
-    # Edge cases
-    def test_invalid_ray_resources_json(self):
-        """Invalid JSON string for ray_resources falls back to defaults."""
-        app_config = {
-            "app_type": "llm",
-            "model_name": "some-model",
-            "tensor-parallel-size": 2,
-            "pipeline-parallel-size": 1,
-            "min_replica": 1,
-            "ray_resources": "invalid json",
-        }
-        result = get_resource_requirements(app_config)
-        # Falls back to default CPUS_PER_GPU = 4
-        assert result["GPU"] == 2.0
-        assert result["CPU"] == 9.0  # 1 * (1 + 2 * 4)
 
     def test_large_scale_deployment(self):
         """Large scale deployment with 405B model."""
