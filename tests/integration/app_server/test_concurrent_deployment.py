@@ -38,7 +38,7 @@ def wait_for_removal(cli: Cli, app_name: str, timeout: int = 60) -> bool:
 def wait_for_running(cli: Cli, app_name: str, timeout: int = DEPLOY_TIMEOUT) -> bool:
     """Wait for an application to reach RUNNING state with timeout."""
     start_time = time.time()
-    while (status := cli.app.app_status(app_name)) != "RUNNING":
+    while (status := cli.app.app_status(app_name)[0]) != "RUNNING":
         if time.time() - start_time > timeout:
             print(f"{app_name} timed out after {timeout}s, last status: {status}")
             return False

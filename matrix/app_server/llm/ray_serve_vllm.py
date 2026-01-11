@@ -17,6 +17,7 @@ import yaml
 from fastapi import FastAPI
 from google.protobuf import json_format
 from jinja2 import Template
+from pydantic import ConfigDict
 from ray import serve
 from ray.serve import scripts
 from starlette.requests import Request
@@ -86,6 +87,11 @@ try:
     from vllm.utils import FlexibleArgumentParser
 except:
     from vllm.utils.argparse_utils import FlexibleArgumentParser
+
+
+class RelaxedChatCompletionRequest(ChatCompletionRequest):
+    model_config = ConfigDict(extra="allow")
+
 
 vllm_deploy_args = [
     "use_v1_engine",
@@ -321,7 +327,7 @@ class VLLMDeployment(BaseDeployment):
 
     @app.post("/v1/chat/completions")
     async def create_chat_completion(
-        self, request: ChatCompletionRequest, raw_request: Request
+        self, request: RelaxedChatCompletionRequest, raw_request: Request
     ):
         """OpenAI-compatible HTTP endpoint.
 

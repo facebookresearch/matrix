@@ -36,7 +36,7 @@ def test_deploy_hello(matrix_cluster: Cli) -> None:
     cli = matrix_cluster
     cli.deploy_applications(applications=[{"name": "hello", "app_type": "hello"}])
     for _ in range(10):
-        status = cli.app.app_status("hello")
+        status, _ = cli.app.app_status("hello")
         if not status_is_pending(status):
             break
         time.sleep(5)

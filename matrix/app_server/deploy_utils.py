@@ -83,6 +83,11 @@ vllm_app_template = """
         OUTLINES_CACHE_DIR: {{ temp_dir }}/.outlines
         RAY_DEBUG: legacy
         TIKTOKEN_RS_CACHE_DIR: {{ temp_dir }}
+        VLLM_CACHE_ROOT: {{ cache_dir["VLLM_CACHE_ROOT"] }}
+        TORCH_EXTENSIONS_DIR: {{ cache_dir["TORCH_EXTENSIONS_DIR"] }}
+        TORCHINDUCTOR_CACHE_DIR: {{ cache_dir["TORCHINDUCTOR_CACHE_DIR"] }}
+        TORCH_COMPILE_DEBUG_DIR: {{ cache_dir["TORCH_COMPILE_DEBUG_DIR"] }}
+        TRITON_CACHE_DIR: {{ cache_dir["TRITON_CACHE_DIR"] }}
   args:
     model: {{ app.model_name }}
     {% for key, value in app.items() %}
@@ -370,6 +375,38 @@ def delete_apps(cluster_info, apps_list: List[Dict[str, Union[str, int]]] | None
     print(f"Actors deleted {actors}")
 
 
+def setup_native_cache_dirs(base_dir=None):
+    """
+    Make Torch / vLLM caches ABI-safe across:
+      - vLLM versions
+      - PyTorch versions
+      - CUDA versions
+
+    """
+    import pathlib
+
+    import torch
+    import vllm
+
+    if base_dir is None:
+        base_dir = os.path.expanduser("~/.cache/matrix")
+
+    tag = f"torch{torch.__version__}-cuda{torch.version.cuda or 'cpu'}-vllm{vllm.__version__}"
+
+    def d(name):
+        path = pathlib.Path(base_dir) / tag / name
+        path.mkdir(parents=True, exist_ok=True)
+        return str(path)
+
+    return {
+        "VLLM_CACHE_ROOT": d("vllm"),
+        "TORCH_EXTENSIONS_DIR": d("torch-extensions"),
+        "TORCHINDUCTOR_CACHE_DIR": d("torch-inductor"),
+        "TORCH_COMPILE_DEBUG_DIR": d("torch-compile"),
+        "TRITON_CACHE_DIR": d("triton"),
+    }
+
+
 def get_yaml_for_deployment(
     cluster_info: ClusterInfo,
     action: Action,
@@ -384,6 +421,7 @@ def get_yaml_for_deployment(
     from matrix.app_server.llm.ray_serve_vllm import BaseDeployment
 
     temp_dir = cluster_info.temp_dir
+    cache_dir = setup_native_cache_dirs()
     if yaml_config is None:
         assert applications is not None
         yaml_str = Template(common_config).render(
@@ -440,7 +478,10 @@ def get_yaml_for_deployment(
             if app_type in ["llm", "sglang_llm", "fastgen"]:
                 update_vllm_app_params(app)
                 yaml_str += Template(vllm_app_template).render(
-                    temp_dir=temp_dir, non_model_params=non_model_params, app=app
+                    temp_dir=temp_dir,
+                    non_model_params=non_model_params,
+                    app=app,
+                    cache_dir=cache_dir,
                 )
             elif app_type == "code":
                 if "name" not in app:
@@ -563,3 +604,101 @@ def validate_applications(applications):
                     if not fs.exists(path):
                         raise FileNotFoundError(f"{model_pt} does not exists")
     return True
+
+
+def get_resource_requirements(
+    app_config: Dict[str, Union[str, int]],
+) -> Dict[str, float]:
+    """
+    Compute resource requirements (CPU and GPU) for an application.
+
+    Args:
+        app_config: Application configuration dictionary
+
+    Returns:
+        Dict with "CPU" and "GPU" keys indicating total resources needed
+        for all replicas of this application.
+
+    Resource calculation by app type:
+        - llm, sglang_llm, fastgen:
+          GPU = tp * pp * min_replica
+          CPU = min_replica * (1 + tp * pp * CPUS_PER_GPU)
+          (1 CPU for deployment replica + CPUS_PER_GPU per vLLM actor)
+        - perception_encoder, optical_flow: GPU = min_replica, CPU = min_replica
+        - code, hello, openai, gemini, metagen, sagemaker, bedrock, llama_api:
+          GPU = 0, CPU = min_replica
+        - container: Uses ray_resources if specified
+    """
+    # Number of CPUs paired with each GPU for vLLM actors
+    CPUS_PER_GPU = 4
+
+    app_type = app_config.get("app_type", "llm")
+    min_replica: int = app_config.get("min_replica", 1)  # type: ignore[assignment]
+
+    # Default: 1 CPU per replica, no GPU
+    cpu_requirement = min_replica
+    gpu_requirement = 0
+
+    if app_type in ["llm", "sglang_llm", "fastgen"]:
+        # LLM apps: GPU = tp * pp per replica
+        tp_size: Optional[int] = app_config.get("tensor-parallel-size")  # type: ignore[assignment]
+        pp_size: Optional[int] = app_config.get("pipeline-parallel-size")  # type: ignore[assignment]
+
+        # If not provided, look up in llm_model_default_parameters
+        if tp_size is None or pp_size is None:
+            model_name = str(app_config.get("model_name", ""))
+            model_size = str(app_config.get("model_size", ""))
+
+            # Try exact match on model_name (key in llm_model_default_parameters)
+            model_config = None
+            if model_name in llm_model_default_parameters:
+                model_config = llm_model_default_parameters[model_name]
+
+            # If not found, try matching by model_size to "name" field
+            if model_config is None and model_size:
+                for config in llm_model_default_parameters.values():
+                    if config.get("name") == model_size:
+                        model_config = config
+                        break
+
+            # Get tp and pp from model config
+            if model_config:
+                if tp_size is None:
+                    tp_size = model_config.get("tensor-parallel-size", 1)  # type: ignore[assignment]
+                if pp_size is None:
+                    pp_size = model_config.get("pipeline-parallel-size", 1)  # type: ignore[assignment]
+
+        # Default to 1 if still not found
+        if tp_size is None:
+            tp_size = 1
+        if pp_size is None:
+            pp_size = 1
+
+        num_gpus_per_replica = tp_size * pp_size
+        gpu_requirement = num_gpus_per_replica * min_replica
+
+        # CPU calculation based on ray_serve_vllm.py placement group:
+        # - 1 CPU for deployment replica
+        # - num_cpus CPUs for each vLLM actor (one per GPU)
+        # ray_resources can override the default CPUS_PER_GPU
+        ray_resources: dict[str, Any] = app_config.get("ray_resources", {})  # type: ignore[assignment]
+        cpus_per_gpu = ray_resources.get("num_cpus", CPUS_PER_GPU)
+        cpus_per_replica = 1 + (num_gpus_per_replica * cpus_per_gpu)
+        cpu_requirement = cpus_per_replica * min_replica
+
+    elif app_type in ["perception_encoder", "optical_flow"]:
+        # Vision apps: 1 GPU per replica
+        gpu_requirement = int(min_replica)
+
+    elif app_type == "container":
+        # Container apps: parse ray_resources if specified
+        ray_resources = app_config.get("ray_resources", {})  # type: ignore[assignment]
+        gpu_per_replica = ray_resources.get("GPU", 0)
+        cpu_per_replica = ray_resources.get("CPU", 1)
+        gpu_requirement = gpu_per_replica * min_replica
+        cpu_requirement = cpu_per_replica * min_replica
+
+    # For code, hello, openai, gemini, metagen, sagemaker, bedrock, llama_api:
+    # CPU only (default behavior above)
+
+    return {"CPU": float(cpu_requirement), "GPU": float(gpu_requirement)}

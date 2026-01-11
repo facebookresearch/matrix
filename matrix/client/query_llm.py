@@ -676,7 +676,7 @@ async def make_request(
 
 
 def batch_requests(
-    url: tp.Union[str, tp.Callable[[], tp.Awaitable[str]]],
+    url: tp.Union[None, str, tp.Callable[[], tp.Awaitable[str]]],
     model: str,
     requests: tp.List[tp.Dict[str, tp.Any]],
     batch_size: int | None = None,
@@ -725,6 +725,52 @@ def batch_requests(
 
     logger.debug(f"complete {len(outputs)} samples, {num_error} request errors")
     return outputs
+
+
+def generate(
+    cli,
+    app_name: str,
+    prompts: tp.List[tp.Dict[str, tp.Any]],
+    sampling_params: tp.Optional[tp.Dict[str, tp.Any]] = None,
+    *,
+    use_tqdm: bool = False,
+    batch_size: int = 128,
+    max_retries: int = 1000,
+    text_response_only: bool = True,
+) -> tp.List[tp.Dict[str, tp.Any] | str]:
+    """
+    Generate responses for a batch of prompts using a deployed app.
+
+    Args:
+        cli: Matrix CLI instance
+        app_name: Name of the deployed application
+        prompts: List of prompts, each can be:
+            - {"messages": [{"role": "user", "content": "hi"}]} for chat models
+            - {"prompt": "text"} for non-chat models
+        sampling_params: Optional sampling parameters (temperature, max_tokens, etc.)
+        use_tqdm: Whether to show progress bar
+        batch_size: Number of concurrent requests
+        max_retries: Maximum number of retries for failed requests
+        text_response_only: If True, return only text responses, otherwise full response objects
+
+    Returns:
+        List of responses in the same order as prompts
+    """
+    metadata = cli.app.get_app_metadata(app_name)
+
+    if sampling_params is None:
+        sampling_params = {}
+
+    return batch_requests(
+        url=None,
+        model=metadata["model_name"],
+        requests=prompts,
+        batch_size=batch_size,
+        text_response_only=text_response_only,
+        verbose=use_tqdm,
+        **sampling_params,
+        endpoint_cache=metadata["endpoints"]["updater"],
+    )
 
 
 async def main(
