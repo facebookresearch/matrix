@@ -48,6 +48,34 @@ def _normalize_slurm_keys(
     return normalized
 
 
+def _parse_time_limit(time_str: str) -> int | None:
+    """Parse SLURM time limit string to minutes.
+
+    Formats: infinite, DAYS-HH:MM:SS, HH:MM:SS, MM:SS, MM
+    """
+    if not time_str or time_str.lower() == "infinite":
+        return None
+
+    try:
+        days = 0
+        if "-" in time_str:
+            days_part, time_str = time_str.split("-", 1)
+            days = int(days_part)
+
+        parts = time_str.split(":")
+        if len(parts) == 3:  # HH:MM:SS
+            hours, minutes, seconds = map(int, parts)
+        elif len(parts) == 2:  # MM:SS
+            hours = 0
+            minutes, seconds = map(int, parts)
+        else:  # MM
+            return int(parts[0])
+
+        return days * 24 * 60 + hours * 60 + minutes
+    except (ValueError, IndexError):
+        return None
+
+
 def _get_slurm_default_requirements(requirements: dict[str, tp.Any]):
     """
     Extract SLURM partition info including CPU and memory requirements.
@@ -72,10 +100,10 @@ def _get_slurm_default_requirements(requirements: dict[str, tp.Any]):
             requirements["partition"] = partition
 
         # Get detailed info for the partition
-        # %P=partition, %c=CPUs, %m=memory(MB), %l=time_limit, %N=nodes
+        # %G=GRES(GPUs), %c=CPUs, %m=memory(MB), %l=time_limit
         sinfo_output = (
             subprocess.check_output(
-                ["sinfo", "-h", "-p", partition, "-o", "%G %c %m"],
+                ["sinfo", "-h", "-p", partition, "-o", "%G %c %m %l"],
                 stderr=subprocess.PIPE,
             )
             .decode()
@@ -87,11 +115,12 @@ def _get_slurm_default_requirements(requirements: dict[str, tp.Any]):
             max_cpus = 0
             max_memory = 0
             max_gpus = 0
+            max_time_min = 0
             gpu_type = None
 
             for line in lines:
                 parts = line.split()
-                if len(parts) >= 3:
+                if len(parts) >= 4:
                     gpu_info = _parse_gpu_gres(parts[0])
                     if gpu_info:
                         if gpu_info["count"] > max_gpus:
@@ -102,11 +131,16 @@ def _get_slurm_default_requirements(requirements: dict[str, tp.Any]):
                     max_cpus = max(max_cpus, cpus)
                     memory = _parse_slurm_value(parts[2])
                     max_memory = max(max_memory, memory)
+                    time_min = _parse_time_limit(parts[3])
+                    if time_min is not None:
+                        max_time_min = max(max_time_min, time_min)
 
             requirements["cpus_per_task"] = max_cpus
             requirements["mem_gb"] = max_memory // 1024
             if max_gpus > 0:
                 requirements["gpus_per_node"] = max_gpus
+            if max_time_min > 0:
+                requirements["timeout_min"] = max_time_min
 
     except subprocess.CalledProcessError as e:
         print(f"Error running sinfo: {e}")
@@ -156,7 +190,6 @@ def _apply_default_requirements(
     """
     default_params: dict[str, tp.Any] = {
         "ntasks_per_node": 1,
-        "timeout_min": 10080,
     }
 
     partition = requirements.get("partition")
@@ -176,6 +209,7 @@ def _apply_default_requirements(
         default_params["cpus_per_task"] = num_cpus
         default_params["mem_gb"] = mem_gb
         default_params["gpus_per_node"] = num_gpus
+        default_params["timeout_min"] = 10080  # fallback for local executor
 
     # Merge defaults into requirements (user values take precedence)
     result = requirements.copy()
