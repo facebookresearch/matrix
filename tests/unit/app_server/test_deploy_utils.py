@@ -244,7 +244,6 @@ class TestGetResourceRequirements:
         assert result["GPU"] == 0.0
         assert result["CPU"] == 1.0
 
-
     def test_large_scale_deployment(self):
         """Large scale deployment with 405B model."""
         app_config = {
