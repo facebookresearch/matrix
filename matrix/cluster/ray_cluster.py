@@ -352,8 +352,6 @@ class RayCluster:
                                           for monitoring (default: True).
             force_new_head (bool): force to remove head.json if haven't run 'matrix stop_cluster'.
             use_array (bool): If True, use Slurm job arrays for workers (default: True).
-                When False, workers are submitted as individual jobs and the head node
-                allocates GPU when starting a new cluster with workers.
         """
         import submitit
 
@@ -388,18 +386,11 @@ class RayCluster:
             print(f"Adding workers to existing cluster:\n{self.cluster_info()}")
         else:
             head_params = requirements.copy()
-            if (
-                use_array and add_workers > 0
-            ):  # cpu host, overwrite as the param are meant for workers
+            if add_workers > 0:  # cpu host, overwrite as the param are meant for workers
                 head_params["gpus_per_node"] = 0
                 head_params["cpus_per_task"] = 20
 
             head_params = _apply_default_requirements(head_params, executor)
-            logical_resources = {
-                f"{key}-{value}": 1
-                for key, value in head_params.items()
-                if key in _SLURM_KEY_ALIASES.values()
-            }
             print(f"Head Slurm parameters: {head_params}")
 
             s_executor = submitit.AutoExecutor(
@@ -416,9 +407,6 @@ class RayCluster:
                 self._cluster_json,
                 worker_wait_timeout_seconds,
                 executor,
-                head_params,
-                logical_resources,
-                not use_array,
             )
             self._add_job(head_job)
             create_symlinks(self._log_dir, "head", head_job.paths)
@@ -455,8 +443,6 @@ class RayCluster:
             self.start_grafana(force=True)
 
         # start the workers
-        if is_new_cluster and not use_array:
-            add_workers -= 1  # head becomes a worker too
         if add_workers > 0:
             worker_params = _apply_default_requirements(requirements, executor)
             if not use_array:

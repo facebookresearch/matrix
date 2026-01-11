@@ -95,8 +95,6 @@ class Cli:
             enable_grafana (bool, optional): If True, enable prometheus and grafana dashboard.
             force_new_head (bool): force to remove head.json if haven't run 'matrix stop_cluster'.
             use_array (bool): If True, use Slurm job arrays for workers (default: True).
-                When False, workers are submitted as individual jobs and the head node
-                allocates GPU when starting a new cluster with workers.
 
         Returns:
             None

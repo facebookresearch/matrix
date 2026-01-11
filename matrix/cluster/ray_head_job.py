@@ -31,9 +31,6 @@ class RayHeadJob:
         cluster_json_path: Path,
         worker_wait_timeout_seconds: int,
         executor: str,
-        slurm_requirements: tp.Dict[str, tp.Any],
-        logical_resources: tp.Dict[str, tp.Any],
-        head_is_worker: bool = False,
     ):
         """Start the head node of the Ray cluster on slurm."""
         hostname = socket.gethostname()
@@ -66,20 +63,6 @@ class RayHeadJob:
         ip_address = socket.gethostbyname(hostname)
         print(f"Host {hostname}:{port}, IP {ip_address}")
 
-        # Determine resource allocation for head
-        if head_is_worker:
-            # Head acts as worker - allocate actual resources using same logic as workers
-            num_cpus, num_gpus = (
-                slurm_requirements["cpus_per_task"],
-                slurm_requirements["gpus_per_node"],
-            )
-            logical_resources_str = json.dumps(logical_resources)
-        else:
-            # Head only - no compute resources
-            num_cpus = 0
-            num_gpus = 0
-            logical_resources_str = json.dumps({})
-
         with tempfile.TemporaryDirectory(dir="/tmp") as temp_dir:
             # Start Ray head process
             ray_process = subprocess.Popen(
@@ -94,13 +77,11 @@ class RayHeadJob:
                     f"--metrics-export-port={metrics_port}",
                     f"--temp-dir={temp_dir}",
                     "--num-cpus",
-                    str(num_cpus),
+                    "0",
                     "--num-gpus",
-                    str(num_gpus),
+                    "0",
                     "--dashboard-host=0.0.0.0",
                     f"--dashboard-agent-listen-port={dashboard_agent_listen_port}",
-                    "--resources",
-                    logical_resources_str,
                 ],
                 env=head_env,
                 stdout=subprocess.PIPE,
@@ -132,7 +113,6 @@ class RayHeadJob:
                 dashboard_agent_listen_port=int(dashboard_agent_listen_port),
                 temp_dir=temp_dir,
                 executor=executor,
-                head_is_worker=head_is_worker,
             )
             with cluster_json_path.open("w") as f:
                 json.dump(dataclasses.asdict(info), f)
