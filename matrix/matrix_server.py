@@ -218,8 +218,12 @@ async def deploy_applications_endpoint(
 @app.post("/app-status")
 async def app_status(app_name: str, cli: Cli = Depends(get_matrix_cli)):
     try:
-        status = cli.app.app_status(app_name)
-        return {"name": app_name, "app_status": status}
+        status, running_replicas = cli.app.app_status(app_name)
+        return {
+            "name": app_name,
+            "app_status": status,
+            "running_replicas": running_replicas,
+        }
     except Exception as e:
         logger.error(f"Error app status: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

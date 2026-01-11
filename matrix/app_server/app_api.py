@@ -489,7 +489,7 @@ class AppApi:
         else:
             raise ValueError(f"app_type {app_type} is not supported.")
 
-    def app_status(self, app_name: str) -> str:
+    def app_status(self, app_name: str) -> Tuple[str, int]:
         """The current status of the application.
 
         As from Ray
@@ -500,6 +500,12 @@ class AppApi:
             RUNNING = "RUNNING"
             UNHEALTHY = "UNHEALTHY"
             DELETING = "DELETING"
+
+        Returns:
+            Tuple of (status: str, running_replicas: int)
+            - status: Current application status
+            - running_replicas: Count of replicas with state="RUNNING"
+              (for both serve and sglang apps)
         """
         import ray
 
@@ -516,9 +522,17 @@ class AppApi:
             apps = get_serve_applications(url)
             found_app = apps["applications"].get(app_name)
             if found_app is None:
-                return "NOT_STARTED"
+                return "NOT_STARTED", 0
             else:
-                return found_app["status"]
+                # Count running replicas across all deployments
+                running_replicas = 0
+                deployments = found_app.get("deployments", {})
+                for deployment_name, deployment_info in deployments.items():
+                    replicas = deployment_info.get("replicas", [])
+                    running_replicas += sum(
+                        1 for replica in replicas if replica.get("state") == "RUNNING"
+                    )
+                return found_app["status"], running_replicas
         else:
             try:
                 min_replica = app["deployments"][0]["autoscaling_config"]["min_replica"]
@@ -529,15 +543,16 @@ class AppApi:
                         router_actor.get_running_replicas.remote(),
                     ]
                 )
+                running_replicas = len(replicas)
                 # todo: also check the actor state
                 if not is_running:
-                    return "DEPLOYING"
-                elif len(replicas) < min_replica:
-                    return "DEPLOYING"
+                    return "DEPLOYING", running_replicas
+                elif running_replicas < min_replica:
+                    return "DEPLOYING", running_replicas
                 else:
-                    return "RUNNING"
+                    return "RUNNING", running_replicas
             except:
-                return "NOT_STARTED"
+                return "NOT_STARTED", 0
 
     def app_cleanup(self, app_name: str) -> str:
         """A helper function to cleanup for stateful services, eg containers maybe be dangling due to exception etc."""
