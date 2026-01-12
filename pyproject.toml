@@ -162,6 +162,17 @@ classifiers=[
       "iopath",
       "jsonlines",
   ]
+  ray = [
+      "submitit>=1.5.2",
+      "ray[default,serve]>=2.48.0",
+      "boto3",
+      "google-genai>=1.13.0",
+      "datasketch",
+      "s3fs",
+      "datasets",
+      "iopath",
+      "jsonlines",
+  ]
   # For video processing
   vision = [
       "submitit>=1.5.2",
