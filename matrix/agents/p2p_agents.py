@@ -44,6 +44,10 @@ class Orchestrator(abc.ABC):
         self._id = None
         self.resource_state: dict[str, Any] = {}
         self.status: Dict[str, Any] = {}
+        self.creation_timestamp = time.time()
+        self.init_timestamp = 0.0
+        self.finish_timestamp = 0.0
+        self.enqueue_timestamp = 0.0
 
     async def init(
         self,
@@ -138,6 +142,8 @@ class BaseResourceClient:
 # ==== Abstract AgentActor ====
 # @ray.remote
 class AgentActor(abc.ABC):
+    THROUGHPUT_WINDOWS=5*60 # latency in seconds to measure throughput
+
     def __init__(
         self,
         id: str,
@@ -171,47 +177,6 @@ class AgentActor(abc.ABC):
         self.logger = logging.getLogger(self.__class__.__name__)
         setup_logging(self.logger, self.debug)
 
-        self._init_metrics()
-
-    @staticmethod
-    def _patch_getproxies():
-        """Patch urllib to handle concurrent environment modifications in Ray."""
-        import os
-        import urllib.request
-
-        original_getproxies = urllib.request.getproxies_environment
-
-        def safe_getproxies():
-            """Thread-safe version that handles missing keys during iteration."""
-            try:
-                # Create a snapshot of environment to avoid iteration issues
-                env_copy = dict(os.environ)
-                proxies = {}
-                for name in ["http", "https", "ftp", "no"]:
-                    proxy_var = name + "_proxy"
-                    if proxy_var in env_copy:
-                        proxies[name] = env_copy[proxy_var]
-                    elif proxy_var.upper() in env_copy:
-                        proxies[name] = env_copy[proxy_var.upper()]
-                return proxies
-            except (KeyError, RuntimeError):
-                # If anything goes wrong, return empty dict
-                return {}
-
-        # Apply patch
-        urllib.request.getproxies_environment = safe_getproxies
-        urllib.request.getproxies = safe_getproxies
-
-    def _init_metrics(self):
-        """Initialize Ray metrics for monitoring"""
-
-        default_tags = {
-            "id": self.id,
-            "agent_id": self.agent_id,
-        }
-        tag_keys = ("id", "agent_id")
-
-        # Define all metrics in a declarative list
         metrics_config = [
             # (attribute_name, metric_class, name, description, extra_kwargs)
             (
@@ -265,16 +230,72 @@ class AgentActor(abc.ABC):
             ),
             (
                 "handle_latency",
-                Histogram,
+                Gauge,
                 "agent_handle_latency_seconds",
                 "Latency of handling each orchestrator task in seconds",
-                {
-                    "boundaries": self.config.get(
-                        "latency_boundaries", self._get_default_latency_boundaries()
-                    )
-                },
+                {},
+            ),
+            (
+                "dequeue_latency",
+                Gauge,
+                "dequeue_latency_seconds",
+                "Time staying in queue in seconds",
+                {},
+            ),
+            (
+                "throughput",
+                Gauge,
+                "throughput",
+                "num of messages processed in the last window",
+                {},
             ),
         ]
+        self._init_metrics(metrics_config)
+        self.throughput_helper = {
+            "cur_messages_processed": 0,
+            "last_timestamp": time.time(),
+            "last_messages_processed": 0
+        }
+
+    @staticmethod
+    def _patch_getproxies():
+        """Patch urllib to handle concurrent environment modifications in Ray."""
+        import os
+        import urllib.request
+
+        original_getproxies = urllib.request.getproxies_environment
+
+        def safe_getproxies():
+            """Thread-safe version that handles missing keys during iteration."""
+            try:
+                # Create a snapshot of environment to avoid iteration issues
+                env_copy = dict(os.environ)
+                proxies = {}
+                for name in ["http", "https", "ftp", "no"]:
+                    proxy_var = name + "_proxy"
+                    if proxy_var in env_copy:
+                        proxies[name] = env_copy[proxy_var]
+                    elif proxy_var.upper() in env_copy:
+                        proxies[name] = env_copy[proxy_var.upper()]
+                return proxies
+            except (KeyError, RuntimeError):
+                # If anything goes wrong, return empty dict
+                return {}
+
+        # Apply patch
+        urllib.request.getproxies_environment = safe_getproxies
+        urllib.request.getproxies = safe_getproxies
+
+    def _init_metrics(self, metrics_config):
+        """Initialize Ray metrics for monitoring"""
+
+        default_tags = {
+            "id": self.id,
+            "agent_id": self.agent_id,
+        }
+        tag_keys = ("id", "agent_id")
+
+        # Define all metrics in a declarative list
 
         # Create all metrics from the config
         for (
@@ -322,6 +343,8 @@ class AgentActor(abc.ABC):
         return self.resources
 
     async def receive_message(self, orchestrator: Orchestrator):
+        now = time.time()
+        orchestrator.enqueue_timestamp = now
         await self.queue.put(orchestrator)
         self.messages_received.inc()  # type: ignore[attr-defined]
         self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
@@ -352,6 +375,7 @@ class AgentActor(abc.ABC):
 
         while self.running:
             orchestrator = await self.queue.get()
+            self.dequeue_latency.set(time.time() - orchestrator.enqueue_timestamp)
             # Update queue size after getting message
             self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
 
@@ -371,7 +395,7 @@ class AgentActor(abc.ABC):
             await asyncio.gather(*self.pending_tasks, return_exceptions=True)
 
     async def _handle(self, orchestrator: Orchestrator):
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         self.logger.debug(f"Agent {self.agent_id} handling {orchestrator.id}")
         result = await self.preprocess(orchestrator)
@@ -389,9 +413,17 @@ class AgentActor(abc.ABC):
             await orchestrator.cleanup(self, self.resources, self.logger)  # type: ignore[arg-type]
 
         # Record latency and increment messages processed counter
-        latency = time.time() - start_time
-        self.handle_latency.observe(latency)  # type: ignore[attr-defined]
+        latency = time.perf_counter() - start_time
+        self.handle_latency.set(latency)  # type: ignore[attr-defined]
         self.messages_processed.inc()  # type: ignore[attr-defined]
+        self.throughput_helper["cur_messages_processed"] += 1
+        now = time.time()
+        if now - self.throughput_window_timestamp > self.THROUGHPUT_WINDOWS:
+            processed = self.throughput_helper["cur_messages_processed"]
+            throughput = (processed - self.throughput_helper["last_messages_processed"]) / (now - self.throughput_window_timestamp)
+            self.throughput_helper["last_timestamp"] = now
+            self.throughput_helper["last_messages_processed"] = processed
+            self.throughput.set(throughput)
 
     async def shutdown(self):
         """Gracefully shutdown the agent"""
@@ -467,6 +499,31 @@ class Sink(AgentActor):
         self.num_inputs: Optional[int] = None
         self.ray_objects: dict[str, ray.ObjectRef] = {}  # hold the ref to avoid gc
 
+        additional_metrics_config = [
+            (
+                "task_init_latency",
+                Gauge,
+                "task_init_latency_seconds",
+                "task init latency",
+                {},
+            ),
+            (
+                "e2e_latency",
+                Gauge,
+                "e2e_latency_seconds",
+                "end to end task latency",
+                {},
+            ),
+            (
+                "sink_write_latency",
+                Gauge,
+                "sink_write_latency_seconds",
+                "latency to accmulate overall metrics",
+                {},
+            ),
+        ]
+        self._init_metrics(additional_metrics_config)
+
     async def set_metrics_output(
         self,
         metrics_cfg: dict[str, Any],
@@ -504,6 +561,7 @@ class Sink(AgentActor):
 
         if not self.save_success_only or orchestrator.is_success():
             # Run CPU-intensive work in thread pool
+            start_time = time.perf_counter()
             loop = asyncio.get_event_loop()
             data_to_write = await loop.run_in_executor(
                 None,
@@ -512,11 +570,16 @@ class Sink(AgentActor):
                 ),
             )
             self.output_file.write(data_to_write)
-
+            self.sink_write_latency.set(time.perf_counter()-start_time)
         self.num_done += 1
 
         if self.metrics_accumulator:
             self.metrics_accumulator.accumulate(orchestrator)
+
+        now = time.time()
+        orchestrator.finish_timestamp = now
+        self.e2e_latency.set(now - orchestrator.creation_timestamp)
+        self.task_init_latency.set(orchestrator.init_timestamp - orchestrator.creation_timestamp)
 
         if self.num_inputs is not None and self.num_done >= self.num_inputs:
             self.output_file.close()
@@ -754,6 +817,7 @@ class P2PAgentFramework:
                 resources=self.resources,
                 logger=logger,
             )
+            orchestrator.init_timestamp = time.time()
         except Exception as e:
             traceback.print_exc()
             logger.error(
