@@ -160,7 +160,7 @@ class BaseResourceClient:
 # ==== Abstract AgentActor ====
 # @ray.remote
 class AgentActor(abc.ABC):
-    THROUGHPUT_WINDOWS = 5 * 60  # latency in seconds to measure throughput
+    THROUGHPUT_WINDOWS = 60  # latency in seconds to measure throughput
 
     def __init__(
         self,
@@ -444,8 +444,12 @@ class AgentActor(abc.ABC):
             blob = pickle.dumps(next_state)
             size_kb = len(blob) / 1024
             self.ser_size_kb.set(size_kb)
-            orchestrator.append_instrumentation(
+            next_state.append_instrumentation(
                 self.ser_size_kb, self.agent_id, (time.time(), size_kb)
+            )
+            latency = time.perf_counter() - start_time
+            next_state.append_instrumentation(
+                self.handle_latency, self.agent_id, latency
             )
 
             await next_agent.receive_message.remote(next_state)  # type: ignore[attr-defined]
@@ -455,9 +459,6 @@ class AgentActor(abc.ABC):
         # Record latency and increment messages processed counter
         latency = time.perf_counter() - start_time
         self.handle_latency.set(latency)  # type: ignore[attr-defined]
-        orchestrator.append_instrumentation(
-            self.handle_latency, self.agent_id, latency
-        )
         self.messages_processed.inc()  # type: ignore[attr-defined]
         self.throughput_helper["cur_messages_processed"] += 1
         now = time.time()

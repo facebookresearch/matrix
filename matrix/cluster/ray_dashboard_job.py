@@ -180,7 +180,7 @@ class RayDashboardJob:
         if "scrape_configs" in config:
             for job in config["scrape_configs"]:
                 if job.get("job_name") == "ray":
-                    job["scrape_interval"] = new_interval
+                    job["scrape_interval"] = f"{new_interval}s"
                     found = True
                     break
 
