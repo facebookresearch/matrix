@@ -82,7 +82,7 @@ class Cli:
         enable_grafana: bool = False,
         force_new_head: bool = False,
         use_array: bool = True,
-        premetheus_scrape_interval: int = 10,
+        prometheus_scrape_interval: int = 10,
     ) -> tp.Dict[str, tp.Any]:
         """
         Starts the Ray cluster with the specified number of workers and additional configuration.
@@ -107,7 +107,7 @@ class Cli:
             enable_grafana=enable_grafana,
             force_new_head=force_new_head,
             use_array=use_array,
-            premetheus_scrape_interval=premetheus_scrape_interval,
+            prometheus_scrape_interval=prometheus_scrape_interval,
         )
         return convert_to_json_compatible(status)
 

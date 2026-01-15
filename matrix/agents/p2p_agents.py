@@ -46,6 +46,7 @@ class Orchestrator(abc.ABC):
         self.resource_state: dict[str, Any] = {}
         self.status: Dict[str, Any] = {}
         self.creation_timestamp = time.time()
+        self.init_timestamp = 0.0
         self.finish_timestamp = 0.0
         self.enqueue_timestamp = 0.0
         self.instrumentation: list[tuple[str, str, Any]] = []  # list of key value
@@ -58,6 +59,7 @@ class Orchestrator(abc.ABC):
             "seed": self.seed,
             "task": await self.get_task(),
             "creation_timestamp": self.creation_timestamp,
+            "init_timestamp": self.init_timestamp,
             "finish_timestamp": self.finish_timestamp,
             "instrumentation": self.instrumentation,  # temporary
             "history": [
@@ -128,7 +130,6 @@ class Orchestrator(abc.ABC):
 
     def append_instrumentation(self, metric, agent_id, measure):  # temporary
         self.instrumentation.append((metric._name, agent_id, measure))
-
 
 class BaseResourceClient:
     def __init__(self, resource_id: str):
@@ -403,7 +404,7 @@ class AgentActor(abc.ABC):
             latency = time.time() - orchestrator.enqueue_timestamp
             self.dequeue_latency.set(latency)
             orchestrator.append_instrumentation(
-                (self.dequeue_latency, self.agent_id, latency)
+                self.dequeue_latency, self.agent_id, latency
             )
 
             # Update queue size after getting message
@@ -444,7 +445,7 @@ class AgentActor(abc.ABC):
             size_kb = len(blob) / 1024
             self.ser_size_kb.set(size_kb)
             orchestrator.append_instrumentation(
-                (self.ser_size_kb, self.agent_id, size_kb)
+                self.ser_size_kb, self.agent_id, (time.time(), size_kb)
             )
 
             await next_agent.receive_message.remote(next_state)  # type: ignore[attr-defined]
@@ -455,7 +456,7 @@ class AgentActor(abc.ABC):
         latency = time.perf_counter() - start_time
         self.handle_latency.set(latency)  # type: ignore[attr-defined]
         orchestrator.append_instrumentation(
-            (self.handle_latency, self.agent_id, latency)
+            self.handle_latency, self.agent_id, latency
         )
         self.messages_processed.inc()  # type: ignore[attr-defined]
         self.throughput_helper["cur_messages_processed"] += 1
@@ -607,7 +608,6 @@ class Sink(AgentActor):
         orchestrator.finish_timestamp = now
         latency = now - orchestrator.creation_timestamp
         self.e2e_latency.set(latency)
-        orchestrator.append_instrumentation((self.e2e_latency, self.agent_id, latency))
 
         if not self.save_success_only or orchestrator.is_success():
             # Run CPU-intensive work in thread pool
@@ -625,6 +625,9 @@ class Sink(AgentActor):
 
         if self.metrics_accumulator:
             self.metrics_accumulator.accumulate(orchestrator)
+
+        latency = orchestrator.init_timestamp - orchestrator.creation_timestamp
+        self.task_init_latency.set(latency)
 
         if self.num_inputs is not None and self.num_done >= self.num_inputs:
             self.output_file.close()
@@ -849,7 +852,6 @@ class P2PAgentFramework:
             self.team_manager.get_team()[orchestrator.current_agent()]
         )
         try:
-            start_time = time.perf_counter()
             await orchestrator.init(
                 self.simulation_id,
                 self.team_manager.get_team_config()[orchestrator.current_agent()],
@@ -863,9 +865,7 @@ class P2PAgentFramework:
                 resources=self.resources,
                 logger=logger,
             )
-            latency = time.perf_counter() - start_time
-            self.task_init_latency.set(latency)
-            orchestrator.append_instrumentation((self.task_init_latency, "_", latency))
+            orchestrator.init_timestamp = time.time()
         except Exception as e:
             traceback.print_exc()
             logger.error(

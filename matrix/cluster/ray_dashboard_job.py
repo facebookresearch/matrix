@@ -169,7 +169,7 @@ class RayDashboardJob:
 
         return status
 
-    def _update_ray_interval(file_path, new_interval):
+    def _update_ray_interval(self, file_path, new_interval):
         # 1. Read the YAML file
         with open(file_path, "r") as f:
             # Use safe_load to avoid executing arbitrary code

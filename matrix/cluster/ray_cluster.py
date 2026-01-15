@@ -369,7 +369,7 @@ class RayCluster:
         enable_grafana: bool = False,
         force_new_head: bool = False,
         use_array: bool = True,
-        premetheus_scrape_interval: int = 10,
+        prometheus_scrape_interval: int = 10,
     ):
         """
         Starts a Ray cluster on Slurm.
@@ -478,7 +478,7 @@ class RayCluster:
             print(json.dumps(cluster_info_dict, indent=2))
 
         if enable_grafana:
-            self.start_grafana(force=True, scrape_interval=premetheus_scrape_interval)
+            self.start_grafana(force=True, scrape_interval=prometheus_scrape_interval)
 
         # start the workers
         if add_workers > 0:
