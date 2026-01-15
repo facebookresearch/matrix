@@ -129,20 +129,6 @@ class HistoryOrchestrator(Orchestrator):
 
         return self
 
-    async def to_output(self) -> Dict[str, Any]:
-        return {
-            "current_agent": self.current_agent(),
-            "id": self._id,
-            "trial": self.trial,
-            "seed": self.seed,
-            "task": await self.get_task(),
-            "history": [
-                {"agent": msg.agent, "response": await msg.response.to_dict()}
-                for msg in self.history
-            ],
-            "status": self.status,
-        }
-
     async def init(
         self,
         simulation_id: str,
