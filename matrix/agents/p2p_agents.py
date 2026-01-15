@@ -142,7 +142,7 @@ class BaseResourceClient:
 # ==== Abstract AgentActor ====
 # @ray.remote
 class AgentActor(abc.ABC):
-    THROUGHPUT_WINDOWS=5*60 # latency in seconds to measure throughput
+    THROUGHPUT_WINDOWS = 5 * 60  # latency in seconds to measure throughput
 
     def __init__(
         self,
@@ -254,7 +254,7 @@ class AgentActor(abc.ABC):
         self.throughput_helper = {
             "cur_messages_processed": 0,
             "last_timestamp": time.time(),
-            "last_messages_processed": 0
+            "last_messages_processed": 0,
         }
 
     @staticmethod
@@ -418,9 +418,11 @@ class AgentActor(abc.ABC):
         self.messages_processed.inc()  # type: ignore[attr-defined]
         self.throughput_helper["cur_messages_processed"] += 1
         now = time.time()
-        if now - self.throughput_window_timestamp > self.THROUGHPUT_WINDOWS:
+        if now - self.throughput_helper["last_timestamp"] > self.THROUGHPUT_WINDOWS:
             processed = self.throughput_helper["cur_messages_processed"]
-            throughput = (processed - self.throughput_helper["last_messages_processed"]) / (now - self.throughput_window_timestamp)
+            throughput = (
+                processed - self.throughput_helper["last_messages_processed"]
+            ) / (now - self.throughput_helper["last_timestamp"])
             self.throughput_helper["last_timestamp"] = now
             self.throughput_helper["last_messages_processed"] = processed
             self.throughput.set(throughput)
@@ -570,7 +572,7 @@ class Sink(AgentActor):
                 ),
             )
             self.output_file.write(data_to_write)
-            self.sink_write_latency.set(time.perf_counter()-start_time)
+            self.sink_write_latency.set(time.perf_counter() - start_time)
         self.num_done += 1
 
         if self.metrics_accumulator:
@@ -579,7 +581,9 @@ class Sink(AgentActor):
         now = time.time()
         orchestrator.finish_timestamp = now
         self.e2e_latency.set(now - orchestrator.creation_timestamp)
-        self.task_init_latency.set(orchestrator.init_timestamp - orchestrator.creation_timestamp)
+        self.task_init_latency.set(
+            orchestrator.init_timestamp - orchestrator.creation_timestamp
+        )
 
         if self.num_inputs is not None and self.num_done >= self.num_inputs:
             self.output_file.close()
