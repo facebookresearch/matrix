@@ -72,7 +72,8 @@ class RayDict(dict):
                 and isinstance(v, str)
                 and len(v) > cls.TEXT_SIZE_THRESHOLD
             ):
-                handle = ray.put(v)
+                # put with registry as owner otherwise ray will release when owner died even if there is reference.
+                handle = ray.put(v, _owner=registry)
                 self[f"{k}_ref"] = handle
                 await registry.register_object.remote([handle])  # type: ignore[attr-defined]
             elif k in cls.FIXED_FIELDS:
