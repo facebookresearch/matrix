@@ -101,27 +101,32 @@ def analyze_latency_breakdown(records: list[dict[str, Any]]) -> pd.DataFrame:
         for metric_type, roles in metrics_to_roles.items():
             # Calculate sum across all roles for this metric
             metric_sum = sum(
-                latency_by_metric_role.get((metric_type, role), 0)
-                for role in roles
+                latency_by_metric_role.get((metric_type, role), 0) for role in roles
             )
             # Remove "_seconds" suffix for cleaner naming
             metric_base = metric_type.replace("_seconds", "")
             task_data[f"sum_{metric_base}_seconds"] = metric_sum
-            task_data[f"pct_sum_{metric_base}"] = (metric_sum / e2e_delay * 100) if e2e_delay > 0 else 0
+            task_data[f"pct_sum_{metric_base}"] = (
+                (metric_sum / e2e_delay * 100) if e2e_delay > 0 else 0
+            )
 
             # If multiple roles, also add per-role breakdown
             if len(roles) > 1:
                 for role in roles:
                     role_val = latency_by_metric_role.get((metric_type, role), 0)
                     task_data[f"{metric_base}_{role}_seconds"] = role_val
-                    task_data[f"pct_{metric_base}_{role}"] = (role_val / e2e_delay * 100) if e2e_delay > 0 else 0
+                    task_data[f"pct_{metric_base}_{role}"] = (
+                        (role_val / e2e_delay * 100) if e2e_delay > 0 else 0
+                    )
 
         task_metrics.append(task_data)
 
     return pd.DataFrame(task_metrics)
 
 
-def compute_latency_summary_stats(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def compute_latency_summary_stats(
+    df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Compute summary statistics for latency metrics.
 
@@ -136,7 +141,9 @@ def compute_latency_summary_stats(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Da
         numeric_cols.remove("task_id")
 
     # Separate absolute and percentage columns
-    abs_cols = [c for c in numeric_cols if c.endswith("_seconds") or c == "e2e_delay_seconds"]
+    abs_cols = [
+        c for c in numeric_cols if c.endswith("_seconds") or c == "e2e_delay_seconds"
+    ]
     pct_cols = [c for c in numeric_cols if c.startswith("pct_")]
 
     def compute_stats(cols):
@@ -154,9 +161,7 @@ def compute_latency_summary_stats(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Da
     return compute_stats(abs_cols), compute_stats(pct_cols)
 
 
-def extract_events_from_records(
-    records: list[dict[str, Any]]
-) -> pd.DataFrame:
+def extract_events_from_records(records: list[dict[str, Any]]) -> pd.DataFrame:
     """
     Extract all ser_seize_kb events from records.
 
@@ -175,12 +180,14 @@ def extract_events_from_records(
 
             if metric_type == "ser_seize_kb":
                 timestamp, kb = value
-                events.append({
-                    "task_id": task_id,
-                    "role": role,
-                    "timestamp": timestamp,
-                    "kb": kb,
-                })
+                events.append(
+                    {
+                        "task_id": task_id,
+                        "role": role,
+                        "timestamp": timestamp,
+                        "kb": kb,
+                    }
+                )
 
     if not events:
         return pd.DataFrame()
@@ -220,7 +227,7 @@ def analyze_throughput_breakdown(
     # Use binary search for efficient window lookups
     window_starts = timestamps - window_seconds
     # For each event, find the first event index in window using searchsorted
-    left_indices = np.searchsorted(timestamps, window_starts, side='left')
+    left_indices = np.searchsorted(timestamps, window_starts, side="left")
 
     # Pre-compute cumulative counts per role for O(1) range queries
     role_cumsum = {}
@@ -264,17 +271,21 @@ def analyze_throughput_breakdown(
         col = f"throughput_{role}_per_sec"
         role_event_count = (roles == role).sum()
         vals = df_throughput[col]
-        role_stats_data.append({
-            "role": role,
-            "total_events": role_event_count,
-            "avg_throughput_events_per_sec": role_event_count / time_span if time_span > 0 else 0,
-            "throughput_mean": vals.mean(),
-            "throughput_std": vals.std(),
-            "throughput_min": vals.min(),
-            "throughput_p50": vals.quantile(0.5),
-            "throughput_p90": vals.quantile(0.9),
-            "throughput_max": vals.max(),
-        })
+        role_stats_data.append(
+            {
+                "role": role,
+                "total_events": role_event_count,
+                "avg_throughput_events_per_sec": (
+                    role_event_count / time_span if time_span > 0 else 0
+                ),
+                "throughput_mean": vals.mean(),
+                "throughput_std": vals.std(),
+                "throughput_min": vals.min(),
+                "throughput_p50": vals.quantile(0.5),
+                "throughput_p90": vals.quantile(0.9),
+                "throughput_max": vals.max(),
+            }
+        )
 
     df_role_stats = pd.DataFrame(role_stats_data).set_index("role")
 
@@ -282,7 +293,9 @@ def analyze_throughput_breakdown(
     overall_stats = {
         "total_events": len(df_events),
         "time_span_seconds": time_span,
-        "avg_throughput_events_per_sec": len(df_events) / time_span if time_span > 0 else 0,
+        "avg_throughput_events_per_sec": (
+            len(df_events) / time_span if time_span > 0 else 0
+        ),
         "throughput_total_mean": df_throughput["throughput_total_per_sec"].mean(),
         "throughput_total_std": df_throughput["throughput_total_per_sec"].std(),
         "throughput_total_p50": df_throughput["throughput_total_per_sec"].quantile(0.5),
@@ -324,7 +337,7 @@ def analyze_network_bandwidth(
 
     # Use binary search for efficient window lookups
     window_starts = timestamps - window_seconds
-    left_indices = np.searchsorted(timestamps, window_starts, side='left')
+    left_indices = np.searchsorted(timestamps, window_starts, side="left")
 
     # Pre-compute cumulative KB sums per role for O(1) range queries
     role_kb_cumsum = {}
@@ -359,19 +372,23 @@ def analyze_network_bandwidth(
         role_bw_col = f"bandwidth_{role}_kb_per_sec"
         role_kb = kb_values[role_mask]
 
-        role_stats_data.append({
-            "role": role,
-            "event_count": role_mask.sum(),
-            "total_kb": role_kb.sum(),
-            "kb_mean": role_kb.mean() if len(role_kb) > 0 else 0,
-            "kb_std": role_kb.std() if len(role_kb) > 0 else 0,
-            "avg_bandwidth_kb_per_sec": role_kb.sum() / time_span if time_span > 0 else 0,
-            "bandwidth_mean": df[role_bw_col].mean(),
-            "bandwidth_std": df[role_bw_col].std(),
-            "bandwidth_p50": df[role_bw_col].quantile(0.5),
-            "bandwidth_p90": df[role_bw_col].quantile(0.9),
-            "bandwidth_max": df[role_bw_col].max(),
-        })
+        role_stats_data.append(
+            {
+                "role": role,
+                "event_count": role_mask.sum(),
+                "total_kb": role_kb.sum(),
+                "kb_mean": role_kb.mean() if len(role_kb) > 0 else 0,
+                "kb_std": role_kb.std() if len(role_kb) > 0 else 0,
+                "avg_bandwidth_kb_per_sec": (
+                    role_kb.sum() / time_span if time_span > 0 else 0
+                ),
+                "bandwidth_mean": df[role_bw_col].mean(),
+                "bandwidth_std": df[role_bw_col].std(),
+                "bandwidth_p50": df[role_bw_col].quantile(0.5),
+                "bandwidth_p90": df[role_bw_col].quantile(0.9),
+                "bandwidth_max": df[role_bw_col].max(),
+            }
+        )
 
     df_role_stats = pd.DataFrame(role_stats_data).set_index("role")
 
@@ -439,7 +456,9 @@ def print_bandwidth_timeseries(
     print(f" BANDWIDTH TIME SERIES (non-uniform bins, more detail at start)")
     print("=" * 80)
     print(f"Time range: {t_range:.2f}s, p90={bw_p90:.2f} KB/s, max={bw_max:.2f} KB/s")
-    print(f"Spike threshold: > {spike_threshold:.2f} KB/s (>{spike_threshold_mult}x p90)")
+    print(
+        f"Spike threshold: > {spike_threshold:.2f} KB/s (>{spike_threshold_mult}x p90)"
+    )
     print(f"Legend: [=] normal, [#] > p90, [!] > {spike_threshold_mult}x p90 (spike)")
     print("-" * 80)
 
@@ -451,7 +470,9 @@ def print_bandwidth_timeseries(
 
     if early_bins > 0 and late_bins > 0:
         early_edges = np.linspace(t_min, t_min + early_time, early_bins + 1)
-        late_edges = np.linspace(t_min + early_time, t_max, late_bins + 1)[1:]  # Skip first to avoid duplicate
+        late_edges = np.linspace(t_min + early_time, t_max, late_bins + 1)[
+            1:
+        ]  # Skip first to avoid duplicate
         bin_edges = np.concatenate([early_edges, late_edges])
     else:
         bin_edges = np.linspace(t_min, t_max, num_bins + 1)
@@ -507,9 +528,13 @@ def print_bandwidth_timeseries(
 
         # Add phase separator
         if i == early_bins:
-            print(f"\n[LATE PHASE: remaining {t_range - early_time:.2f}s with {late_bins} bins]")
+            print(
+                f"\n[LATE PHASE: remaining {t_range - early_time:.2f}s with {late_bins} bins]"
+            )
 
-        print(f"[{t_start:7.3f}s-{t_end:7.3f}s] |{bar:<{width}}| {bin_max_bw[i]:10.2f} KB/s{marker}")
+        print(
+            f"[{t_start:7.3f}s-{t_end:7.3f}s] |{bar:<{width}}| {bin_max_bw[i]:10.2f} KB/s{marker}"
+        )
 
     # Print spike details
     spike_events = []
@@ -519,7 +544,9 @@ def print_bandwidth_timeseries(
 
     if spike_events:
         print("\n" + "-" * 80)
-        print(f"SPIKE DETAILS ({len(spike_events)} events > {spike_threshold:.2f} KB/s):")
+        print(
+            f"SPIKE DETAILS ({len(spike_events)} events > {spike_threshold:.2f} KB/s):"
+        )
         print("-" * 80)
         # Sort by bandwidth descending
         spike_events.sort(key=lambda x: -x[1])
@@ -559,14 +586,24 @@ def print_bandwidth_timeseries(
         pct_extreme = (total_extreme_time / t_range * 100) if t_range > 0 else 0
 
         print("\n" + "-" * 80)
-        print(f"EXTREME BANDWIDTH (> {extreme_threshold_mult:.0f}x p90 = {extreme_threshold:.2f} KB/s):")
+        print(
+            f"EXTREME BANDWIDTH (> {extreme_threshold_mult:.0f}x p90 = {extreme_threshold:.2f} KB/s):"
+        )
         print("-" * 80)
-        print(f"  Events with bandwidth > {extreme_threshold_mult:.0f}x p90: {extreme_count}")
-        print(f"  Estimated total duration: {total_extreme_time:.4f}s ({pct_extreme:.2f}% of total time)")
-        print(f"  Time range affected: {extreme_timestamps.min() - t_min:.4f}s to {extreme_timestamps.max() - t_min:.4f}s")
+        print(
+            f"  Events with bandwidth > {extreme_threshold_mult:.0f}x p90: {extreme_count}"
+        )
+        print(
+            f"  Estimated total duration: {total_extreme_time:.4f}s ({pct_extreme:.2f}% of total time)"
+        )
+        print(
+            f"  Time range affected: {extreme_timestamps.min() - t_min:.4f}s to {extreme_timestamps.max() - t_min:.4f}s"
+        )
 
         # Show top extreme events
-        extreme_events = [(t, b) for t, b in zip(timestamps[extreme_mask], bw_values[extreme_mask])]
+        extreme_events = [
+            (t, b) for t, b in zip(timestamps[extreme_mask], bw_values[extreme_mask])
+        ]
         extreme_events.sort(key=lambda x: -x[1])
         print(f"  Top 10 extreme events:")
         for t, b in extreme_events[:10]:
@@ -574,7 +611,9 @@ def print_bandwidth_timeseries(
             mult = b / bw_p90 if bw_p90 > 0 else 0
             print(f"    t={relative_t:8.4f}s: {b:12.2f} KB/s ({mult:6.1f}x p90)")
     else:
-        print(f"\nNo events with bandwidth > {extreme_threshold_mult:.0f}x p90 ({extreme_threshold:.2f} KB/s)")
+        print(
+            f"\nNo events with bandwidth > {extreme_threshold_mult:.0f}x p90 ({extreme_threshold:.2f} KB/s)"
+        )
 
     print()
 
@@ -623,8 +662,14 @@ def main():
     df_latency = analyze_latency_breakdown(records)
     latency_abs_stats, latency_pct_stats = compute_latency_summary_stats(df_latency)
 
-    print_table("LATENCY BREAKDOWN - ALL TASKS (absolute, sorted by median desc)", latency_abs_stats)
-    print_table("LATENCY BREAKDOWN - ALL TASKS (percentages, sorted by median desc)", latency_pct_stats)
+    print_table(
+        "LATENCY BREAKDOWN - ALL TASKS (absolute, sorted by median desc)",
+        latency_abs_stats,
+    )
+    print_table(
+        "LATENCY BREAKDOWN - ALL TASKS (percentages, sorted by median desc)",
+        latency_pct_stats,
+    )
 
     # Analyze tasks by latency percentiles
     e2e_p25 = df_latency["e2e_delay_seconds"].quantile(0.25)
@@ -635,23 +680,45 @@ def main():
     df_above_p50 = df_latency[df_latency["e2e_delay_seconds"] >= e2e_p50]
     df_above_p90 = df_latency[df_latency["e2e_delay_seconds"] >= e2e_p90]
 
-    print(f"\ne2e_delay thresholds: p25={e2e_p25:.4f}s, p50={e2e_p50:.4f}s, p90={e2e_p90:.4f}s")
-    print(f"Tasks below p25: {len(df_below_p25)}, above p50: {len(df_above_p50)}, above p90: {len(df_above_p90)}")
+    print(
+        f"\ne2e_delay thresholds: p25={e2e_p25:.4f}s, p50={e2e_p50:.4f}s, p90={e2e_p90:.4f}s"
+    )
+    print(
+        f"Tasks below p25: {len(df_below_p25)}, above p50: {len(df_above_p50)}, above p90: {len(df_above_p90)}"
+    )
 
     # Below p25 (fast tasks)
     abs_below_p25, pct_below_p25 = compute_latency_summary_stats(df_below_p25)
-    print_table(f"LATENCY - TASKS BELOW P25 (< {e2e_p25:.4f}s, n={len(df_below_p25)}) absolute", abs_below_p25)
-    print_table(f"LATENCY - TASKS BELOW P25 (< {e2e_p25:.4f}s, n={len(df_below_p25)}) percentages", pct_below_p25)
+    print_table(
+        f"LATENCY - TASKS BELOW P25 (< {e2e_p25:.4f}s, n={len(df_below_p25)}) absolute",
+        abs_below_p25,
+    )
+    print_table(
+        f"LATENCY - TASKS BELOW P25 (< {e2e_p25:.4f}s, n={len(df_below_p25)}) percentages",
+        pct_below_p25,
+    )
 
     # Above p50 (slow tasks)
     abs_above_p50, pct_above_p50 = compute_latency_summary_stats(df_above_p50)
-    print_table(f"LATENCY - TASKS ABOVE P50 (>= {e2e_p50:.4f}s, n={len(df_above_p50)}) absolute", abs_above_p50)
-    print_table(f"LATENCY - TASKS ABOVE P50 (>= {e2e_p50:.4f}s, n={len(df_above_p50)}) percentages", pct_above_p50)
+    print_table(
+        f"LATENCY - TASKS ABOVE P50 (>= {e2e_p50:.4f}s, n={len(df_above_p50)}) absolute",
+        abs_above_p50,
+    )
+    print_table(
+        f"LATENCY - TASKS ABOVE P50 (>= {e2e_p50:.4f}s, n={len(df_above_p50)}) percentages",
+        pct_above_p50,
+    )
 
     # Above p90 (very slow tasks)
     abs_above_p90, pct_above_p90 = compute_latency_summary_stats(df_above_p90)
-    print_table(f"LATENCY - TASKS ABOVE P90 (>= {e2e_p90:.4f}s, n={len(df_above_p90)}) absolute", abs_above_p90)
-    print_table(f"LATENCY - TASKS ABOVE P90 (>= {e2e_p90:.4f}s, n={len(df_above_p90)}) percentages", pct_above_p90)
+    print_table(
+        f"LATENCY - TASKS ABOVE P90 (>= {e2e_p90:.4f}s, n={len(df_above_p90)}) absolute",
+        abs_above_p90,
+    )
+    print_table(
+        f"LATENCY - TASKS ABOVE P90 (>= {e2e_p90:.4f}s, n={len(df_above_p90)}) percentages",
+        pct_above_p90,
+    )
 
     # Show per-task sample
     print_table(
@@ -668,16 +735,30 @@ def main():
 
         # Analyze throughput breakdown (events per second per role)
         print("\nAnalyzing throughput breakdown (per-role event rate)...")
-        df_throughput, throughput_role_stats, overall_tp_stats = analyze_throughput_breakdown(
-            df_events, window_seconds=args.window
+        df_throughput, throughput_role_stats, overall_tp_stats = (
+            analyze_throughput_breakdown(df_events, window_seconds=args.window)
         )
 
-        print_table("THROUGHPUT BREAKDOWN - OVERALL STATISTICS", overall_tp_stats.to_frame("value"))
-        print_table("THROUGHPUT BREAKDOWN - PER-ROLE STATISTICS (events/sec)", throughput_role_stats)
+        print_table(
+            "THROUGHPUT BREAKDOWN - OVERALL STATISTICS",
+            overall_tp_stats.to_frame("value"),
+        )
+        print_table(
+            "THROUGHPUT BREAKDOWN - PER-ROLE STATISTICS (events/sec)",
+            throughput_role_stats,
+        )
 
         # Show throughput columns only for sample
-        tp_sample_cols = ["timestamp", "role", "task_id", "throughput_total_per_sec"] + \
-            [c for c in df_throughput.columns if c.startswith("throughput_") and c != "throughput_total_per_sec"]
+        tp_sample_cols = [
+            "timestamp",
+            "role",
+            "task_id",
+            "throughput_total_per_sec",
+        ] + [
+            c
+            for c in df_throughput.columns
+            if c.startswith("throughput_") and c != "throughput_total_per_sec"
+        ]
         print_table(
             "THROUGHPUT BREAKDOWN - SAMPLE EVENTS (first 20)",
             df_throughput[tp_sample_cols].head(20),
@@ -689,7 +770,9 @@ def main():
             df_events, window_seconds=args.window
         )
 
-        print_table("NETWORK BANDWIDTH - OVERALL STATISTICS", overall_bw_stats.to_frame("value"))
+        print_table(
+            "NETWORK BANDWIDTH - OVERALL STATISTICS", overall_bw_stats.to_frame("value")
+        )
         print_table("NETWORK BANDWIDTH - PER-ROLE STATISTICS", bw_role_stats)
         print_table(
             "NETWORK BANDWIDTH - SAMPLE EVENTS (first 20)",
@@ -708,12 +791,18 @@ def main():
             df_latency.to_csv(f"{args.output_prefix}_latency_per_task.csv", index=False)
             latency_abs_stats.to_csv(f"{args.output_prefix}_latency_abs_stats.csv")
             latency_pct_stats.to_csv(f"{args.output_prefix}_latency_pct_stats.csv")
-            df_throughput.to_csv(f"{args.output_prefix}_throughput_events.csv", index=False)
-            throughput_role_stats.to_csv(f"{args.output_prefix}_throughput_role_stats.csv")
+            df_throughput.to_csv(
+                f"{args.output_prefix}_throughput_events.csv", index=False
+            )
+            throughput_role_stats.to_csv(
+                f"{args.output_prefix}_throughput_role_stats.csv"
+            )
             overall_tp_stats.to_frame("value").to_csv(
                 f"{args.output_prefix}_throughput_overall_stats.csv"
             )
-            df_bandwidth.to_csv(f"{args.output_prefix}_bandwidth_events.csv", index=False)
+            df_bandwidth.to_csv(
+                f"{args.output_prefix}_bandwidth_events.csv", index=False
+            )
             bw_role_stats.to_csv(f"{args.output_prefix}_bandwidth_role_stats.csv")
             overall_bw_stats.to_frame("value").to_csv(
                 f"{args.output_prefix}_bandwidth_overall_stats.csv"

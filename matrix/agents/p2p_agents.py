@@ -38,6 +38,74 @@ from .agent_utils import get_ray_actor_class, setup_logging
 logger = logging.getLogger(__name__)
 
 
+# ==== Utility Functions ====
+async def send_with_retry(
+    orchestrator: "Orchestrator",
+    role: str,
+    sink: ray.actor.ActorHandle,
+    local_cache: Dict[str, List[ray.actor.ActorHandle]],
+    log: logging.Logger,
+    timeout: float = 60.0,
+    max_retries: int = 3,
+) -> Dict[str, List[ray.actor.ActorHandle]]:
+    """
+    Send orchestrator to an agent with local cache and fault-tolerant retry.
+
+    Args:
+        orchestrator: The orchestrator state to send
+        role: The role name of the target agent
+        sink: The sink actor handle for registry lookups
+        local_cache: Local team cache dict (will be updated on refresh)
+        log: Logger instance for warnings
+        timeout: Timeout for actor acquisition
+        max_retries: Maximum retry attempts
+
+    Returns:
+        Updated local_cache dict
+
+    Raises:
+        RuntimeError: If all retries exhausted
+    """
+    last_exception = None
+
+    for attempt in range(max_retries):
+        try:
+            if role == "_sink":
+                agent = sink
+            elif attempt == 0 and role in local_cache and local_cache[role]:
+                # First attempt: use local cache for speed
+                agent = random.choice(local_cache[role])
+            else:
+                # Fallback: get from sink with force refresh and update local cache
+                agent = await sink.get_actor.remote(role, timeout, True)
+                local_cache = await sink.get_team_snapshot.remote()
+
+            await agent.receive_message.remote(orchestrator)
+            return local_cache  # Success
+        except ray.exceptions.RayActorError as e:
+            last_exception = e
+            log.warning(
+                f"Actor {role} is dead (attempt {attempt + 1}/{max_retries}): {repr(e)}"
+            )
+            # Clear local cache for this role to force refresh
+            local_cache.pop(role, None)
+            continue
+        except TimeoutError as e:
+            last_exception = e
+            log.warning(
+                f"Timeout getting actor {role} (attempt {attempt + 1}/{max_retries}): {repr(e)}"
+            )
+            continue
+        except Exception:
+            # For other exceptions, don't retry
+            raise
+
+    # All retries exhausted
+    raise RuntimeError(
+        f"Failed to send to {role} after {max_retries} attempts: {last_exception}"
+    )
+
+
 # ==== Abstract Orchestrator ====
 class Orchestrator(abc.ABC):
 
@@ -131,6 +199,7 @@ class Orchestrator(abc.ABC):
     def append_instrumentation(self, metric, agent_id, measure):  # temporary
         self.instrumentation.append((metric._name, agent_id, measure))
 
+
 class BaseResourceClient:
     def __init__(self, resource_id: str):
         self.resource_id = resource_id
@@ -168,6 +237,7 @@ class AgentActor(abc.ABC):
         agent_id: str,
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
+        sink: Optional[ray.actor.ActorHandle] = None,
     ):
         # PATCH FIRST - before any HTTP clients are created
         self._patch_getproxies()
@@ -189,11 +259,24 @@ class AgentActor(abc.ABC):
 
         self.queue: asyncio.Queue["Orchestrator"] = asyncio.Queue()
         self.running = True  # should run forever
-        self.event_loop_task: None | asyncio.Task = None
         self.pending_tasks: set[asyncio.Task] = set()
         self.system_prompt = system_prompt
         self.logger = logging.getLogger(self.__class__.__name__)
         setup_logging(self.logger, self.debug)
+
+        # Store sink reference and start event loop
+        # For Sink actor itself, sink will be None (set later via _set_self_as_sink)
+        self.sink = sink
+        # Local team cache for fast actor lookup, updated from sink on failure
+        self._local_team_cache: Dict[str, List[ray.actor.ActorHandle]] = {}
+
+        if self.sink is not None:
+            # Start event loop immediately since we have sink reference
+            self.event_loop_task: Optional[asyncio.Task] = (
+                asyncio.get_event_loop().create_task(self._event_loop())
+            )
+        else:
+            self.event_loop_task = None
 
         metrics_config = [
             # (attribute_name, metric_class, name, description, extra_kwargs)
@@ -359,12 +442,6 @@ class AgentActor(abc.ABC):
             1800.0,
         ]
 
-    async def set_team(self, team: Dict[str, list[ray.actor.ActorHandle]]):
-        self.sink = team["_sink"][0]
-        self.team = team
-        if self.event_loop_task is None:
-            self.event_loop_task = asyncio.create_task(self._event_loop())
-
     def get_resources(self):
         return self.resources
 
@@ -435,10 +512,9 @@ class AgentActor(abc.ABC):
         if self.agent_id != "_sink":
             next_state = await orchestrator.update(result, self, self.logger)
             if await next_state.is_done():
-                next_agent = self.sink
+                next_agent_name = "_sink"
             else:
                 next_agent_name = next_state.current_agent()
-                next_agent = random.choice(self.team[next_agent_name])
 
             # temporary
             blob = pickle.dumps(next_state)
@@ -452,7 +528,14 @@ class AgentActor(abc.ABC):
                 self.handle_latency, self.agent_id, latency
             )
 
-            await next_agent.receive_message.remote(next_state)  # type: ignore[attr-defined]
+            # Send to next agent with fault-tolerant retry
+            self._local_team_cache = await send_with_retry(
+                next_state,
+                next_agent_name,
+                self.sink,
+                self._local_team_cache,
+                self.logger,
+            )
         else:
             await orchestrator.cleanup(self, self.resources, self.logger)  # type: ignore[arg-type]
 
@@ -533,6 +616,11 @@ class BaseMetricsAccumulator(abc.ABC):
 
 # @ray.remote
 class Sink(AgentActor):
+    # Constants for team registry
+    REFRESH_INTERVAL = 30.0  # seconds between periodic refreshes
+    GET_ACTOR_TIMEOUT = 60.0  # default timeout for get_actor calls
+    GET_ACTOR_RETRY_INTERVAL = 1.0  # seconds between retries
+
     def __init__(
         self,
         id,
@@ -540,10 +628,18 @@ class Sink(AgentActor):
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
     ):
-        super().__init__(id, agent_id, config, resources)  # type: ignore[arg-type]
+        # Sink is its own sink - pass self to parent (self is valid before super())
+        super().__init__(id, agent_id, config, resources, sink=self)  # type: ignore[arg-type]
+
         self.num_done = 0
         self.num_inputs: Optional[int] = None
         self.ray_objects: dict[str, ray.ObjectRef] = {}  # hold the ref to avoid gc
+
+        # Team registry: Sink is the source of truth for actor handles
+        self._team: Dict[str, List[ray.actor.ActorHandle]] = {}
+        self._team_config: Dict[str, Tuple[int, str]] = {}  # role -> (count, namespace)
+        self._team_lock = asyncio.Lock()
+        self._refresh_task: Optional[asyncio.Task] = None
 
         additional_metrics_config = [
             (
@@ -647,6 +743,29 @@ class Sink(AgentActor):
     async def check_health(self):
         return True
 
+    async def shutdown(self):
+        """Gracefully shutdown the Sink agent and cancel refresh task."""
+        if self._refresh_task is not None:
+            self._refresh_task.cancel()
+            try:
+                await self._refresh_task
+            except asyncio.CancelledError:
+                pass
+            self._refresh_task = None
+        await super().shutdown()
+
+    async def shutdown_all(self):
+        """Shutdown all actors in the team registry, then shutdown self."""
+        async with self._team_lock:
+            for role, actors in self._team.items():
+                for actor in actors:
+                    try:
+                        await actor.shutdown.remote()
+                    except Exception as e:
+                        self.logger.warning(f"Error shutting down {role}: {repr(e)}")
+        # Finally shutdown self
+        await self.shutdown()
+
     async def register_object(self, obj: list[ray.ObjectRef]):
         o = obj[0]
         self.ray_objects[o.hex()] = o  # type: ignore[attr-defined]
@@ -655,69 +774,201 @@ class Sink(AgentActor):
         for o in obj:
             self.ray_objects.pop(o.hex(), None)  # type: ignore[attr-defined]
 
+    # ==== Team Registry Methods ====
+    async def set_team_registry(
+        self,
+        team_config: Dict[str, Tuple[int, str]],
+        initial_team: Optional[Dict[str, List[ray.actor.ActorHandle]]] = None,
+    ):
+        """
+        Initialize the team registry in Sink.
+
+        Args:
+            team_config: Dict mapping role -> (count, namespace) for actor lookup
+            initial_team: Optional pre-verified actor handles to avoid initial lookup race
+        """
+        async with self._team_lock:
+            self._team_config = team_config
+            self._team = initial_team if initial_team is not None else {}
+
+        # Only do initial refresh if we didn't get pre-verified handles
+        if initial_team is None:
+            await self._refresh_team_internal()
+
+        # Start periodic refresh task
+        if self._refresh_task is None:
+            self._refresh_task = asyncio.create_task(self._periodic_refresh())
+        self.logger.info(
+            f"Team registry initialized with roles: {list(team_config.keys())}"
+        )
+
+    async def _periodic_refresh(self):
+        """Background task to periodically refresh actor handles."""
+        while self.running:
+            try:
+                await asyncio.sleep(self.REFRESH_INTERVAL)
+                await self._refresh_team_internal()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning(f"Error in periodic team refresh: {repr(e)}")
+
+    async def _refresh_team_internal(self):
+        """Internal method to refresh all actor handles from Ray."""
+        async with self._team_lock:
+            for role, (count, namespace) in self._team_config.items():
+                new_handles = []
+                for i in range(count):
+                    actor_name = f"{role}_{i}"
+                    try:
+                        handle = ray.get_actor(actor_name, namespace=namespace)
+                        new_handles.append(handle)
+                    except ValueError:
+                        # Actor not found (not yet restarted)
+                        self.logger.warning(
+                            f"Actor {actor_name} not found in namespace {namespace}"
+                        )
+                if new_handles:
+                    self._team[role] = new_handles
+            self.logger.debug(f"Team refreshed: {list(self._team.keys())}")
+
+    async def force_refresh(self):
+        """Force an immediate refresh of all actor handles."""
+        await self._refresh_team_internal()
+
+    async def get_actor(
+        self, role: str, timeout: Optional[float] = None, force_refresh: bool = False
+    ) -> ray.actor.ActorHandle:
+        """
+        Get a random actor handle for the given role.
+        Blocks until an actor is available or timeout expires.
+
+        Args:
+            role: The role name to get an actor for
+            timeout: Maximum time to wait in seconds (default: GET_ACTOR_TIMEOUT)
+            force_refresh: If True, refresh handles before returning
+
+        Returns:
+            A random actor handle for the role
+
+        Raises:
+            TimeoutError: If no actor is available within timeout
+            KeyError: If role is not registered
+        """
+        if timeout is None:
+            timeout = self.GET_ACTOR_TIMEOUT
+
+        if force_refresh:
+            await self._refresh_team_internal()
+
+        start_time = time.time()
+        while True:
+            async with self._team_lock:
+                if role in self._team and self._team[role]:
+                    return random.choice(self._team[role])
+
+            # Check timeout
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                raise TimeoutError(
+                    f"Timeout waiting for actor with role '{role}' after {timeout}s"
+                )
+
+            # Wait and retry
+            self.logger.debug(
+                f"No actor available for role '{role}', retrying in {self.GET_ACTOR_RETRY_INTERVAL}s"
+            )
+            await asyncio.sleep(self.GET_ACTOR_RETRY_INTERVAL)
+            await self._refresh_team_internal()
+
+    async def get_team_snapshot(self) -> Dict[str, List[ray.actor.ActorHandle]]:
+        """Get a snapshot of the current team map."""
+        async with self._team_lock:
+            return dict(self._team)
+
 
 class ScalableTeamManager:
     """Manages teams with multiple actors per role using load balancers when needed"""
 
     def __init__(self, simulation_id: str):
         self.simulation_id = simulation_id
-        self.team: Dict[str, List[ray.actor.ActorHandle]] = {}
         self.teamConfig: Dict[str, Tuple[Type, DictConfig]] = {}
+        # Team registry config: role -> (count, namespace) for actor lookup
+        self.team_registry_config: Dict[str, Tuple[int, str]] = {}
+        # Sink actor handle - must be created first
+        self.sink: Optional[ray.actor.ActorHandle] = None
 
     def create_role(self, role_name: str, agent_config: DictConfig, resources):
-        """Create agents for a role. Uses load balancer only if count > 1"""
+        """Create agents for a role. _sink must be created first."""
+        is_sink = role_name == "_sink"
 
-        # Create agents (your existing AgentActor - no names!)
-        agents = []
-        count = agent_config.get("num_instances", 1)
+        if not is_sink and self.sink is None:
+            raise ValueError("Sink (_sink) must be created first")
+
+        count = 1 if is_sink else agent_config.get("num_instances", 1)
         ray_resources: dict[str, Any] = {}
         if "ray_resources" in agent_config:
             ray_resources = OmegaConf.to_container(  # type: ignore[assignment]
                 agent_config["ray_resources"], resolve=True
             )
 
-        # Create agent actor - need to get the class first, then create remote
-        agent_class = get_ray_actor_class(
-            agent_config._target_
-        )  # This is already a Ray remote class
+        agent_class = get_ray_actor_class(agent_config._target_)
 
+        # Sink should not restart; other actors restart infinitely
+        max_restarts = 0 if is_sink else -1
+
+        agents = []
         for i in range(count):
-            # No agent_id parameter to avoid naming conflicts
+            kwargs = {
+                "id": f"{self.simulation_id}_{role_name}_{i}",
+                "agent_id": role_name,
+                "config": agent_config,
+                "resources": resources,
+            }
+            if not is_sink:
+                kwargs["sink"] = self.sink
+
             agent = agent_class.options(
-                name=f"{role_name}_{i}",  # per-role unique index
-                namespace=self.simulation_id,  # simulation id groups them
+                name=f"{role_name}_{i}",
+                namespace=self.simulation_id,
+                max_restarts=max_restarts,
                 **ray_resources,
-            ).remote(
-                id=f"{self.simulation_id}_{role_name}_{i}",
-                agent_id=role_name,
-                config=agent_config,
-                resources=resources,
+            ).remote(**kwargs)
+
+            logger.info(
+                f"Created agent: {role_name} id={agent._actor_id.hex()} max_restarts={max_restarts}"
             )
-            logger.info(f"Created agent: {role_name} id={agent._actor_id.hex()}")
             agents.append(agent)
 
-        self.team[role_name] = agents
+        if is_sink:
+            self.sink = agents[0]
+
         self.teamConfig[role_name] = (
             agent_class.__ray_metadata__.modified_class,
             agent_config,
         )
+        # Only add non-sink roles to registry (sink won't restart)
+        if not is_sink:
+            self.team_registry_config[role_name] = (count, self.simulation_id)
 
         return agents
 
-    async def initialize_team(self):
-        """Initialize all agents with team references"""
+    async def initialize_team(self, team: Dict[str, List[ray.actor.ActorHandle]]):
+        """Initialize all agents with team references.
 
-        # Check Ray Actor health
-        all_actors = {
-            f"{name}_{i}": actor
-            for name, actor_list in self.team.items()
-            for i, actor in enumerate(actor_list)
-        }
-        logger.info(f"Checking Ray actor health for {list(all_actors.keys())}")
+        Args:
+            team: Dict mapping role -> list of actor handles (from create_role return values)
+        """
+        # Use handles from create_role directly (avoid race with ray.get_actor)
+        all_actors = [self.sink]
+        for role_handles in team.values():
+            all_actors.extend(role_handles)
+
+        logger.info(f"Checking Ray actor health for {len(all_actors)} actors")
         try:
             await asyncio.wait_for(
                 asyncio.gather(
-                    *[handle.check_health.remote() for handle in all_actors.values()]
+                    *[handle.check_health.remote() for handle in all_actors]
                 ),
                 timeout=10 * len(all_actors),
             )
@@ -728,23 +979,17 @@ class ScalableTeamManager:
             raise e
         logger.info("Checking Ray actor health done...")
 
-        # Set team for all individual agents
-        for role_name, agents in self.team.items():
-            for agent in agents:
-                await agent.set_team.remote(self.team)
-
-    def get_team(self):
-        """Get team dictionary for orchestrator routing"""
-        return self.team
+        # Initialize Sink's team registry with verified handles (avoid re-lookup race)
+        await self.sink.set_team_registry.remote(self.team_registry_config, team)
 
     def get_team_config(self):
-        """Get team dictionary for orchestrator routing"""
+        """Get team config dictionary for orchestrator routing"""
         return self.teamConfig
 
     async def shutdown(self):
-        for agents in self.team.values():
-            for agent in agents:
-                await agent.shutdown.remote()
+        """Shutdown all actors via sink's registry"""
+        if self.sink:
+            await self.sink.shutdown_all.remote()
 
 
 class P2PAgentFramework:
@@ -766,6 +1011,10 @@ class P2PAgentFramework:
         self.team_manager = ScalableTeamManager(self.simulation_id)
         self.resources: Dict[str, BaseResourceClient] = {}
 
+        # Local team cache for latency-sensitive _process_item
+        # Updated from sink on actor failure
+        self._local_team_cache: Dict[str, List[ray.actor.ActorHandle]] = {}
+
         random.seed(self.cfg["seed"])
         self.num_trial = self.cfg["num_trial"]
         if self.num_trial > 1:
@@ -782,17 +1031,32 @@ class P2PAgentFramework:
     ):
         """Create team of ray actors from config"""
 
-        for agent_id, agent_config in self.cfg.agents.items():
-
+        # Create sink first - it must exist before other agents
+        if "_sink" in self.cfg.agents:
             self.team_manager.create_role(
+                role_name="_sink",
+                agent_config=self.cfg.agents["_sink"],
+                resources=self.resources,
+            )
+
+        # Create other roles (they will receive sink reference)
+        team: Dict[str, List[ray.actor.ActorHandle]] = {}
+        for agent_id, agent_config in self.cfg.agents.items():
+            if agent_id == "_sink":
+                continue  # Already created
+            agents = self.team_manager.create_role(
                 role_name=agent_id,
                 agent_config=agent_config,
                 resources=self.resources,
             )
+            team[agent_id] = agents
 
-        # Initialize the team
-        await self.team_manager.initialize_team()
-        self.sink = self.team_manager.get_team()["_sink"][0]
+        # Initialize the team with collected handles
+        await self.team_manager.initialize_team(team)
+        self.sink = self.team_manager.sink
+
+        # Initialize local team cache from sink
+        self._local_team_cache = await self.sink.get_team_snapshot.remote()
 
     async def _progress_task(self):
         async def _update_progress():
@@ -849,13 +1113,12 @@ class P2PAgentFramework:
         handle = ray.put(item)
         await self.sink.register_object.remote([handle])  # type: ignore[attr-defined]
         orchestrator = instantiate(self.cfg.orchestrator)
-        first_agent = random.choice(
-            self.team_manager.get_team()[orchestrator.current_agent()]
-        )
+        first_agent_role = orchestrator.current_agent()
+
         try:
             await orchestrator.init(
                 self.simulation_id,
-                self.team_manager.get_team_config()[orchestrator.current_agent()],
+                self.team_manager.get_team_config()[first_agent_role],
                 self.sink,
                 metadata={
                     "trial": trial,
@@ -877,7 +1140,23 @@ class P2PAgentFramework:
 
         logger.debug(f"done Init {orchestrator.id}")
         logger.debug(f"Enqueue: {orchestrator.id}")
-        await first_agent.receive_message.remote(orchestrator)
+
+        # Send to first agent with local cache for latency, fallback to sink on error
+        try:
+            self._local_team_cache = await send_with_retry(
+                orchestrator,
+                first_agent_role,
+                self.sink,
+                self._local_team_cache,
+                logger,
+            )
+        except RuntimeError as e:
+            # All retries exhausted - send to sink as error
+            logger.error(str(e))
+            orchestrator.status["error"] = f"Failed to reach {first_agent_role}: {e}"
+            await self.sink.receive_message.remote(orchestrator)
+            return
+
         logger.debug(f"Done Enqueue: {orchestrator.id}")
 
         if self.cfg.get("rate_limit_enqueue", False):
