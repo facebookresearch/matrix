@@ -13,8 +13,10 @@ Computes end-to-end time/throughput breakdown:
 """
 
 import argparse
+import glob
 import json
 from collections import defaultdict
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -22,12 +24,58 @@ import pandas as pd
 
 
 def load_jsonl(filepath: str) -> list[dict[str, Any]]:
-    """Load JSONL file and return list of records."""
+    """Load JSONL file (supports .jsonl and .jsonl.zst) and return list of records."""
     records = []
-    with open(filepath, "r") as f:
-        for line in f:
-            records.append(json.loads(line))
+    path = Path(filepath)
+
+    if path.suffix == ".zst" or filepath.endswith(".jsonl.zst"):
+        import zstandard as zstd
+
+        with open(filepath, "rb") as f:
+            dctx = zstd.ZstdDecompressor()
+            with dctx.stream_reader(f) as reader:
+                import io
+
+                text_stream = io.TextIOWrapper(reader, encoding="utf-8")
+                for line in text_stream:
+                    records.append(json.loads(line))
+    else:
+        with open(filepath, "r") as f:
+            for line in f:
+                records.append(json.loads(line))
+
     return records
+
+
+def load_jsonl_glob(pattern: str) -> list[dict[str, Any]]:
+    """
+    Load records from files matching a glob pattern.
+
+    Supports both .jsonl and .jsonl.zst files.
+
+    Args:
+        pattern: Glob pattern (e.g., "results/*.jsonl", "data/**/*.jsonl.zst")
+
+    Returns:
+        Combined list of records from all matching files.
+    """
+    # Expand glob pattern
+    files = sorted(glob.glob(pattern, recursive=True))
+
+    # Filter to only jsonl and jsonl.zst files
+    valid_files = [f for f in files if f.endswith(".jsonl") or f.endswith(".jsonl.zst")]
+
+    if not valid_files:
+        raise FileNotFoundError(f"No .jsonl or .jsonl.zst files found matching: {pattern}")
+
+    all_records = []
+    for filepath in valid_files:
+        print(f"  Loading {filepath}...")
+        records = load_jsonl(filepath)
+        print(f"    -> {len(records)} records")
+        all_records.extend(records)
+
+    return all_records
 
 
 def discover_latency_metrics(records: list[dict[str, Any]]) -> dict[str, set[str]]:
@@ -163,7 +211,9 @@ def compute_latency_summary_stats(
 
 def extract_events_from_records(records: list[dict[str, Any]]) -> pd.DataFrame:
     """
-    Extract all ser_seize_kb events from records.
+    Extract all ser_size_kb events from records.
+
+    Handles both old (ser_seize_kb) and new (ser_size_kb) metric names.
 
     Returns DataFrame with columns: task_id, role, timestamp, kb
     """
@@ -178,7 +228,8 @@ def extract_events_from_records(records: list[dict[str, Any]]) -> pd.DataFrame:
             role = item[1]
             value = item[2]
 
-            if metric_type == "ser_seize_kb":
+            # Handle both old (ser_seize_kb) and new (ser_size_kb) names
+            if metric_type in ("ser_size_kb", "ser_seize_kb"):
                 timestamp, kb = value
                 events.append(
                     {
@@ -310,7 +361,7 @@ def analyze_network_bandwidth(
     df_events: pd.DataFrame, window_seconds: float = 60.0
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series]:
     """
-    Analyze network bandwidth from ser_seize_kb events.
+    Analyze network bandwidth from ser_size_kb events.
 
     Args:
         df_events: DataFrame with columns: task_id, role, timestamp, kb
@@ -625,7 +676,7 @@ def main():
     parser.add_argument(
         "input_file",
         type=str,
-        help="Path to input JSONL file with instrumentation data",
+        help="Path to input JSONL file or glob pattern (e.g., 'results/*.jsonl', 'data/**/*.jsonl.zst')",
     )
     parser.add_argument(
         "--window",
@@ -648,8 +699,14 @@ def main():
     args = parser.parse_args()
 
     print(f"Loading data from {args.input_file}...")
-    records = load_jsonl(args.input_file)
-    print(f"Loaded {len(records)} task records")
+
+    # Check if input is a glob pattern or single file
+    if "*" in args.input_file or "?" in args.input_file:
+        records = load_jsonl_glob(args.input_file)
+    else:
+        records = load_jsonl(args.input_file)
+
+    print(f"Loaded {len(records)} task records total")
 
     # Discover latency metrics
     metrics_to_roles = discover_latency_metrics(records)
@@ -809,7 +866,7 @@ def main():
             )
             print(f"\nResults saved with prefix: {args.output_prefix}")
     else:
-        print("No ser_seize_kb events found for bandwidth/throughput analysis.")
+        print("No ser_size_kb events found for bandwidth/throughput analysis.")
 
         # Save latency results only
         if args.output_prefix:

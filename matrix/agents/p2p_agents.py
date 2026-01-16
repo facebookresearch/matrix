@@ -1374,10 +1374,11 @@ class P2PAgentFramework:
         self.data_loader = instantiate(self.cfg.dataset)
         data_items = self.data_loader.load_data()
 
-        for res_id, res_config in self.cfg.resources.items():
-            self.resources[res_id] = instantiate(
-                res_config, resource_id=res_id, matrix_cli=cli
-            )
+        if self.cfg.get("resources"):
+            for res_id, res_config in self.cfg.resources.items():
+                self.resources[res_id] = instantiate(
+                    res_config, resource_id=res_id, matrix_cli=cli
+                )
         async with AsyncExitStack() as stack:
             self.resources = {
                 res_id: await stack.enter_async_context(res)

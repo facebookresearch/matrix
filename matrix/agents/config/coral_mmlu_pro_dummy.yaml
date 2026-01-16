@@ -1,0 +1,17 @@
+defaults:
+  - /simulation
+  - /agents: coral_agents_dummy
+  - /dataset: coral_dataset
+  - /metrics: coral_metrics
+  - /orchestrator: coral_sequential
+
+# No resources needed for dummy agents
+
+# Override specific settings for this experiment
+max_concurrent_tasks: 100
+
+dataset:
+  cut_off: 1000
+
+output:
+  path: "coral_mmlu_dummy_results.jsonl"
