@@ -200,6 +200,58 @@ class Orchestrator(abc.ABC):
         self.instrumentation.append((metric._name, agent_id, measure))
 
 
+class DeadOrchestrator(Orchestrator):
+    """
+    A minimal orchestrator representing a lost/dead task.
+    Used to write tombstone records through the normal Sink flow.
+    """
+
+    def __init__(self, orchestrator_id: str, error: str = "Actor died while processing this task"):
+        super().__init__()
+        self._id = orchestrator_id
+        self.simulation_id = ""
+        self.trial = -1
+        self.seed = -1
+        self.error = error
+        self.task_ref = None  # type: ignore[assignment]
+        self.status = {"success": False, "error": error}
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    def current_agent(self) -> str:
+        return "_sink"
+
+    async def is_done(self) -> bool:
+        return True
+
+    async def update(
+        self,
+        result: Any,
+        updater: "AgentActor",
+        logger: logging.Logger,
+    ) -> "Orchestrator":
+        return self
+
+    async def to_output(self) -> Dict[str, Any]:
+        return {
+            "id": self._id,
+            "status": "lost",
+            "error": self.error,
+            "timestamp": self.finish_timestamp or time.time(),
+        }
+
+    async def cleanup(
+        self, sink: "Sink", resources: dict[str, "BaseResourceClient"], logger
+    ):
+        # No resources to clean up for dead orchestrator
+        pass
+
+    async def get_task(self):
+        return None
+
+
 class BaseResourceClient:
     def __init__(self, resource_id: str):
         self.resource_id = resource_id
@@ -260,6 +312,8 @@ class AgentActor(abc.ABC):
         self.queue: asyncio.Queue["Orchestrator"] = asyncio.Queue()
         self.running = True  # should run forever
         self.pending_tasks: set[asyncio.Task] = set()
+        # Track last message time for idle detection
+        self.last_message_time: float = time.time()
         self.system_prompt = system_prompt
         self.logger = logging.getLogger(self.__class__.__name__)
         setup_logging(self.logger, self.debug)
@@ -354,7 +408,7 @@ class AgentActor(abc.ABC):
             (
                 "ser_size_kb",
                 Gauge,
-                "ser_seize_kb",
+                "ser_size_kb",
                 "num of kb for the serialized message object",
                 {},
             ),
@@ -448,6 +502,7 @@ class AgentActor(abc.ABC):
     async def receive_message(self, orchestrator: Orchestrator):
         now = time.time()
         orchestrator.enqueue_timestamp = now
+        self.last_message_time = now  # Update for idle detection
         await self.queue.put(orchestrator)
         self.messages_received.inc()  # type: ignore[attr-defined]
         self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
@@ -536,6 +591,8 @@ class AgentActor(abc.ABC):
                 self._local_team_cache,
                 self.logger,
             )
+            # Update last message time after successful send
+            self.last_message_time = time.time()
         else:
             await orchestrator.cleanup(self, self.resources, self.logger)  # type: ignore[arg-type]
 
@@ -569,6 +626,10 @@ class AgentActor(abc.ABC):
 
     async def check_health(self):
         return True
+
+    async def get_active_count(self) -> Tuple[int, float]:
+        """Return the count of active tasks and last message timestamp."""
+        return (self.queue.qsize() + len(self.pending_tasks), self.last_message_time)
 
     @abc.abstractmethod
     async def preprocess(self, orchestrator: Orchestrator) -> Any:
@@ -620,6 +681,7 @@ class Sink(AgentActor):
     REFRESH_INTERVAL = 30.0  # seconds between periodic refreshes
     GET_ACTOR_TIMEOUT = 60.0  # default timeout for get_actor calls
     GET_ACTOR_RETRY_INTERVAL = 1.0  # seconds between retries
+    IDLE_TIMEOUT = 60.0  # seconds of idle time before checking for dead tasks
 
     def __init__(
         self,
@@ -640,6 +702,14 @@ class Sink(AgentActor):
         self._team_config: Dict[str, Tuple[int, str]] = {}  # role -> (count, namespace)
         self._team_lock = asyncio.Lock()
         self._refresh_task: Optional[asyncio.Task] = None
+
+        # Track all in-flight orchestrator IDs (added when sent to first agent, removed on completion)
+        self.inflight_ids: set[str] = set()
+
+        # Idle detection for dead task recovery
+        self.last_message_time: float = time.time()
+        self._idle_check_task: Optional[asyncio.Task] = None
+        self.num_dead: int = 0  # Counter for dead/lost orchestrators
 
         additional_metrics_config = [
             (
@@ -689,8 +759,13 @@ class Sink(AgentActor):
 
     async def set_num_inputs(self, num_inputs: int):
         self.num_inputs = num_inputs
+        # Start idle check task now that we know the total inputs
+        if self._idle_check_task is None:
+            self._idle_check_task = asyncio.create_task(self._idle_check_loop())
 
     async def preprocess(self, orchestrator: "Orchestrator"):
+        # Update last message time for idle detection
+        self.last_message_time = time.time()
 
         def _write_output(output_data, output_path):
             """CPU-intensive work: JSON serialization, encoding, and compression"""
@@ -706,6 +781,8 @@ class Sink(AgentActor):
         latency = now - orchestrator.creation_timestamp
         self.e2e_latency.set(latency)
 
+        # Always write tombstones (DeadOrchestrator), otherwise respect save_success_only
+        is_tombstone = isinstance(orchestrator, DeadOrchestrator)
         if not self.save_success_only or orchestrator.is_success():
             # Run CPU-intensive work in thread pool
             start_time = time.perf_counter()
@@ -718,9 +795,14 @@ class Sink(AgentActor):
             )
             self.output_file.write(data_to_write)
             self.sink_write_latency.set(time.perf_counter() - start_time)
+        # Remove from inflight after writing to disk
+        self.inflight_ids.discard(orchestrator.id)
         self.num_done += 1
+        if is_tombstone:
+            self.num_dead += 1
 
-        if self.metrics_accumulator:
+        # Skip metrics accumulation for tombstones
+        if self.metrics_accumulator and not is_tombstone:
             self.metrics_accumulator.accumulate(orchestrator)
 
         latency = orchestrator.init_timestamp - orchestrator.creation_timestamp
@@ -733,6 +815,10 @@ class Sink(AgentActor):
     async def get_progress(self) -> int:
         return self.num_done
 
+    async def register_inflight(self, orchestrator_id: str):
+        """Register an orchestrator as in-flight (before sending to first agent)."""
+        self.inflight_ids.add(orchestrator_id)
+
     async def get_overall_metrics(self) -> dict[str, Any] | None:
         return (
             self.metrics_accumulator.done()
@@ -740,11 +826,15 @@ class Sink(AgentActor):
             else {}
         )
 
+    async def get_num_dead(self) -> int:
+        """Return the count of dead/lost orchestrators."""
+        return self.num_dead
+
     async def check_health(self):
         return True
 
     async def shutdown(self):
-        """Gracefully shutdown the Sink agent and cancel refresh task."""
+        """Gracefully shutdown the Sink agent and cancel background tasks."""
         if self._refresh_task is not None:
             self._refresh_task.cancel()
             try:
@@ -752,6 +842,13 @@ class Sink(AgentActor):
             except asyncio.CancelledError:
                 pass
             self._refresh_task = None
+        if self._idle_check_task is not None:
+            self._idle_check_task.cancel()
+            try:
+                await self._idle_check_task
+            except asyncio.CancelledError:
+                pass
+            self._idle_check_task = None
         await super().shutdown()
 
     async def shutdown_all(self):
@@ -835,6 +932,93 @@ class Sink(AgentActor):
     async def force_refresh(self):
         """Force an immediate refresh of all actor handles."""
         await self._refresh_team_internal()
+
+    async def _write_tombstone(self, orchestrator_id: str):
+        """
+        Write a tombstone record for a lost orchestrator via normal Sink flow.
+
+        Args:
+            orchestrator_id: The ID of the lost orchestrator
+        """
+        self.logger.debug(f"Creating tombstone for lost orchestrator: {orchestrator_id}")
+
+        # Create a DeadOrchestrator and process it through normal flow
+        dead_orch = DeadOrchestrator(orchestrator_id)
+        await self.receive_message(dead_orch)
+
+    async def _idle_check_loop(self):
+        """Background task to detect idle state and write tombstones for lost tasks."""
+        while self.running:
+            try:
+                await asyncio.sleep(10.0)  # Check every 10 seconds
+
+                # Skip if we're done
+                if self.num_inputs is not None and self.num_done >= self.num_inputs:
+                    break
+
+                # Check if we've been idle long enough
+                idle_time = time.time() - self.last_message_time
+                if idle_time < self.IDLE_TIMEOUT:
+                    continue
+
+                # Check if all actors have empty queues and no pending tasks
+                all_idle = await self._check_all_actors_idle()
+                if not all_idle:
+                    continue
+
+                # All actors are idle and we have in-flight tasks - they must be lost
+                if self.inflight_ids:
+                    self.logger.warning(
+                        f"System idle for {idle_time:.1f}s with {len(self.inflight_ids)} "
+                        f"in-flight tasks. Writing tombstones."
+                    )
+                    for orch_id in list(self.inflight_ids):
+                        await self._write_tombstone(orch_id)
+
+                    # Wait for tombstones to be processed through the queue
+                    while self.queue.qsize() > 0 or len(self.pending_tasks) > 0:
+                        await asyncio.sleep(0.1)
+
+                    # Check if we're still short of expected tasks
+                    if self.num_inputs is not None and self.num_done < self.num_inputs:
+                        self.logger.error(
+                            f"Completed {self.num_done} tasks but expected {self.num_inputs}. "
+                            f"Some tasks may have been lost before registration."
+                        )
+                    break
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning(f"Error in idle check loop: {repr(e)}")
+
+    async def _check_all_actors_idle(self) -> bool:
+        """Check if all actors have zero queue + pending tasks and idle timestamps."""
+        now = time.time()
+        async with self._team_lock:
+            all_actors = [
+                actor
+                for actors in self._team.values()
+                for actor in actors
+            ]
+
+        for actor in all_actors:
+            try:
+                count, last_msg_time = await asyncio.wait_for(
+                    actor.get_active_count.remote(),
+                    timeout=5.0,
+                )
+                if count > 0:
+                    return False
+                # Also check if actor's last message time is within IDLE_TIMEOUT
+                if now - last_msg_time < self.IDLE_TIMEOUT:
+                    return False
+            except Exception as e:
+                # If we can't reach an actor, it might be dead - don't consider system idle
+                self.logger.debug(f"Failed to get active count from actor: {repr(e)}")
+                return False
+
+        return True
 
     async def get_actor(
         self, role: str, timeout: Optional[float] = None, force_refresh: bool = False
@@ -1141,6 +1325,9 @@ class P2PAgentFramework:
         logger.debug(f"done Init {orchestrator.id}")
         logger.debug(f"Enqueue: {orchestrator.id}")
 
+        # Register as in-flight before sending to first agent
+        await self.sink.register_inflight.remote(orchestrator.id)
+
         # Send to first agent with local cache for latency, fallback to sink on error
         try:
             self._local_team_cache = await send_with_retry(
@@ -1216,7 +1403,7 @@ class P2PAgentFramework:
                 disable=self.sim_index > 0,
             )
 
-            logger.info(f"Starting P2P simulation {self.simulation_id}")
+            logger.info(f"Starting P2P simulation {self.simulation_id} (namespace: {self.simulation_id})")
             # Process tasks
             if self.cfg.get("rate_limit_enqueue", False):
                 num_consumers = 1
@@ -1245,6 +1432,11 @@ class P2PAgentFramework:
         overall_metrics = await self.sink.get_overall_metrics.remote()  # type: ignore[attr-defined]
         for metric, value in overall_metrics.items():
             logger.info(f"{metric}: {value:.4f}")
+
+        # Log dead task count if any
+        num_dead = await self.sink.get_num_dead.remote()  # type: ignore[attr-defined]
+        if num_dead > 0:
+            logger.warning(f"Dead/lost tasks: {num_dead}")
 
         return overall_metrics
 
