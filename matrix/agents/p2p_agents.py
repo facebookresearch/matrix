@@ -37,6 +37,7 @@ from .agent_utils import get_ray_actor_class, setup_logging
 
 logger = logging.getLogger(__name__)
 
+ENABLE_INSTRUMENTATION = False
 
 # ==== Utility Functions ====
 async def send_with_retry(
@@ -535,9 +536,10 @@ class AgentActor(abc.ABC):
             orchestrator = await self.queue.get()
             latency = time.time() - orchestrator.enqueue_timestamp
             self.dequeue_latency.set(latency)
-            orchestrator.append_instrumentation(
-                self.dequeue_latency, self.agent_id, latency
-            )
+            if ENABLE_INSTRUMENTATION:
+                orchestrator.append_instrumentation(
+                    self.dequeue_latency, self.agent_id, latency
+                )
 
             # Update queue size after getting message
             self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
@@ -572,16 +574,17 @@ class AgentActor(abc.ABC):
                 next_agent_name = next_state.current_agent()
 
             # temporary
-            blob = pickle.dumps(next_state)
-            size_kb = len(blob) / 1024
-            self.ser_size_kb.set(size_kb)
-            next_state.append_instrumentation(
-                self.ser_size_kb, self.agent_id, (time.time(), size_kb)
-            )
-            latency = time.perf_counter() - start_time
-            next_state.append_instrumentation(
-                self.handle_latency, self.agent_id, latency
-            )
+            if ENABLE_INSTRUMENTATION:
+                blob = pickle.dumps(next_state)
+                size_kb = len(blob) / 1024
+                self.ser_size_kb.set(size_kb)
+                next_state.append_instrumentation(
+                    self.ser_size_kb, self.agent_id, (time.time(), size_kb)
+                )
+                latency = time.perf_counter() - start_time
+                next_state.append_instrumentation(
+                    self.handle_latency, self.agent_id, latency
+                )
 
             # Send to next agent with fault-tolerant retry
             self._local_team_cache = await send_with_retry(
@@ -1444,8 +1447,9 @@ class P2PAgentFramework:
 
 @hydra.main(config_path="config", config_name="coral_experiment", version_base=None)
 def main(cfg: DictConfig):
-
+    global ENABLE_INSTRUMENTATION
     num_tasks = cfg.get("parallelism", 1)
+    ENABLE_INSTRUMENTATION = cfg.get("instrumentation", False)
 
     if num_tasks > 1 and cfg.dataset.get("data_files"):
         setup_logging(logger, cfg.get("debug", False))
