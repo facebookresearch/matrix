@@ -36,7 +36,6 @@ from ..p2p_agents import (
 from ..p2p_extended import (
     ContainerExecutionAgent,
     ContainerResourceClient,
-    HistoryOrchestrator,
     LLMAgentActor,
     LLMResourceClient,
 )
@@ -117,7 +116,7 @@ TRANSFER = "###TRANSFER###"
 OUT_OF_SCOPE = "###OUT-OF-SCOPE###"
 
 
-class Tau2Orchestrator(HistoryOrchestrator):
+class Tau2Orchestrator(Orchestrator):
     def __init__(self, step_limit: int):
         super().__init__()
         self._current_agent = "user_simulator"

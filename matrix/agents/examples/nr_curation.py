@@ -26,11 +26,11 @@ from ..p2p_agents import (
     AgentActor,
     BaseMetricsAccumulator,
     BaseResourceClient,
+    HistPair,
     Orchestrator,
     Sink,
 )
 from ..p2p_extended import (
-    HistPair,
     HuggingfaceDatasetLoader,
     LLMAgentActor,
     SequentialOrchestrator,

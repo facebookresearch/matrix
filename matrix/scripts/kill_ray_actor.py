@@ -34,7 +34,10 @@ def _kill_by_name_remote(
     except ValueError as e:
         return False, f"Actor not found (name={actor_name}, namespace={namespace}): {e}"
     except Exception as e:
-        return False, f"Failed to kill actor (name={actor_name}, namespace={namespace}): {e}"
+        return (
+            False,
+            f"Failed to kill actor (name={actor_name}, namespace={namespace}): {e}",
+        )
 
 
 @ray.remote
@@ -81,7 +84,9 @@ def kill_actor_by_name(
     """
     _init_ray()
 
-    success, msg = ray.get(_kill_by_name_remote.remote(actor_name, namespace, no_restart))
+    success, msg = ray.get(
+        _kill_by_name_remote.remote(actor_name, namespace, no_restart)
+    )
     if success:
         print(f"[OK] {msg}")
     else:
@@ -151,7 +156,9 @@ def kill_random_repeatedly(
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Attempting to kill: {target}")
 
         # Kill remotely
-        success, msg = ray.get(_kill_by_name_remote.remote(target, namespace, no_restart))
+        success, msg = ray.get(
+            _kill_by_name_remote.remote(target, namespace, no_restart)
+        )
         if success:
             print(f"[OK] {msg}")
             kill_count += 1
@@ -166,8 +173,10 @@ def kill_random_repeatedly(
 
 
 if __name__ == "__main__":
-    fire.Fire({
-        "by_name": kill_actor_by_name,
-        "by_id": kill_actor_by_id,
-        "random": kill_random_repeatedly,
-    })
+    fire.Fire(
+        {
+            "by_name": kill_actor_by_name,
+            "by_id": kill_actor_by_id,
+            "random": kill_random_repeatedly,
+        }
+    )

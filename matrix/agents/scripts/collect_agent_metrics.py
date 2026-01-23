@@ -66,7 +66,9 @@ def load_jsonl_glob(pattern: str) -> list[dict[str, Any]]:
     valid_files = [f for f in files if f.endswith(".jsonl") or f.endswith(".jsonl.zst")]
 
     if not valid_files:
-        raise FileNotFoundError(f"No .jsonl or .jsonl.zst files found matching: {pattern}")
+        raise FileNotFoundError(
+            f"No .jsonl or .jsonl.zst files found matching: {pattern}"
+        )
 
     all_records = []
     for filepath in valid_files:

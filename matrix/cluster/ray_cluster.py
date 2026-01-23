@@ -398,7 +398,10 @@ class RayCluster:
         common_params = {"account", "partition", "qos", "exclusive", "timeout_min"}
         start_wait_time_seconds = 60
         worker_wait_timeout_seconds = 60
-        requirements = slurm or local or {}
+        requirements = slurm or local
+        assert (slurm is None) != (
+            local is None
+        ), "Only one of --slurm or --local is required"
         requirements = _normalize_slurm_keys(requirements)
         executor = "slurm" if slurm else "local"
 

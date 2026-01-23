@@ -596,7 +596,7 @@ def _build_app(cli_args: Dict[str, Any], use_grpc) -> serve.Application:
         logger.warning("GPU must be 1")
     for i in range(tp * pp):
         pg_resources.append(
-            {"CPU": ray_resources.get("num_cpus", 4), accelerator: 1}
+            {"CPU": ray_resources.get("num_cpus", 1), accelerator: 1}
         )  # for the vLLM actors
 
     # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on

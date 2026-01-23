@@ -20,7 +20,6 @@ from omegaconf import DictConfig
 from ..p2p_agents import AgentActor
 from .ts_interaction import CoralOrchestrator
 
-
 # Small base text block (~900 chars)
 _BASE_TEXT = (
     "To find the amount of trade discount, we need to subtract the net price from the list price. "
@@ -131,7 +130,9 @@ class DummyCoralExtractionAgent(AgentActor):
             if available_letters:
                 answer = random.choice(available_letters)
             else:
-                answer = random.choice(["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
+                answer = random.choice(
+                    ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"]
+                )
         else:
             answer = random.choice(["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"])
 

@@ -19,7 +19,7 @@ from contextlib import AbstractAsyncContextManager, AsyncExitStack, nullcontext
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, Generator, List, NamedTuple, Optional, Tuple, Type, Union
 
 import hydra
 import numpy as np
@@ -37,8 +37,76 @@ from .agent_utils import get_ray_actor_class, setup_logging
 
 logger = logging.getLogger(__name__)
 
-ENABLE_INSTRUMENTATION = False
-ENABLE_DEAD_ORCHESTRATOR_TRACKING = False
+
+class RayDict(dict):
+    """
+    dict subclass for auto Ray storage/dereference of specific large text fields.
+    Optimized for fixed fields: "text", "output".
+    """
+
+    FIXED_FIELDS = [
+        "text",
+        "output",  # in history
+    ]
+    TEXT_SIZE_THRESHOLD = 512  # default size threshold
+
+    def __contains__(self, key: object) -> bool:
+        if isinstance(key, str) and key in self.FIXED_FIELDS:
+            return super().__contains__(key) or super().__contains__(f"{key}_ref")
+        return super().__contains__(key)
+
+    async def get_async(self, key: str, default: Any = None) -> Any:
+        if key in self.FIXED_FIELDS:
+            ref_key = f"{key}_ref"
+            if ref_key in self:
+                return await super().__getitem__(ref_key)
+        return super().get(key, default)
+
+    @classmethod
+    async def from_dict(cls, data: Dict[str, Any], registry: "Sink") -> "RayDict":
+        self = cls()
+        for k, v in data.items():
+            if (
+                k in cls.FIXED_FIELDS
+                and isinstance(v, str)
+                and len(v) > cls.TEXT_SIZE_THRESHOLD
+            ):
+                # put with registry as owner otherwise ray will release when owner died even if there is reference.
+                handle = ray.put(v, _owner=registry)
+                self[f"{k}_ref"] = handle
+                await registry.register_object.remote([handle])  # type: ignore[attr-defined]
+            elif k in cls.FIXED_FIELDS:
+                # store small text directly but bypass the assert
+                super(cls, self).__setitem__(k, v)
+            else:
+                self[k] = v
+        return self
+
+    async def to_dict(self) -> dict[str, Any]:
+        out = dict(self)
+        for key in self.FIXED_FIELDS:
+            ref_key = f"{key}_ref"
+            if ref_key in out:
+                out[key] = await out[ref_key]
+                del out[ref_key]
+        return out
+
+    async def cleanup_ray(self, sink: "Sink"):
+        refs_to_free = [
+            self[f"{field}_ref"]
+            for field in self.FIXED_FIELDS
+            if f"{field}_ref" in self and self[f"{field}_ref"] is not None
+        ]
+        if refs_to_free:
+            await sink.unregister_object(refs_to_free)  # type: ignore[attr-defined]
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: ray.internal.free(refs_to_free))
+
+
+class HistPair(NamedTuple):
+    agent: str
+    response: RayDict
+
 
 # ==== Utility Functions ====
 async def send_with_retry(
@@ -120,6 +188,8 @@ class Orchestrator(abc.ABC):
         self.finish_timestamp = 0.0
         self.enqueue_timestamp = 0.0
         self.instrumentation: list[tuple[str, str, Any]] = []  # list of key value
+        # List of {"agent": str, "response": {"text": str, "tool_calls": [], "tool_call_id": id, "usage": {}, "extracted_answer": str, "status_ok": bool, "agreement": bool}}
+        self.history: list[HistPair] = []
 
     async def to_output(self) -> Dict[str, Any]:
         return {
@@ -158,6 +228,16 @@ class Orchestrator(abc.ABC):
             res_id: await res.acquire(task, logger) for res_id, res in resources.items()
         }
 
+        # Add initial message to history
+        cls, agent_config = first_agent
+        initial_message = await cls.get_task_message(agent_config, metadata["task"])  # type: ignore[attr-defined]
+        if logger is not None:
+            logger.debug(f"Get initial messageMetadataStart {self.id}")
+        if initial_message is not None:
+            await self._append(
+                initial_message["agent"], initial_message["response"], sink
+            )
+
     @property
     def id(self) -> str:
         return f"{self.simulation_id}_id-{self._id}_trial-{self.trial}"
@@ -180,15 +260,18 @@ class Orchestrator(abc.ABC):
     async def is_done(self) -> bool:
         pass
 
-    @abc.abstractmethod
     async def update(
         self,
         result: Any,
         updater: "AgentActor",
         logger: logging.Logger,
     ) -> "Orchestrator":
-        """Update the orchestrator with the agent's result."""
-        pass
+        """Update the orchestrator with the agent's result and determine the next agent."""
+        if not isinstance(result, list):
+            result = [result]
+        for res in result:
+            await self._append(self.current_agent(), res, updater.sink)  # type: ignore[arg-type]
+        return self
 
     async def cleanup(
         self, sink: "Sink", resources: dict[str, "BaseResourceClient"], logger
@@ -200,12 +283,23 @@ class Orchestrator(abc.ABC):
         await sink.unregister_object([self.task_ref])  # type: ignore[attr-defined]
         await loop.run_in_executor(None, lambda: ray.internal.free([self.task_ref]))
         self.task_ref = None  # type: ignore[assignment]
+        # Cleanup history
+        await asyncio.gather(
+            *[hist.response.cleanup_ray(sink) for hist in self.history]
+        )
 
     async def get_task(self):
         return await self.task_ref
 
     def append_instrumentation(self, metric, agent_id, measure):  # temporary
         self.instrumentation.append((metric._name, agent_id, measure))
+
+    async def _append(self, agent: str, msg: dict[str, Any], sink: "Sink"):
+        if "timestamp" not in msg:
+            msg["timestamp"] = time.time()
+        self.history.append(
+            HistPair(agent=agent, response=await RayDict.from_dict(msg, sink))
+        )
 
 
 class DeadOrchestrator(Orchestrator):
@@ -214,7 +308,9 @@ class DeadOrchestrator(Orchestrator):
     Used to write tombstone records through the normal Sink flow.
     """
 
-    def __init__(self, orchestrator_id: str, error: str = "Actor died while processing this task"):
+    def __init__(
+        self, orchestrator_id: str, error: str = "Actor died while processing this task"
+    ):
         super().__init__()
         self._id = orchestrator_id
         self.simulation_id = ""
@@ -289,7 +385,7 @@ class BaseResourceClient:
 # ==== Abstract AgentActor ====
 # @ray.remote
 class AgentActor(abc.ABC):
-    THROUGHPUT_WINDOWS = 60  # latency in seconds to measure throughput
+    ENABLE_INSTRUMENTATION = False
 
     def __init__(
         self,
@@ -297,7 +393,7 @@ class AgentActor(abc.ABC):
         agent_id: str,
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
-        sink: Optional[ray.actor.ActorHandle] = None,
+        sink: ray.actor.ActorHandle,
     ):
         # PATCH FIRST - before any HTTP clients are created
         self._patch_getproxies()
@@ -332,13 +428,9 @@ class AgentActor(abc.ABC):
         # Local team cache for fast actor lookup, updated from sink on failure
         self._local_team_cache: Dict[str, List[ray.actor.ActorHandle]] = {}
 
-        if self.sink is not None:
-            # Start event loop immediately since we have sink reference
-            self.event_loop_task: Optional[asyncio.Task] = (
-                asyncio.get_event_loop().create_task(self._event_loop())
-            )
-        else:
-            self.event_loop_task = None
+        self.event_loop_task: Optional[asyncio.Task] = (
+            asyncio.get_event_loop().create_task(self._event_loop())
+        )
 
         metrics_config = [
             # (attribute_name, metric_class, name, description, extra_kwargs)
@@ -405,13 +497,6 @@ class AgentActor(abc.ABC):
                 "Time staying in queue in seconds",
                 {},
             ),
-            (
-                "throughput",
-                Gauge,
-                "throughput",
-                "num of messages processed in the last window",
-                {},
-            ),
             # temporary instrumentation
             (
                 "ser_size_kb",
@@ -422,11 +507,7 @@ class AgentActor(abc.ABC):
             ),
         ]
         self._init_metrics(metrics_config)
-        self.throughput_helper = {
-            "cur_messages_processed": 0,
-            "last_timestamp": time.time(),
-            "last_messages_processed": 0,
-        }
+
 
     @staticmethod
     def _patch_getproxies():
@@ -482,28 +563,6 @@ class AgentActor(abc.ABC):
             metric.set_default_tags(default_tags)
             setattr(self, attr_name, metric)
 
-    def _get_default_latency_boundaries(self):
-        """
-        Override this method in subclasses to provide agent-specific boundaries.
-        Default covers a wide range from sub-second to 30 minutes.
-        """
-        return [
-            0.01,
-            0.05,
-            0.1,
-            0.5,
-            1.0,
-            5.0,
-            10.0,
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0,
-            1200.0,
-            1800.0,
-        ]
-
     def get_resources(self):
         return self.resources
 
@@ -541,9 +600,11 @@ class AgentActor(abc.ABC):
 
         while self.running:
             orchestrator = await self.queue.get()
+            if orchestrator is None:  # Shutdown sentinel
+                break
             latency = time.time() - orchestrator.enqueue_timestamp
             self.dequeue_latency.set(latency)
-            if ENABLE_INSTRUMENTATION:
+            if self.ENABLE_INSTRUMENTATION:
                 orchestrator.append_instrumentation(
                     self.dequeue_latency, self.agent_id, latency
                 )
@@ -581,7 +642,7 @@ class AgentActor(abc.ABC):
                 next_agent_name = next_state.current_agent()
 
             # temporary
-            if ENABLE_INSTRUMENTATION:
+            if self.ENABLE_INSTRUMENTATION:
                 blob = pickle.dumps(next_state)
                 size_kb = len(blob) / 1024
                 self.ser_size_kb.set(size_kb)
@@ -610,20 +671,13 @@ class AgentActor(abc.ABC):
         latency = time.perf_counter() - start_time
         self.handle_latency.set(latency)  # type: ignore[attr-defined]
         self.messages_processed.inc()  # type: ignore[attr-defined]
-        self.throughput_helper["cur_messages_processed"] += 1
-        now = time.time()
-        if now - self.throughput_helper["last_timestamp"] > self.THROUGHPUT_WINDOWS:
-            processed = self.throughput_helper["cur_messages_processed"]
-            throughput = (
-                processed - self.throughput_helper["last_messages_processed"]
-            ) / (now - self.throughput_helper["last_timestamp"])
-            self.throughput_helper["last_timestamp"] = now
-            self.throughput_helper["last_messages_processed"] = processed
-            self.throughput.set(throughput)
 
     async def shutdown(self):
         """Gracefully shutdown the agent"""
         self.running = False
+        if self.event_loop_task is not None:
+            await self.queue.put(None)  # Sentinel to unblock event loop
+            await self.event_loop_task
 
     @classmethod
     async def get_task_message(
@@ -706,6 +760,9 @@ class Sink(AgentActor):
         self.num_done = 0
         self.num_inputs: Optional[int] = None
         self.ray_objects: dict[str, ray.ObjectRef] = {}  # hold the ref to avoid gc
+        self.pending_writes: int = (
+            0  # Track in-progress writes to avoid closing file prematurely
+        )
 
         # Team registry: Sink is the source of truth for actor handles
         self._team: Dict[str, List[ray.actor.ActorHandle]] = {}
@@ -714,13 +771,15 @@ class Sink(AgentActor):
         self._refresh_task: Optional[asyncio.Task] = None
 
         # Optimistic timeout tracking for dead orchestrator detection
-        self.inflight_orchestrators: dict[str, float] = {}  # id -> creation_timestamp
-        self.zombie_orchestrators: dict[str, float] = {}  # id -> creation_timestamp
-        self.max_e2e_latency: float = 0.0
-        self.num_successful_trajectories: int = 0
-        self.MIN_TRAJECTORIES_FOR_RELIABLE_MAX = 1000
-        self.ZOMBIE_MULTIPLIER = 3.0  # Consider dead if 3x max latency
-        self._zombie_check_task: Optional[asyncio.Task] = None
+        self.dead_orchestrator_tracking = config.dead_orchestrator_tracking
+        self.max_concurrent_tasks = config.max_concurrent_tasks
+        # Registration order tracking: when task N completes, tasks before N-max_concurrent_tasks are zombies
+        self.registration_counter: int = 0
+        self.inflight_orchestrators: dict[str, int] = {}  # id -> registration_order
+        self.inflight_order: list[tuple[int, str]] = (
+            []
+        )  # sorted (order, id) for efficient oldest iteration, lazy update, have stale items
+        self.zombie_orchestrators: set[str] = set()  # set of zombie orchestrator ids
 
         # Idle detection for dead task recovery
         self.last_message_time: float = time.time()
@@ -778,52 +837,6 @@ class Sink(AgentActor):
         # Start idle check task now that we know the total inputs
         if self._idle_check_task is None:
             self._idle_check_task = asyncio.create_task(self._idle_check_loop())
-        # Start zombie check task if dead orchestrator tracking is enabled
-        if ENABLE_DEAD_ORCHESTRATOR_TRACKING and self._zombie_check_task is None:
-            self._zombie_check_task = asyncio.create_task(self._zombie_check_loop())
-
-    async def _zombie_check_loop(self):
-        """Background task to detect zombie orchestrators based on optimistic timeout."""
-        while self.running:
-            try:
-                await asyncio.sleep(10.0)  # Check every 10 seconds
-
-                # Skip if we don't have reliable max latency estimate yet
-                if self.num_successful_trajectories < self.MIN_TRAJECTORIES_FOR_RELIABLE_MAX:
-                    continue
-
-                if self.max_e2e_latency <= 0:
-                    continue
-
-                now = time.time()
-                threshold = self.ZOMBIE_MULTIPLIER * self.max_e2e_latency
-
-                # Find orchestrators that should be moved to zombie
-                to_zombify = []
-                for orch_id, creation_ts in list(self.inflight_orchestrators.items()):
-                    elapsed = now - creation_ts
-                    # Consider zombie if elapsed > 3x max latency
-                    if elapsed > threshold:
-                        to_zombify.append((orch_id, creation_ts))
-
-                # Move to zombie and increase num_done
-                for orch_id, creation_ts in to_zombify:
-                    if orch_id in self.zombie_orchestrators:
-                        continue  # Already a zombie
-
-                    self.zombie_orchestrators[orch_id] = creation_ts
-                    # Remove from inflight
-                    self.inflight_orchestrators.pop(orch_id, None)
-                    # Increase num_done to release semaphore
-                    self.num_done += 1
-                    self.logger.warning(
-                        f"Orchestrator {orch_id} moved to zombie (elapsed {now - creation_ts:.1f}s > {threshold:.1f}s threshold)"
-                    )
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                self.logger.warning(f"Error in zombie check loop: {repr(e)}")
 
     async def preprocess(self, orchestrator: "Orchestrator"):
         # Update last message time for idle detection
@@ -841,59 +854,88 @@ class Sink(AgentActor):
         now = time.time()
         orchestrator.finish_timestamp = now
         latency = now - orchestrator.creation_timestamp
-        self.e2e_latency.set(latency)
-
-        # Check if this orchestrator was in zombie set (came back from the dead)
-        is_zombie_return = orchestrator.id in self.zombie_orchestrators
-        if is_zombie_return:
-            # Remove from zombie set - it actually completed
-            del self.zombie_orchestrators[orchestrator.id]
-            self.logger.info(f"Zombie orchestrator {orchestrator.id} returned, removing from zombie set")
-
-        # Always write tombstones (DeadOrchestrator), otherwise respect save_success_only
         is_tombstone = isinstance(orchestrator, DeadOrchestrator)
+
         if not self.save_success_only or orchestrator.is_success():
             # Run CPU-intensive work in thread pool
             start_time = time.perf_counter()
             loop = asyncio.get_event_loop()
-            data_to_write = await loop.run_in_executor(
-                None,
-                partial(
-                    _write_output, await orchestrator.to_output(), self.output_path
-                ),
-            )
-            self.output_file.write(data_to_write)
-            self.sink_write_latency.set(time.perf_counter() - start_time)
+            self.pending_writes += 1  # Track pending write before yielding
+            try:
+                data_to_write = await loop.run_in_executor(
+                    None,
+                    partial(
+                        _write_output, await orchestrator.to_output(), self.output_path
+                    ),
+                )
+                self.output_file.write(data_to_write)
+                self.sink_write_latency.set(time.perf_counter() - start_time)
+            finally:
+                self.pending_writes -= 1  # Always decrement, even on error
 
-        # Remove from inflight after writing to disk
-        self.inflight_orchestrators.pop(orchestrator.id, None)
-
-        # Don't increase num_done for zombie returns (already counted when moved to zombie)
-        if not is_zombie_return:
-            self.num_done += 1
+        # Get registration order and remove from inflight tracking
+        completed_order = self.inflight_orchestrators.pop(orchestrator.id, None)
 
         if is_tombstone:
             self.num_dead += 1
+        else:
+            self.e2e_latency.set(latency)
+            latency = orchestrator.init_timestamp - orchestrator.creation_timestamp
+            self.task_init_latency.set(latency)
 
-        # Track max e2e latency for successful non-tombstone trajectories
-        if not is_tombstone and not orchestrator.is_error():
-            self.num_successful_trajectories += 1
-            if self.num_successful_trajectories >= self.MIN_TRAJECTORIES_FOR_RELIABLE_MAX:
-                if latency > self.max_e2e_latency:
-                    self.max_e2e_latency = latency
-                    self.logger.debug(f"Updated max e2e latency to {self.max_e2e_latency:.2f}s")
+            # Check if this orchestrator was in zombie set (came back from the dead)
+            is_zombie_return = orchestrator.id in self.zombie_orchestrators
+            if is_zombie_return:
+                # Remove from zombie set - it actually completed
+                self.zombie_orchestrators.discard(orchestrator.id)
+                self.logger.info(
+                    f"Zombie orchestrator {orchestrator.id} returned, removing from zombie set"
+                )
 
-        # Skip metrics accumulation for tombstones
-        if self.metrics_accumulator and not is_tombstone:
-            self.metrics_accumulator.accumulate(orchestrator)
+            if not is_zombie_return:
+                self.num_done += 1
 
-        latency = orchestrator.init_timestamp - orchestrator.creation_timestamp
-        self.task_init_latency.set(latency)
+            # Position-based zombie detection: when a non-error orchestrator completes,
+            # all tasks registered more than max_concurrent_tasks before it should be done
+            if (
+                self.dead_orchestrator_tracking
+                and not orchestrator.is_error()
+                and completed_order is not None
+            ):
+                threshold = completed_order - self.max_concurrent_tasks
+                if threshold > 0:
+                    to_zombify = 0
+                    # Iterate through oldest entries first, using lazy deletion
+                    # (skip entries already removed from inflight_orchestrators)
+                    while (
+                        self.inflight_order and self.inflight_order[0][0] <= threshold
+                    ):
+                        order, orch_id = self.inflight_order.pop(0)
+                        # Only zombify if still in inflight (not already completed)
+                        if orch_id in self.inflight_orchestrators:
+                            del self.inflight_orchestrators[orch_id]
+                            self.zombie_orchestrators.add(orch_id)
+                            to_zombify += 1
+                            # Increase num_done to release semaphore
+                            self.num_done += 1
 
-        # Don't close output file if there are zombies
-        has_zombies = bool(self.zombie_orchestrators)
-        if self.num_inputs is not None and self.num_done >= self.num_inputs and not has_zombies:
+                    if to_zombify:
+                        self.logger.info(
+                            f"Moved {to_zombify} orchestrators to zombie (threshold order: {threshold})"
+                        )
+
+            if self.metrics_accumulator:
+                self.metrics_accumulator.accumulate(orchestrator)
+
+        # Don't close output file if there are zombies or pending writes
+        if (
+            self.num_inputs is not None
+            and self.num_done >= self.num_inputs
+            and not self.zombie_orchestrators
+            and self.pending_writes == 0
+        ):
             self.output_file.close()
+
         return {"orchestrator": orchestrator}
 
     async def get_progress(self) -> int:
@@ -902,9 +944,12 @@ class Sink(AgentActor):
             return min(self.num_done, self.num_inputs - 1)
         return self.num_done
 
-    async def register_inflight(self, orchestrator_id: str, creation_timestamp: float):
+    async def register_inflight(self, orchestrator_id: str):
         """Register an orchestrator as in-flight (before sending to first agent)."""
-        self.inflight_orchestrators[orchestrator_id] = creation_timestamp
+        self.registration_counter += 1
+        order = self.registration_counter
+        self.inflight_orchestrators[orchestrator_id] = order
+        self.inflight_order.append((order, orchestrator_id))
 
     async def get_overall_metrics(self) -> dict[str, Any] | None:
         return (
@@ -929,13 +974,6 @@ class Sink(AgentActor):
             except asyncio.CancelledError:
                 pass
             self._refresh_task = None
-        if self._zombie_check_task is not None:
-            self._zombie_check_task.cancel()
-            try:
-                await self._zombie_check_task
-            except asyncio.CancelledError:
-                pass
-            self._zombie_check_task = None
         if self._idle_check_task is not None:
             self._idle_check_task.cancel()
             try:
@@ -1034,7 +1072,9 @@ class Sink(AgentActor):
         Args:
             orchestrator_id: The ID of the lost orchestrator
         """
-        self.logger.debug(f"Creating tombstone for lost orchestrator: {orchestrator_id}")
+        self.logger.debug(
+            f"Creating tombstone for lost orchestrator: {orchestrator_id}"
+        )
 
         # Create a DeadOrchestrator and process it through normal flow
         dead_orch = DeadOrchestrator(orchestrator_id)
@@ -1048,7 +1088,11 @@ class Sink(AgentActor):
 
                 # Skip if we're done and no zombies
                 has_zombies = bool(self.zombie_orchestrators)
-                if self.num_inputs is not None and self.num_done >= self.num_inputs and not has_zombies:
+                if (
+                    self.num_inputs is not None
+                    and self.num_done >= self.num_inputs
+                    and not has_zombies
+                ):
                     break
 
                 # Check if we've been idle long enough
@@ -1061,18 +1105,9 @@ class Sink(AgentActor):
                 if not all_idle:
                     continue
 
-                # All actors are idle - write tombstones for any in-flight tasks
-                if self.inflight_orchestrators:
-                    self.logger.warning(
-                        f"System idle for {idle_time:.1f}s with {len(self.inflight_orchestrators)} "
-                        f"in-flight tasks. Writing tombstones."
-                    )
-                    for orch_id in list(self.inflight_orchestrators.keys()):
-                        await self._write_tombstone(orch_id)
-
-                    # Wait for tombstones to be processed through the queue
-                    while self.queue.qsize() > 0 or len(self.pending_tasks) > 0:
-                        await asyncio.sleep(0.1)
+                for orch_id in self.inflight_orchestrators:
+                    self.zombie_orchestrators.add(orch_id)
+                self.inflight_orchestrators.clear()
 
                 # All actors are idle - confirm zombies are dead and write tombstones
                 if self.zombie_orchestrators:
@@ -1080,7 +1115,7 @@ class Sink(AgentActor):
                         f"System idle for {idle_time:.1f}s with {len(self.zombie_orchestrators)} "
                         f"zombie tasks. Writing tombstones to confirm dead."
                     )
-                    for orch_id in list(self.zombie_orchestrators.keys()):
+                    for orch_id in list(self.zombie_orchestrators):
                         await self._write_tombstone(orch_id)
 
                     # Wait for tombstones to be processed through the queue
@@ -1106,11 +1141,7 @@ class Sink(AgentActor):
         """Check if all actors have zero queue + pending tasks and idle timestamps."""
         now = time.time()
         async with self._team_lock:
-            all_actors = [
-                actor
-                for actors in self._team.values()
-                for actor in actors
-            ]
+            all_actors = [actor for actors in self._team.values() for actor in actors]
 
         for actor in all_actors:
             try:
@@ -1436,7 +1467,8 @@ class P2PAgentFramework:
         logger.debug(f"Enqueue: {orchestrator.id}")
 
         # Register as in-flight before sending to first agent
-        await self.sink.register_inflight.remote(orchestrator.id, orchestrator.creation_timestamp)
+        if self.cfg.dead_orchestrator_tracking:
+            await self.sink.register_inflight.remote(orchestrator.id)
 
         # Send to first agent with local cache for latency, fallback to sink on error
         try:
@@ -1514,7 +1546,9 @@ class P2PAgentFramework:
                 disable=self.sim_index > 0,
             )
 
-            logger.info(f"Starting P2P simulation {self.simulation_id} (namespace: {self.simulation_id})")
+            logger.info(
+                f"Starting P2P simulation {self.simulation_id} (namespace: {self.simulation_id})"
+            )
             # Process tasks
             if self.cfg.get("rate_limit_enqueue", False):
                 num_consumers = 1
@@ -1554,11 +1588,7 @@ class P2PAgentFramework:
 
 @hydra.main(config_path="config", config_name="coral_experiment", version_base=None)
 def main(cfg: DictConfig):
-    global ENABLE_INSTRUMENTATION, ENABLE_DEAD_ORCHESTRATOR_TRACKING
     num_tasks = cfg.get("parallelism", 1)
-    ENABLE_INSTRUMENTATION = cfg.get("instrumentation", False)
-    ENABLE_DEAD_ORCHESTRATOR_TRACKING = cfg.get("dead_orchestrator_tracking", False)
-
     if num_tasks > 1 and cfg.dataset.get("data_files"):
         setup_logging(logger, cfg.get("debug", False))
         cli = Cli(**cfg.matrix)

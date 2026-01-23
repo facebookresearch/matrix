@@ -23,11 +23,11 @@ from ..p2p_agents import (
     AgentActor,
     BaseMetricsAccumulator,
     BaseResourceClient,
+    HistPair,
     Orchestrator,
     Sink,
 )
 from ..p2p_extended import (
-    HistPair,
     HuggingfaceDatasetLoader,
     LLMAgentActor,
     SequentialOrchestrator,
@@ -73,7 +73,9 @@ class CoralOrchestrator(SequentialOrchestrator):
             or self.history[-1].response.get("rated_turns", 0) >= self.max_turns
         )
         if done:
-            self.status["success"] = self.history[-1].response.get("agreement_correctness", False)
+            self.status["success"] = self.history[-1].response.get(
+                "agreement_correctness", False
+            )
         return done
 
 
