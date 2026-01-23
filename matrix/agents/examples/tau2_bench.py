@@ -580,7 +580,7 @@ class Tau2MetricsAccumulator(BaseMetricsAccumulator):
 
     def accumulate(self, orchestrator: Tau2Orchestrator):  # type: ignore[override]
         last_turn = orchestrator.history[-1].response if orchestrator.history else {}
-        self.overall_metrics["conv_err"].append(not last_turn.get("status_ok", False))
+        self.overall_metrics["conv_err"].append(orchestrator.is_error())
         if "reward_info" in last_turn:
             self.overall_metrics["rewards"].append(
                 last_turn["reward_info"].get("reward", 0)

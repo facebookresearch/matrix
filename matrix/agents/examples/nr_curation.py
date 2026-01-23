@@ -247,5 +247,4 @@ class NRMetricsAccumulator(BaseMetricsAccumulator):
         reason = orchestrator.status.get("termination_reason")
         if reason:
             self.overall_metrics[reason] += 1
-        last_turn = orchestrator.history[-1].response if orchestrator.history else {}
-        self.overall_metrics["conv_err"] += not last_turn.get("status_ok", False)
+        self.overall_metrics["conv_err"] += orchestrator.is_error()

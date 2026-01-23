@@ -249,8 +249,7 @@ class SweMetricsAccumulator(BaseMetricsAccumulator):
         self.output_data: dict[str, Any] = {}
 
     def accumulate(self, orchestrator: SweOrchestrator):  # type: ignore[override]
-        last_turn = orchestrator.history[-1].response if orchestrator.history else {}
-        self.overall_metrics["conv_err"].append(not last_turn.get("status_ok", False))
+        self.overall_metrics["conv_err"].append(orchestrator.is_error())
 
         conv_list = [msg for msg in orchestrator.history if msg.agent in {"coder"}]
         conv_list = conv_list[1:]  # skip the injected prompt

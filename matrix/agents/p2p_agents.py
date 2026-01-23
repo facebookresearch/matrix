@@ -38,6 +38,7 @@ from .agent_utils import get_ray_actor_class, setup_logging
 logger = logging.getLogger(__name__)
 
 ENABLE_INSTRUMENTATION = False
+ENABLE_DEAD_ORCHESTRATOR_TRACKING = False
 
 # ==== Utility Functions ====
 async def send_with_retry(
@@ -164,6 +165,12 @@ class Orchestrator(abc.ABC):
     def is_success(self) -> bool:
         return self.status.get("success", False)
 
+    def is_error(self) -> bool:
+        """Return True if the last response had an error (status_ok=False)."""
+        if not self.history:
+            return True
+        return not self.history[-1].response.get("status_ok", True)
+
     @abc.abstractmethod
     def current_agent(self) -> str:
         """Get the current agent's ID."""
@@ -215,7 +222,7 @@ class DeadOrchestrator(Orchestrator):
         self.seed = -1
         self.error = error
         self.task_ref = None  # type: ignore[assignment]
-        self.status = {"success": False, "error": error}
+        self.status = {"error": error}
 
     @property
     def id(self) -> str:
@@ -706,8 +713,14 @@ class Sink(AgentActor):
         self._team_lock = asyncio.Lock()
         self._refresh_task: Optional[asyncio.Task] = None
 
-        # Track all in-flight orchestrator IDs (added when sent to first agent, removed on completion)
-        self.inflight_ids: set[str] = set()
+        # Optimistic timeout tracking for dead orchestrator detection
+        self.inflight_orchestrators: dict[str, float] = {}  # id -> creation_timestamp
+        self.zombie_orchestrators: dict[str, float] = {}  # id -> creation_timestamp
+        self.max_e2e_latency: float = 0.0
+        self.num_successful_trajectories: int = 0
+        self.MIN_TRAJECTORIES_FOR_RELIABLE_MAX = 1000
+        self.ZOMBIE_MULTIPLIER = 3.0  # Consider dead if 3x max latency
+        self._zombie_check_task: Optional[asyncio.Task] = None
 
         # Idle detection for dead task recovery
         self.last_message_time: float = time.time()
@@ -765,6 +778,52 @@ class Sink(AgentActor):
         # Start idle check task now that we know the total inputs
         if self._idle_check_task is None:
             self._idle_check_task = asyncio.create_task(self._idle_check_loop())
+        # Start zombie check task if dead orchestrator tracking is enabled
+        if ENABLE_DEAD_ORCHESTRATOR_TRACKING and self._zombie_check_task is None:
+            self._zombie_check_task = asyncio.create_task(self._zombie_check_loop())
+
+    async def _zombie_check_loop(self):
+        """Background task to detect zombie orchestrators based on optimistic timeout."""
+        while self.running:
+            try:
+                await asyncio.sleep(10.0)  # Check every 10 seconds
+
+                # Skip if we don't have reliable max latency estimate yet
+                if self.num_successful_trajectories < self.MIN_TRAJECTORIES_FOR_RELIABLE_MAX:
+                    continue
+
+                if self.max_e2e_latency <= 0:
+                    continue
+
+                now = time.time()
+                threshold = self.ZOMBIE_MULTIPLIER * self.max_e2e_latency
+
+                # Find orchestrators that should be moved to zombie
+                to_zombify = []
+                for orch_id, creation_ts in list(self.inflight_orchestrators.items()):
+                    elapsed = now - creation_ts
+                    # Consider zombie if elapsed > 3x max latency
+                    if elapsed > threshold:
+                        to_zombify.append((orch_id, creation_ts))
+
+                # Move to zombie and increase num_done
+                for orch_id, creation_ts in to_zombify:
+                    if orch_id in self.zombie_orchestrators:
+                        continue  # Already a zombie
+
+                    self.zombie_orchestrators[orch_id] = creation_ts
+                    # Remove from inflight
+                    self.inflight_orchestrators.pop(orch_id, None)
+                    # Increase num_done to release semaphore
+                    self.num_done += 1
+                    self.logger.warning(
+                        f"Orchestrator {orch_id} moved to zombie (elapsed {now - creation_ts:.1f}s > {threshold:.1f}s threshold)"
+                    )
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning(f"Error in zombie check loop: {repr(e)}")
 
     async def preprocess(self, orchestrator: "Orchestrator"):
         # Update last message time for idle detection
@@ -784,6 +843,13 @@ class Sink(AgentActor):
         latency = now - orchestrator.creation_timestamp
         self.e2e_latency.set(latency)
 
+        # Check if this orchestrator was in zombie set (came back from the dead)
+        is_zombie_return = orchestrator.id in self.zombie_orchestrators
+        if is_zombie_return:
+            # Remove from zombie set - it actually completed
+            del self.zombie_orchestrators[orchestrator.id]
+            self.logger.info(f"Zombie orchestrator {orchestrator.id} returned, removing from zombie set")
+
         # Always write tombstones (DeadOrchestrator), otherwise respect save_success_only
         is_tombstone = isinstance(orchestrator, DeadOrchestrator)
         if not self.save_success_only or orchestrator.is_success():
@@ -798,11 +864,24 @@ class Sink(AgentActor):
             )
             self.output_file.write(data_to_write)
             self.sink_write_latency.set(time.perf_counter() - start_time)
+
         # Remove from inflight after writing to disk
-        self.inflight_ids.discard(orchestrator.id)
-        self.num_done += 1
+        self.inflight_orchestrators.pop(orchestrator.id, None)
+
+        # Don't increase num_done for zombie returns (already counted when moved to zombie)
+        if not is_zombie_return:
+            self.num_done += 1
+
         if is_tombstone:
             self.num_dead += 1
+
+        # Track max e2e latency for successful non-tombstone trajectories
+        if not is_tombstone and not orchestrator.is_error():
+            self.num_successful_trajectories += 1
+            if self.num_successful_trajectories >= self.MIN_TRAJECTORIES_FOR_RELIABLE_MAX:
+                if latency > self.max_e2e_latency:
+                    self.max_e2e_latency = latency
+                    self.logger.debug(f"Updated max e2e latency to {self.max_e2e_latency:.2f}s")
 
         # Skip metrics accumulation for tombstones
         if self.metrics_accumulator and not is_tombstone:
@@ -811,16 +890,21 @@ class Sink(AgentActor):
         latency = orchestrator.init_timestamp - orchestrator.creation_timestamp
         self.task_init_latency.set(latency)
 
-        if self.num_inputs is not None and self.num_done >= self.num_inputs:
+        # Don't close output file if there are zombies
+        has_zombies = bool(self.zombie_orchestrators)
+        if self.num_inputs is not None and self.num_done >= self.num_inputs and not has_zombies:
             self.output_file.close()
         return {"orchestrator": orchestrator}
 
     async def get_progress(self) -> int:
+        # Cap num_done when there are zombies to prevent input pipeline from finishing early
+        if self.zombie_orchestrators and self.num_inputs is not None:
+            return min(self.num_done, self.num_inputs - 1)
         return self.num_done
 
-    async def register_inflight(self, orchestrator_id: str):
+    async def register_inflight(self, orchestrator_id: str, creation_timestamp: float):
         """Register an orchestrator as in-flight (before sending to first agent)."""
-        self.inflight_ids.add(orchestrator_id)
+        self.inflight_orchestrators[orchestrator_id] = creation_timestamp
 
     async def get_overall_metrics(self) -> dict[str, Any] | None:
         return (
@@ -845,6 +929,13 @@ class Sink(AgentActor):
             except asyncio.CancelledError:
                 pass
             self._refresh_task = None
+        if self._zombie_check_task is not None:
+            self._zombie_check_task.cancel()
+            try:
+                await self._zombie_check_task
+            except asyncio.CancelledError:
+                pass
+            self._zombie_check_task = None
         if self._idle_check_task is not None:
             self._idle_check_task.cancel()
             try:
@@ -955,8 +1046,9 @@ class Sink(AgentActor):
             try:
                 await asyncio.sleep(10.0)  # Check every 10 seconds
 
-                # Skip if we're done
-                if self.num_inputs is not None and self.num_done >= self.num_inputs:
+                # Skip if we're done and no zombies
+                has_zombies = bool(self.zombie_orchestrators)
+                if self.num_inputs is not None and self.num_done >= self.num_inputs and not has_zombies:
                     break
 
                 # Check if we've been idle long enough
@@ -969,26 +1061,41 @@ class Sink(AgentActor):
                 if not all_idle:
                     continue
 
-                # All actors are idle and we have in-flight tasks - they must be lost
-                if self.inflight_ids:
+                # All actors are idle - write tombstones for any in-flight tasks
+                if self.inflight_orchestrators:
                     self.logger.warning(
-                        f"System idle for {idle_time:.1f}s with {len(self.inflight_ids)} "
+                        f"System idle for {idle_time:.1f}s with {len(self.inflight_orchestrators)} "
                         f"in-flight tasks. Writing tombstones."
                     )
-                    for orch_id in list(self.inflight_ids):
+                    for orch_id in list(self.inflight_orchestrators.keys()):
                         await self._write_tombstone(orch_id)
 
                     # Wait for tombstones to be processed through the queue
                     while self.queue.qsize() > 0 or len(self.pending_tasks) > 0:
                         await asyncio.sleep(0.1)
 
-                    # Check if we're still short of expected tasks
-                    if self.num_inputs is not None and self.num_done < self.num_inputs:
-                        self.logger.error(
-                            f"Completed {self.num_done} tasks but expected {self.num_inputs}. "
-                            f"Some tasks may have been lost before registration."
-                        )
+                # All actors are idle - confirm zombies are dead and write tombstones
+                if self.zombie_orchestrators:
+                    self.logger.warning(
+                        f"System idle for {idle_time:.1f}s with {len(self.zombie_orchestrators)} "
+                        f"zombie tasks. Writing tombstones to confirm dead."
+                    )
+                    for orch_id in list(self.zombie_orchestrators.keys()):
+                        await self._write_tombstone(orch_id)
+
+                    # Wait for tombstones to be processed through the queue
+                    while self.queue.qsize() > 0 or len(self.pending_tasks) > 0:
+                        await asyncio.sleep(0.1)
+                    # File will be closed by preprocess when last tombstone is written
                     break
+
+                # Check if we're still short of expected tasks
+                if self.num_inputs is not None and self.num_done < self.num_inputs:
+                    self.logger.error(
+                        f"Completed {self.num_done} tasks but expected {self.num_inputs}. "
+                        f"Some tasks may have been lost before registration."
+                    )
+                break
 
             except asyncio.CancelledError:
                 break
@@ -1329,7 +1436,7 @@ class P2PAgentFramework:
         logger.debug(f"Enqueue: {orchestrator.id}")
 
         # Register as in-flight before sending to first agent
-        await self.sink.register_inflight.remote(orchestrator.id)
+        await self.sink.register_inflight.remote(orchestrator.id, orchestrator.creation_timestamp)
 
         # Send to first agent with local cache for latency, fallback to sink on error
         try:
@@ -1447,9 +1554,10 @@ class P2PAgentFramework:
 
 @hydra.main(config_path="config", config_name="coral_experiment", version_base=None)
 def main(cfg: DictConfig):
-    global ENABLE_INSTRUMENTATION
+    global ENABLE_INSTRUMENTATION, ENABLE_DEAD_ORCHESTRATOR_TRACKING
     num_tasks = cfg.get("parallelism", 1)
     ENABLE_INSTRUMENTATION = cfg.get("instrumentation", False)
+    ENABLE_DEAD_ORCHESTRATOR_TRACKING = cfg.get("dead_orchestrator_tracking", False)
 
     if num_tasks > 1 and cfg.dataset.get("data_files"):
         setup_logging(logger, cfg.get("debug", False))
