@@ -745,7 +745,11 @@ class Sink(AgentActor):
     REFRESH_INTERVAL = 30.0  # seconds between periodic refreshes
     GET_ACTOR_TIMEOUT = 60.0  # default timeout for get_actor calls
     GET_ACTOR_RETRY_INTERVAL = 1.0  # seconds between retries
+
+    # dead detection
     IDLE_TIMEOUT = 60.0  # seconds of idle time before checking for dead tasks
+    MAX_NEW_ZOMBIE = 10  # at most mark this number at once
+    LATE_ARRIVAL_INCR = 5 # make it harder to mark zombie for each late arrivals
 
     def __init__(
         self,
@@ -772,7 +776,7 @@ class Sink(AgentActor):
 
         # Optimistic timeout tracking for dead orchestrator detection
         self.dead_orchestrator_tracking = config.dead_orchestrator_tracking
-        self.max_concurrent_tasks = config.max_concurrent_tasks
+        self.dead_order_window = config.max_concurrent_tasks
         # Registration order tracking: when task N completes, tasks before N-max_concurrent_tasks are zombies
         self.registration_counter: int = 0
         self.inflight_orchestrators: dict[str, int] = {}  # id -> registration_order
@@ -891,6 +895,7 @@ class Sink(AgentActor):
                 self.logger.info(
                     f"Zombie orchestrator {orchestrator.id} returned, removing from zombie set"
                 )
+                self.dead_order_window += self.LATE_ARRIVAL_INCR
 
             if not is_zombie_return:
                 self.num_done += 1
@@ -902,13 +907,13 @@ class Sink(AgentActor):
                 and not orchestrator.is_error()
                 and completed_order is not None
             ):
-                threshold = completed_order - self.max_concurrent_tasks
+                threshold = completed_order - self.dead_order_window
                 if threshold > 0:
                     to_zombify = 0
                     # Iterate through oldest entries first, using lazy deletion
                     # (skip entries already removed from inflight_orchestrators)
                     while (
-                        self.inflight_order and self.inflight_order[0][0] <= threshold
+                        self.inflight_order and self.inflight_order[0][0] <= threshold and to_zombify < self.MAX_NEW_ZOMBIE
                     ):
                         order, orch_id = self.inflight_order.pop(0)
                         # Only zombify if still in inflight (not already completed)
@@ -1107,6 +1112,7 @@ class Sink(AgentActor):
 
                 for orch_id in self.inflight_orchestrators:
                     self.zombie_orchestrators.add(orch_id)
+                    self.num_done += 1
                 self.inflight_orchestrators.clear()
 
                 # All actors are idle - confirm zombies are dead and write tombstones
@@ -1115,12 +1121,13 @@ class Sink(AgentActor):
                         f"System idle for {idle_time:.1f}s with {len(self.zombie_orchestrators)} "
                         f"zombie tasks. Writing tombstones to confirm dead."
                     )
-                    for orch_id in list(self.zombie_orchestrators):
-                        await self._write_tombstone(orch_id)
+                    tasks = [self._write_tombstone(orch_id) for orch_id in self.zombie_orchestrators]
+                    self.zombie_orchestrators.clear()
+                    await asyncio.gather(*tasks)
 
                     # Wait for tombstones to be processed through the queue
                     while self.queue.qsize() > 0 or len(self.pending_tasks) > 0:
-                        await asyncio.sleep(0.1)
+                        await asyncio.sleep(1)
                     # File will be closed by preprocess when last tombstone is written
                     break
 
