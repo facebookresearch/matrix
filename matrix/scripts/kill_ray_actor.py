@@ -12,7 +12,10 @@ from matrix.utils.ray import get_ray_address
 def _init_ray():
     """Initialize Ray connection."""
     cli = matrix.Cli()
-    address = get_ray_address(cli.cluster.cluster_info())
+    cluster_info = cli.cluster.cluster_info()
+    if cluster_info is None:
+        raise RuntimeError("Cluster info not found. Is the cluster running?")
+    address = get_ray_address(cluster_info)
     ray.init(
         address=address,
         log_to_driver=True,
@@ -85,7 +88,7 @@ def kill_actor_by_name(
     _init_ray()
 
     success, msg = ray.get(
-        _kill_by_name_remote.remote(actor_name, namespace, no_restart)
+        _kill_by_name_remote.remote(actor_name, namespace, no_restart)  # type: ignore[call-arg]
     )
     if success:
         print(f"[OK] {msg}")
@@ -104,7 +107,7 @@ def kill_actor_by_id(actor_id: str, no_restart: bool = False) -> bool:
     """
     _init_ray()
 
-    success, msg = ray.get(_kill_by_id_remote.remote(actor_id, no_restart))
+    success, msg = ray.get(_kill_by_id_remote.remote(actor_id, no_restart))  # type: ignore[call-arg]
     if success:
         print(f"[OK] {msg}")
     else:
@@ -157,7 +160,7 @@ def kill_random_repeatedly(
 
         # Kill remotely
         success, msg = ray.get(
-            _kill_by_name_remote.remote(target, namespace, no_restart)
+            _kill_by_name_remote.remote(target, namespace, no_restart)  # type: ignore[call-arg]
         )
         if success:
             print(f"[OK] {msg}")

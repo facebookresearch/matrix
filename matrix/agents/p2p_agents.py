@@ -161,7 +161,7 @@ async def send_with_retry(
             local_cache.pop(role, None)
             continue
         except TimeoutError as e:
-            last_exception = e
+            last_exception = e  # type: ignore[assignment]
             log.warning(
                 f"Timeout getting actor {role} (attempt {attempt + 1}/{max_retries}): {repr(e)}"
             )
@@ -322,7 +322,7 @@ class DeadOrchestrator(Orchestrator):
 
     @property
     def id(self) -> str:
-        return self._id
+        return self._id  # type: ignore[return-value]
 
     def current_agent(self) -> str:
         return "_sink"
@@ -432,7 +432,7 @@ class AgentActor(abc.ABC):
             asyncio.get_event_loop().create_task(self._event_loop())
         )
 
-        metrics_config = [
+        metrics_config: list[tuple[str, type, str, str, dict[str, Any]]] = [
             # (attribute_name, metric_class, name, description, extra_kwargs)
             (
                 "messages_processed",
@@ -507,7 +507,6 @@ class AgentActor(abc.ABC):
             ),
         ]
         self._init_metrics(metrics_config)
-
 
     @staticmethod
     def _patch_getproxies():
@@ -603,10 +602,10 @@ class AgentActor(abc.ABC):
             if orchestrator is None:  # Shutdown sentinel
                 break
             latency = time.time() - orchestrator.enqueue_timestamp
-            self.dequeue_latency.set(latency)
+            self.dequeue_latency.set(latency)  # type: ignore[attr-defined]
             if self.ENABLE_INSTRUMENTATION:
                 orchestrator.append_instrumentation(
-                    self.dequeue_latency, self.agent_id, latency
+                    self.dequeue_latency, self.agent_id, latency  # type: ignore[attr-defined]
                 )
 
             # Update queue size after getting message
@@ -645,13 +644,13 @@ class AgentActor(abc.ABC):
             if self.ENABLE_INSTRUMENTATION:
                 blob = pickle.dumps(next_state)
                 size_kb = len(blob) / 1024
-                self.ser_size_kb.set(size_kb)
+                self.ser_size_kb.set(size_kb)  # type: ignore[attr-defined]
                 next_state.append_instrumentation(
-                    self.ser_size_kb, self.agent_id, (time.time(), size_kb)
+                    self.ser_size_kb, self.agent_id, (time.time(), size_kb)  # type: ignore[attr-defined]
                 )
                 latency = time.perf_counter() - start_time
                 next_state.append_instrumentation(
-                    self.handle_latency, self.agent_id, latency
+                    self.handle_latency, self.agent_id, latency  # type: ignore[attr-defined]
                 )
 
             # Send to next agent with fault-tolerant retry
@@ -676,7 +675,7 @@ class AgentActor(abc.ABC):
         """Gracefully shutdown the agent"""
         self.running = False
         if self.event_loop_task is not None:
-            await self.queue.put(None)  # Sentinel to unblock event loop
+            await self.queue.put(None)  # type: ignore[arg-type]
             await self.event_loop_task
 
     @classmethod
@@ -749,7 +748,7 @@ class Sink(AgentActor):
     # dead detection
     IDLE_TIMEOUT = 60.0  # seconds of idle time before checking for dead tasks
     MAX_NEW_ZOMBIE = 10  # at most mark this number at once
-    LATE_ARRIVAL_INCR = 5 # make it harder to mark zombie for each late arrivals
+    LATE_ARRIVAL_INCR = 5  # make it harder to mark zombie for each late arrivals
 
     def __init__(
         self,
@@ -790,7 +789,7 @@ class Sink(AgentActor):
         self._idle_check_task: Optional[asyncio.Task] = None
         self.num_dead: int = 0  # Counter for dead/lost orchestrators
 
-        additional_metrics_config = [
+        additional_metrics_config: list[tuple[str, type, str, str, dict[str, Any]]] = [
             (
                 "task_init_latency",
                 Gauge,
@@ -873,7 +872,7 @@ class Sink(AgentActor):
                     ),
                 )
                 self.output_file.write(data_to_write)
-                self.sink_write_latency.set(time.perf_counter() - start_time)
+                self.sink_write_latency.set(time.perf_counter() - start_time)  # type: ignore[attr-defined]
             finally:
                 self.pending_writes -= 1  # Always decrement, even on error
 
@@ -883,9 +882,9 @@ class Sink(AgentActor):
         if is_tombstone:
             self.num_dead += 1
         else:
-            self.e2e_latency.set(latency)
+            self.e2e_latency.set(latency)  # type: ignore[attr-defined]
             latency = orchestrator.init_timestamp - orchestrator.creation_timestamp
-            self.task_init_latency.set(latency)
+            self.task_init_latency.set(latency)  # type: ignore[attr-defined]
 
             # Check if this orchestrator was in zombie set (came back from the dead)
             is_zombie_return = orchestrator.id in self.zombie_orchestrators
@@ -913,7 +912,9 @@ class Sink(AgentActor):
                     # Iterate through oldest entries first, using lazy deletion
                     # (skip entries already removed from inflight_orchestrators)
                     while (
-                        self.inflight_order and self.inflight_order[0][0] <= threshold and to_zombify < self.MAX_NEW_ZOMBIE
+                        self.inflight_order
+                        and self.inflight_order[0][0] <= threshold
+                        and to_zombify < self.MAX_NEW_ZOMBIE
                     ):
                         order, orch_id = self.inflight_order.pop(0)
                         # Only zombify if still in inflight (not already completed)
@@ -1121,7 +1122,10 @@ class Sink(AgentActor):
                         f"System idle for {idle_time:.1f}s with {len(self.zombie_orchestrators)} "
                         f"zombie tasks. Writing tombstones to confirm dead."
                     )
-                    tasks = [self._write_tombstone(orch_id) for orch_id in self.zombie_orchestrators]
+                    tasks = [
+                        self._write_tombstone(orch_id)
+                        for orch_id in self.zombie_orchestrators
+                    ]
                     self.zombie_orchestrators.clear()
                     await asyncio.gather(*tasks)
 
@@ -1300,7 +1304,7 @@ class ScalableTeamManager:
         try:
             await asyncio.wait_for(
                 asyncio.gather(
-                    *[handle.check_health.remote() for handle in all_actors]
+                    *[handle.check_health.remote() for handle in all_actors if handle is not None]  # type: ignore[union-attr]
                 ),
                 timeout=10 * len(all_actors),
             )
@@ -1312,7 +1316,8 @@ class ScalableTeamManager:
         logger.info("Checking Ray actor health done...")
 
         # Initialize Sink's team registry with verified handles (avoid re-lookup race)
-        await self.sink.set_team_registry.remote(self.team_registry_config, team)
+        if self.sink is not None:
+            await self.sink.set_team_registry.remote(self.team_registry_config, team)
 
     def get_team_config(self):
         """Get team config dictionary for orchestrator routing"""
@@ -1385,10 +1390,10 @@ class P2PAgentFramework:
 
         # Initialize the team with collected handles
         await self.team_manager.initialize_team(team)
-        self.sink = self.team_manager.sink
+        self.sink = self.team_manager.sink  # type: ignore[assignment]
 
         # Initialize local team cache from sink
-        self._local_team_cache = await self.sink.get_team_snapshot.remote()
+        self._local_team_cache = await self.sink.get_team_snapshot.remote()  # type: ignore[attr-defined]
 
     async def _progress_task(self):
         async def _update_progress():
@@ -1475,14 +1480,14 @@ class P2PAgentFramework:
 
         # Register as in-flight before sending to first agent
         if self.cfg.dead_orchestrator_tracking:
-            await self.sink.register_inflight.remote(orchestrator.id)
+            await self.sink.register_inflight.remote(orchestrator.id)  # type: ignore[attr-defined]
 
         # Send to first agent with local cache for latency, fallback to sink on error
         try:
             self._local_team_cache = await send_with_retry(
                 orchestrator,
                 first_agent_role,
-                self.sink,
+                self.sink,  # type: ignore[arg-type]
                 self._local_team_cache,
                 logger,
             )
@@ -1490,7 +1495,7 @@ class P2PAgentFramework:
             # All retries exhausted - send to sink as error
             logger.error(str(e))
             orchestrator.status["error"] = f"Failed to reach {first_agent_role}: {e}"
-            await self.sink.receive_message.remote(orchestrator)
+            await self.sink.receive_message.remote(orchestrator)  # type: ignore[attr-defined]
             return
 
         logger.debug(f"Done Enqueue: {orchestrator.id}")

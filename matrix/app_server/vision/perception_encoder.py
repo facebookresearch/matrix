@@ -77,7 +77,7 @@ class PerceptionEncoderDeployment:
             pe.CLIP.from_config(self.model_name, pretrained=True).to(self.device).eval()
         )
         self.model = torch.compile(model, mode="reduce-overhead")
-        self.preprocess = get_image_transform(self.model.image_size)
+        self.preprocess = get_image_transform(self.model.image_size)  # type: ignore[attr-defined]
 
         self.num_workers = self._find_max_num_workers()
         self.batch_size = (
@@ -97,7 +97,7 @@ class PerceptionEncoderDeployment:
         Performs a binary search to find the largest batch size that fits in GPU memory
         by creating a dummy input tensor based on the model's configuration.
         """
-        image_size = self.model.image_size
+        image_size = self.model.image_size  # type: ignore[attr-defined]
 
         low = 1
         high = initial_batch_size
@@ -114,7 +114,7 @@ class PerceptionEncoderDeployment:
                 )
 
                 with torch.no_grad():
-                    self.model.encode_image(dummy_batch)
+                    self.model.encode_image(dummy_batch)  # type: ignore[attr-defined]
 
                 optimal_batch_size = mid
                 low = mid + 1
@@ -195,11 +195,11 @@ class PerceptionEncoderDeployment:
                             frames = batch["frames"].to(self.device)
                             if window_size > 1:
                                 batch_embeddings = execute_with_retry(
-                                    self.model.encode_video, frames
+                                    self.model.encode_video, frames  # type: ignore[attr-defined]
                                 )
                             else:
                                 batch_embeddings = execute_with_retry(
-                                    self.model.encode_image, frames
+                                    self.model.encode_image, frames  # type: ignore[attr-defined]
                                 )
                             meta = batch["meta"]
                             output.append(
@@ -231,7 +231,7 @@ class PerceptionEncoderDeployment:
                 def _run_image_inference():
                     with torch.no_grad():
                         embeddings = execute_with_retry(
-                            self.model.encode_image, image_tensor
+                            self.model.encode_image, image_tensor  # type: ignore[attr-defined]
                         )
                         embeddings = embeddings.cpu().tolist()
                     output.append({"embeddings": embeddings})
@@ -239,13 +239,13 @@ class PerceptionEncoderDeployment:
                 await asyncio.to_thread(_run_image_inference)
             elif "text" in request_json:
                 text = request_json["text"]
-                tokenizer = transforms.get_text_tokenizer(self.model.context_length)
+                tokenizer = transforms.get_text_tokenizer(self.model.context_length)  # type: ignore[attr-defined]
                 text_tensor = tokenizer([text]).to(self.device)
 
                 def _run_text_inference():
                     with torch.no_grad():
                         embeddings = execute_with_retry(
-                            self.model.encode_text, text_tensor
+                            self.model.encode_text, text_tensor  # type: ignore[attr-defined]
                         )
                         embeddings = embeddings.cpu().tolist()
                     output.append({"embeddings": embeddings})

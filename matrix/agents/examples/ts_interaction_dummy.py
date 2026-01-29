@@ -56,7 +56,7 @@ class DummyCoralAgent(AgentActor):
         length_delta: Variation as decimal, e.g. 0.2 means 80%-120% (default: 0.2)
     """
 
-    async def preprocess(self, orchestrator: CoralOrchestrator) -> Dict[str, Any]:
+    async def preprocess(self, orchestrator: CoralOrchestrator) -> Dict[str, Any]:  # type: ignore[override]
         # Get config params with defaults
         base_length = self.config.get("generation_length", 1024)
         delta = self.config.get("length_delta", 0.2)
@@ -84,11 +84,11 @@ class DummyCoralAgent(AgentActor):
             "status_ok": True,
         }
 
-    async def process(self, orchestrator: CoralOrchestrator, response: Any) -> Any:
+    async def process(self, orchestrator: CoralOrchestrator, response: Any) -> Any:  # type: ignore[override]
         # No actual LLM call, just return the preprocessed response
         return response
 
-    async def postprocess(self, orchestrator: CoralOrchestrator, response: Any) -> Any:
+    async def postprocess(self, orchestrator: CoralOrchestrator, response: Any) -> Any:  # type: ignore[override]
         response["timestamp"] = time.time()
         return response
 
@@ -117,7 +117,7 @@ class DummyCoralExtractionAgent(AgentActor):
     Used for measuring system overhead without actual LLM calls.
     """
 
-    async def preprocess(self, orchestrator: CoralOrchestrator) -> Dict[str, Any]:
+    async def preprocess(self, orchestrator: CoralOrchestrator) -> Dict[str, Any]:  # type: ignore[override]
         # Randomly select an answer from available options
         options = list(orchestrator.task_options.split("\n"))
         if options:
@@ -157,11 +157,11 @@ class DummyCoralExtractionAgent(AgentActor):
             "correct": answer == orchestrator.task_answer,
         }
 
-    async def process(self, orchestrator: CoralOrchestrator, response: Any) -> Any:
+    async def process(self, orchestrator: CoralOrchestrator, response: Any) -> Any:  # type: ignore[override]
         # No actual LLM call, just return the preprocessed response
         return response
 
-    async def postprocess(self, orchestrator: CoralOrchestrator, response: Any) -> Any:
+    async def postprocess(self, orchestrator: CoralOrchestrator, response: Any) -> Any:  # type: ignore[override]
         response["timestamp"] = time.time()
         return response
 
@@ -180,7 +180,7 @@ class DummyCoralMatchAgent(AgentActor):
         expected_turns: Target number of turns before agreement (default: 3)
     """
 
-    async def preprocess(self, orchestrator: CoralOrchestrator) -> Dict[str, Any]:
+    async def preprocess(self, orchestrator: CoralOrchestrator) -> Dict[str, Any]:  # type: ignore[override]
         # Count rated_turns with simple iteration (no list creation)
         rated_turns = 1
         for msg in orchestrator.history:
@@ -215,10 +215,10 @@ class DummyCoralMatchAgent(AgentActor):
             "rated_turns": rated_turns,
         }
 
-    async def process(self, orchestrator: CoralOrchestrator, response: Any) -> Any:
+    async def process(self, orchestrator: CoralOrchestrator, response: Any) -> Any:  # type: ignore[override]
         # No actual processing needed, just return the preprocessed response
         return response
 
-    async def postprocess(self, orchestrator: CoralOrchestrator, response: Any) -> Any:
+    async def postprocess(self, orchestrator: CoralOrchestrator, response: Any) -> Any:  # type: ignore[override]
         response["timestamp"] = time.time()
         return response

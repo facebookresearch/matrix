@@ -402,6 +402,7 @@ class RayCluster:
         assert (slurm is None) != (
             local is None
         ), "Only one of --slurm or --local is required"
+        assert requirements is not None  # for type checker
         requirements = _normalize_slurm_keys(requirements)
         executor = "slurm" if slurm else "local"
 

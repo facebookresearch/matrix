@@ -30,7 +30,9 @@ try:
     _has_v0 = True
 except ImportError:
     _has_v0 = False
-    from vllm.v1.engine.async_llm import EngineDeadError as AsyncEngineDeadError
+    from vllm.v1.engine.async_llm import (
+        EngineDeadError as AsyncEngineDeadError,  # type: ignore[assignment]
+    )
 
 try:
     from vllm.v1.engine.async_llm import AsyncLLM
@@ -41,7 +43,7 @@ except ImportError:
 try:
     from vllm.engine.metrics import RayPrometheusStatLogger
 except ImportError:
-    from vllm.v1.metrics.ray_wrappers import RayPrometheusStatLogger
+    from vllm.v1.metrics.ray_wrappers import RayPrometheusStatLogger  # type: ignore[assignment]
 
 from vllm.entrypoints.openai.cli_args import make_arg_parser
 from vllm.entrypoints.openai.protocol import (
@@ -86,7 +88,9 @@ except:
 try:
     from vllm.utils import FlexibleArgumentParser
 except:
-    from vllm.utils.argparse_utils import FlexibleArgumentParser
+    from vllm.utils.argparse_utils import (
+        FlexibleArgumentParser,  # type: ignore[no-redef]
+    )
 
 
 class RelaxedChatCompletionRequest(ChatCompletionRequest):
@@ -131,7 +135,7 @@ if original_post_init is not None:
             self.device_type = "cuda"
             self.device = torch.device("cuda")
 
-    DeviceConfig.__post_init__ = patched_post_init  # type: ignore[attr-defined]
+    DeviceConfig.__post_init__ = patched_post_init  # type: ignore[method-assign]
 
 
 class BaseDeployment:
@@ -240,23 +244,23 @@ class BaseDeployment:
             if "model_config" in signature(OpenAIServingModels.__init__).parameters:
                 model_kwargs["model_config"] = model_config
             # New version: Use `models` and `chat_template_content_format`
-            kwargs["models"] = OpenAIServingModels(**model_kwargs)
+            kwargs["models"] = OpenAIServingModels(**model_kwargs)  # type: ignore[assignment, arg-type]
         if "chat_template_content_format" in init_params:
             kwargs["chat_template_content_format"] = "auto"
 
         # v0.6.6
         if "lora_modules" in init_params:
-            kwargs["lora_modules"] = self.lora_modules
+            kwargs["lora_modules"] = self.lora_modules  # type: ignore[assignment]
         if "base_model_paths" in init_params:
-            kwargs["base_model_paths"] = base_model_paths
+            kwargs["base_model_paths"] = base_model_paths  # type: ignore[assignment]
 
         # equivalent to --enable-auto-tool-choice
         if self.enable_tools:
-            kwargs["enable_auto_tools"] = True
+            kwargs["enable_auto_tools"] = True  # type: ignore[assignment]
             kwargs["tool_parser"] = self.tool_parser
 
         if "model_config" in init_params:
-            kwargs["model_config"] = model_config
+            kwargs["model_config"] = model_config  # type: ignore[assignment]
 
         self.openai_serving_chat = OpenAIServingChat(**kwargs)  # type: ignore[arg-type]
         completion_exclude = [
@@ -343,10 +347,10 @@ class VLLMDeployment(BaseDeployment):
         )
         if isinstance(generator, ErrorResponse):
             if hasattr(generator, "error"):
-                generator = generator.error
+                generator = generator.error  # type: ignore[assignment]
             return JSONResponse(
                 content=generator.model_dump(exclude_unset=True, exclude_none=True),
-                status_code=generator.code,
+                status_code=generator.code,  # type: ignore[attr-defined]
             )
         if request.stream:
             return StreamingResponse(content=generator, media_type="text/event-stream")  # type: ignore[arg-type]
@@ -369,9 +373,9 @@ class VLLMDeployment(BaseDeployment):
         )
         if isinstance(generator, ErrorResponse):
             if hasattr(generator, "error"):
-                generator = generator.error
+                generator = generator.error  # type: ignore[assignment]
             return JSONResponse(
-                content=generator.model_dump(), status_code=generator.code
+                content=generator.model_dump(), status_code=generator.code  # type: ignore[attr-defined]
             )
         if request.stream:
             return StreamingResponse(content=generator, media_type="text/event-stream")  # type: ignore[arg-type]
@@ -464,8 +468,8 @@ class GrpcDeployment(BaseDeployment):
             generator = await self.openai_serving_chat.create_chat_completion(chat)
             if isinstance(generator, ErrorResponse):
                 if hasattr(generator, "error"):
-                    generator = generator.error
-                status_code = self.http_to_grpc_status(generator.code)
+                    generator = generator.error  # type: ignore[assignment]
+                status_code = self.http_to_grpc_status(generator.code)  # type: ignore[attr-defined]
                 raise grpc.RpcError(
                     status_code,
                     generator.model_dump(exclude_unset=True, exclude_none=True),
@@ -517,8 +521,8 @@ class GrpcDeployment(BaseDeployment):
             )
             if isinstance(generator, ErrorResponse):
                 if hasattr(generator, "error"):
-                    generator = generator.error
-                status_code = self.http_to_grpc_status(generator.code)
+                    generator = generator.error  # type: ignore[assignment]
+                status_code = self.http_to_grpc_status(generator.code)  # type: ignore[attr-defined]
                 raise grpc.RpcError(
                     status_code,
                     generator.model_dump(exclude_unset=True, exclude_none=True),
