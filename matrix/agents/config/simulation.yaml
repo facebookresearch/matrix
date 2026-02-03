@@ -10,6 +10,7 @@ rate_limit_enqueue: false
 debug: false
 seed: 42
 num_trial: 1
+dead_orchestrator_tracking: false
 
 # Default output settings
 output:

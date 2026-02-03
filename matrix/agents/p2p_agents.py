@@ -10,6 +10,7 @@ import glob
 import json
 import logging
 import os
+import pickle
 import random
 import time
 import traceback
@@ -18,7 +19,7 @@ from contextlib import AbstractAsyncContextManager, AsyncExitStack, nullcontext
 from datetime import datetime
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, Generator, List, NamedTuple, Optional, Tuple, Type, Union
 
 import hydra
 import numpy as np
@@ -37,6 +38,144 @@ from .agent_utils import get_ray_actor_class, setup_logging
 logger = logging.getLogger(__name__)
 
 
+class RayDict(dict):
+    """
+    dict subclass for auto Ray storage/dereference of specific large text fields.
+    Optimized for fixed fields: "text", "output".
+    """
+
+    FIXED_FIELDS = [
+        "text",
+        "output",  # in history
+    ]
+    TEXT_SIZE_THRESHOLD = 512  # default size threshold
+
+    def __contains__(self, key: object) -> bool:
+        if isinstance(key, str) and key in self.FIXED_FIELDS:
+            return super().__contains__(key) or super().__contains__(f"{key}_ref")
+        return super().__contains__(key)
+
+    async def get_async(self, key: str, default: Any = None) -> Any:
+        if key in self.FIXED_FIELDS:
+            ref_key = f"{key}_ref"
+            if ref_key in self:
+                return await super().__getitem__(ref_key)
+        return super().get(key, default)
+
+    @classmethod
+    async def from_dict(cls, data: Dict[str, Any], registry: "Sink") -> "RayDict":
+        self = cls()
+        for k, v in data.items():
+            if (
+                k in cls.FIXED_FIELDS
+                and isinstance(v, str)
+                and len(v) > cls.TEXT_SIZE_THRESHOLD
+            ):
+                # put with registry as owner otherwise ray will release when owner died even if there is reference.
+                handle = ray.put(v, _owner=registry)
+                self[f"{k}_ref"] = handle
+                await registry.register_object.remote([handle])  # type: ignore[attr-defined]
+            elif k in cls.FIXED_FIELDS:
+                # store small text directly but bypass the assert
+                super(cls, self).__setitem__(k, v)
+            else:
+                self[k] = v
+        return self
+
+    async def to_dict(self) -> dict[str, Any]:
+        out = dict(self)
+        for key in self.FIXED_FIELDS:
+            ref_key = f"{key}_ref"
+            if ref_key in out:
+                out[key] = await out[ref_key]
+                del out[ref_key]
+        return out
+
+    async def cleanup_ray(self, sink: "Sink"):
+        refs_to_free = [
+            self[f"{field}_ref"]
+            for field in self.FIXED_FIELDS
+            if f"{field}_ref" in self and self[f"{field}_ref"] is not None
+        ]
+        if refs_to_free:
+            await sink.unregister_object(refs_to_free)  # type: ignore[attr-defined]
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, lambda: ray.internal.free(refs_to_free))
+
+
+class HistPair(NamedTuple):
+    agent: str
+    response: RayDict
+
+
+# ==== Utility Functions ====
+async def send_with_retry(
+    orchestrator: "Orchestrator",
+    role: str,
+    sink: ray.actor.ActorHandle,
+    local_cache: Dict[str, List[ray.actor.ActorHandle]],
+    log: logging.Logger,
+    timeout: float = 60.0,
+    max_retries: int = 3,
+) -> Dict[str, List[ray.actor.ActorHandle]]:
+    """
+    Send orchestrator to an agent with local cache and fault-tolerant retry.
+
+    Args:
+        orchestrator: The orchestrator state to send
+        role: The role name of the target agent
+        sink: The sink actor handle for registry lookups
+        local_cache: Local team cache dict (will be updated on refresh)
+        log: Logger instance for warnings
+        timeout: Timeout for actor acquisition
+        max_retries: Maximum retry attempts
+
+    Returns:
+        Updated local_cache dict
+
+    Raises:
+        RuntimeError: If all retries exhausted
+    """
+    last_exception = None
+
+    for attempt in range(max_retries):
+        try:
+            if role == "_sink":
+                agent = sink
+            elif attempt == 0 and role in local_cache and local_cache[role]:
+                # First attempt: use local cache for speed
+                agent = random.choice(local_cache[role])
+            else:
+                # Fallback: get from sink with force refresh and update local cache
+                agent = await sink.get_actor.remote(role, timeout, True)
+                local_cache = await sink.get_team_snapshot.remote()
+
+            await agent.receive_message.remote(orchestrator)
+            return local_cache  # Success
+        except ray.exceptions.RayActorError as e:
+            last_exception = e
+            log.warning(
+                f"Actor {role} is dead (attempt {attempt + 1}/{max_retries}): {repr(e)}"
+            )
+            # Clear local cache for this role to force refresh
+            local_cache.pop(role, None)
+            continue
+        except TimeoutError as e:
+            last_exception = e  # type: ignore[assignment]
+            log.warning(
+                f"Timeout getting actor {role} (attempt {attempt + 1}/{max_retries}): {repr(e)}"
+            )
+            continue
+        except Exception:
+            # For other exceptions, don't retry
+            raise
+
+    # All retries exhausted
+    raise RuntimeError(
+        f"Failed to send to {role} after {max_retries} attempts: {last_exception}"
+    )
+
+
 # ==== Abstract Orchestrator ====
 class Orchestrator(abc.ABC):
 
@@ -44,6 +183,31 @@ class Orchestrator(abc.ABC):
         self._id = None
         self.resource_state: dict[str, Any] = {}
         self.status: Dict[str, Any] = {}
+        self.creation_timestamp = time.time()
+        self.init_timestamp = 0.0
+        self.finish_timestamp = 0.0
+        self.enqueue_timestamp = 0.0
+        self.instrumentation: list[tuple[str, str, Any]] = []  # list of key value
+        # List of {"agent": str, "response": {"text": str, "tool_calls": [], "tool_call_id": id, "usage": {}, "extracted_answer": str, "status_ok": bool, "agreement": bool}}
+        self.history: list[HistPair] = []
+
+    async def to_output(self) -> Dict[str, Any]:
+        return {
+            "current_agent": self.current_agent(),
+            "id": self._id,
+            "trial": self.trial,
+            "seed": self.seed,
+            "task": await self.get_task(),
+            "creation_timestamp": self.creation_timestamp,
+            "init_timestamp": self.init_timestamp,
+            "finish_timestamp": self.finish_timestamp,
+            "instrumentation": self.instrumentation,  # temporary
+            "history": [
+                {"agent": msg.agent, "response": await msg.response.to_dict()}
+                for msg in self.history
+            ],
+            "status": self.status,
+        }
 
     async def init(
         self,
@@ -64,12 +228,28 @@ class Orchestrator(abc.ABC):
             res_id: await res.acquire(task, logger) for res_id, res in resources.items()
         }
 
+        # Add initial message to history
+        cls, agent_config = first_agent
+        initial_message = await cls.get_task_message(agent_config, metadata["task"])  # type: ignore[attr-defined]
+        if logger is not None:
+            logger.debug(f"Get initial messageMetadataStart {self.id}")
+        if initial_message is not None:
+            await self._append(
+                initial_message["agent"], initial_message["response"], sink
+            )
+
     @property
     def id(self) -> str:
         return f"{self.simulation_id}_id-{self._id}_trial-{self.trial}"
 
     def is_success(self) -> bool:
         return self.status.get("success", False)
+
+    def is_error(self) -> bool:
+        """Return True if the last response had an error (status_ok=False)."""
+        if not self.history:
+            return True
+        return not self.history[-1].response.get("status_ok", True)
 
     @abc.abstractmethod
     def current_agent(self) -> str:
@@ -80,19 +260,18 @@ class Orchestrator(abc.ABC):
     async def is_done(self) -> bool:
         pass
 
-    @abc.abstractmethod
     async def update(
         self,
         result: Any,
         updater: "AgentActor",
         logger: logging.Logger,
     ) -> "Orchestrator":
-        """Update the orchestrator with the agent's result."""
-        pass
-
-    @abc.abstractmethod
-    async def to_output(self) -> Dict[str, Any]:
-        pass
+        """Update the orchestrator with the agent's result and determine the next agent."""
+        if not isinstance(result, list):
+            result = [result]
+        for res in result:
+            await self._append(self.current_agent(), res, updater.sink)  # type: ignore[arg-type]
+        return self
 
     async def cleanup(
         self, sink: "Sink", resources: dict[str, "BaseResourceClient"], logger
@@ -104,9 +283,77 @@ class Orchestrator(abc.ABC):
         await sink.unregister_object([self.task_ref])  # type: ignore[attr-defined]
         await loop.run_in_executor(None, lambda: ray.internal.free([self.task_ref]))
         self.task_ref = None  # type: ignore[assignment]
+        # Cleanup history
+        await asyncio.gather(
+            *[hist.response.cleanup_ray(sink) for hist in self.history]
+        )
 
     async def get_task(self):
         return await self.task_ref
+
+    def append_instrumentation(self, metric, agent_id, measure):  # temporary
+        self.instrumentation.append((metric._name, agent_id, measure))
+
+    async def _append(self, agent: str, msg: dict[str, Any], sink: "Sink"):
+        if "timestamp" not in msg:
+            msg["timestamp"] = time.time()
+        self.history.append(
+            HistPair(agent=agent, response=await RayDict.from_dict(msg, sink))
+        )
+
+
+class DeadOrchestrator(Orchestrator):
+    """
+    A minimal orchestrator representing a lost/dead task.
+    Used to write tombstone records through the normal Sink flow.
+    """
+
+    def __init__(
+        self, orchestrator_id: str, error: str = "Actor died while processing this task"
+    ):
+        super().__init__()
+        self._id = orchestrator_id
+        self.simulation_id = ""
+        self.trial = -1
+        self.seed = -1
+        self.error = error
+        self.task_ref = None  # type: ignore[assignment]
+        self.status = {"error": error}
+
+    @property
+    def id(self) -> str:
+        return self._id  # type: ignore[return-value]
+
+    def current_agent(self) -> str:
+        return "_sink"
+
+    async def is_done(self) -> bool:
+        return True
+
+    async def update(
+        self,
+        result: Any,
+        updater: "AgentActor",
+        logger: logging.Logger,
+    ) -> "Orchestrator":
+        return self
+
+    async def to_output(self) -> Dict[str, Any]:
+        return {
+            "id": self._id,
+            "status": "lost",
+            "error": self.error,
+            "timestamp": self.finish_timestamp or time.time(),
+        }
+
+    async def cleanup(
+        self, sink: "Sink", resources: dict[str, "BaseResourceClient"], logger
+    ):
+        # No resources to clean up for dead orchestrator
+        pass
+
+    async def get_task(self):
+        return None
 
 
 class BaseResourceClient:
@@ -138,12 +385,15 @@ class BaseResourceClient:
 # ==== Abstract AgentActor ====
 # @ray.remote
 class AgentActor(abc.ABC):
+    ENABLE_INSTRUMENTATION = False
+
     def __init__(
         self,
         id: str,
         agent_id: str,
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
+        sink: ray.actor.ActorHandle,
     ):
         # PATCH FIRST - before any HTTP clients are created
         self._patch_getproxies()
@@ -165,54 +415,24 @@ class AgentActor(abc.ABC):
 
         self.queue: asyncio.Queue["Orchestrator"] = asyncio.Queue()
         self.running = True  # should run forever
-        self.event_loop_task: None | asyncio.Task = None
         self.pending_tasks: set[asyncio.Task] = set()
+        # Track last message time for idle detection
+        self.last_message_time: float = time.time()
         self.system_prompt = system_prompt
         self.logger = logging.getLogger(self.__class__.__name__)
         setup_logging(self.logger, self.debug)
 
-        self._init_metrics()
+        # Store sink reference and start event loop
+        # For Sink actor itself, sink will be None (set later via _set_self_as_sink)
+        self.sink = sink
+        # Local team cache for fast actor lookup, updated from sink on failure
+        self._local_team_cache: Dict[str, List[ray.actor.ActorHandle]] = {}
 
-    @staticmethod
-    def _patch_getproxies():
-        """Patch urllib to handle concurrent environment modifications in Ray."""
-        import os
-        import urllib.request
+        self.event_loop_task: Optional[asyncio.Task] = (
+            asyncio.get_event_loop().create_task(self._event_loop())
+        )
 
-        original_getproxies = urllib.request.getproxies_environment
-
-        def safe_getproxies():
-            """Thread-safe version that handles missing keys during iteration."""
-            try:
-                # Create a snapshot of environment to avoid iteration issues
-                env_copy = dict(os.environ)
-                proxies = {}
-                for name in ["http", "https", "ftp", "no"]:
-                    proxy_var = name + "_proxy"
-                    if proxy_var in env_copy:
-                        proxies[name] = env_copy[proxy_var]
-                    elif proxy_var.upper() in env_copy:
-                        proxies[name] = env_copy[proxy_var.upper()]
-                return proxies
-            except (KeyError, RuntimeError):
-                # If anything goes wrong, return empty dict
-                return {}
-
-        # Apply patch
-        urllib.request.getproxies_environment = safe_getproxies
-        urllib.request.getproxies = safe_getproxies
-
-    def _init_metrics(self):
-        """Initialize Ray metrics for monitoring"""
-
-        default_tags = {
-            "id": self.id,
-            "agent_id": self.agent_id,
-        }
-        tag_keys = ("id", "agent_id")
-
-        # Define all metrics in a declarative list
-        metrics_config = [
+        metrics_config: list[tuple[str, type, str, str, dict[str, Any]]] = [
             # (attribute_name, metric_class, name, description, extra_kwargs)
             (
                 "messages_processed",
@@ -265,16 +485,68 @@ class AgentActor(abc.ABC):
             ),
             (
                 "handle_latency",
-                Histogram,
+                Gauge,
                 "agent_handle_latency_seconds",
                 "Latency of handling each orchestrator task in seconds",
-                {
-                    "boundaries": self.config.get(
-                        "latency_boundaries", self._get_default_latency_boundaries()
-                    )
-                },
+                {},
+            ),
+            (
+                "dequeue_latency",
+                Gauge,
+                "dequeue_latency_seconds",
+                "Time staying in queue in seconds",
+                {},
+            ),
+            # temporary instrumentation
+            (
+                "ser_size_kb",
+                Gauge,
+                "ser_size_kb",
+                "num of kb for the serialized message object",
+                {},
             ),
         ]
+        self._init_metrics(metrics_config)
+
+    @staticmethod
+    def _patch_getproxies():
+        """Patch urllib to handle concurrent environment modifications in Ray."""
+        import os
+        import urllib.request
+
+        original_getproxies = urllib.request.getproxies_environment
+
+        def safe_getproxies():
+            """Thread-safe version that handles missing keys during iteration."""
+            try:
+                # Create a snapshot of environment to avoid iteration issues
+                env_copy = dict(os.environ)
+                proxies = {}
+                for name in ["http", "https", "ftp", "no"]:
+                    proxy_var = name + "_proxy"
+                    if proxy_var in env_copy:
+                        proxies[name] = env_copy[proxy_var]
+                    elif proxy_var.upper() in env_copy:
+                        proxies[name] = env_copy[proxy_var.upper()]
+                return proxies
+            except (KeyError, RuntimeError):
+                # If anything goes wrong, return empty dict
+                return {}
+
+        # Apply patch
+        urllib.request.getproxies_environment = safe_getproxies
+        urllib.request.getproxies = safe_getproxies
+
+    def _init_metrics(self, metrics_config):
+        """Initialize Ray metrics for monitoring"""
+
+        default_tags = {
+            "id": self.id,
+            "agent_id": self.agent_id,
+        }
+        tag_keys = ("id", "agent_id")
+
+        # Define all metrics in a declarative list
 
         # Create all metrics from the config
         for (
@@ -290,38 +562,13 @@ class AgentActor(abc.ABC):
             metric.set_default_tags(default_tags)
             setattr(self, attr_name, metric)
 
-    def _get_default_latency_boundaries(self):
-        """
-        Override this method in subclasses to provide agent-specific boundaries.
-        Default covers a wide range from sub-second to 30 minutes.
-        """
-        return [
-            0.01,
-            0.05,
-            0.1,
-            0.5,
-            1.0,
-            5.0,
-            10.0,
-            30.0,
-            60.0,
-            120.0,
-            300.0,
-            600.0,
-            1200.0,
-            1800.0,
-        ]
-
-    async def set_team(self, team: Dict[str, list[ray.actor.ActorHandle]]):
-        self.sink = team["_sink"][0]
-        self.team = team
-        if self.event_loop_task is None:
-            self.event_loop_task = asyncio.create_task(self._event_loop())
-
     def get_resources(self):
         return self.resources
 
     async def receive_message(self, orchestrator: Orchestrator):
+        now = time.time()
+        orchestrator.enqueue_timestamp = now
+        self.last_message_time = now  # Update for idle detection
         await self.queue.put(orchestrator)
         self.messages_received.inc()  # type: ignore[attr-defined]
         self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
@@ -352,6 +599,15 @@ class AgentActor(abc.ABC):
 
         while self.running:
             orchestrator = await self.queue.get()
+            if orchestrator is None:  # Shutdown sentinel
+                break
+            latency = time.time() - orchestrator.enqueue_timestamp
+            self.dequeue_latency.set(latency)  # type: ignore[attr-defined]
+            if self.ENABLE_INSTRUMENTATION:
+                orchestrator.append_instrumentation(
+                    self.dequeue_latency, self.agent_id, latency  # type: ignore[attr-defined]
+                )
+
             # Update queue size after getting message
             self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
 
@@ -371,7 +627,7 @@ class AgentActor(abc.ABC):
             await asyncio.gather(*self.pending_tasks, return_exceptions=True)
 
     async def _handle(self, orchestrator: Orchestrator):
-        start_time = time.time()
+        start_time = time.perf_counter()
 
         self.logger.debug(f"Agent {self.agent_id} handling {orchestrator.id}")
         result = await self.preprocess(orchestrator)
@@ -380,22 +636,47 @@ class AgentActor(abc.ABC):
         if self.agent_id != "_sink":
             next_state = await orchestrator.update(result, self, self.logger)
             if await next_state.is_done():
-                next_agent = self.sink
+                next_agent_name = "_sink"
             else:
                 next_agent_name = next_state.current_agent()
-                next_agent = random.choice(self.team[next_agent_name])
-            await next_agent.receive_message.remote(next_state)  # type: ignore[attr-defined]
+
+            # temporary
+            if self.ENABLE_INSTRUMENTATION:
+                blob = pickle.dumps(next_state)
+                size_kb = len(blob) / 1024
+                self.ser_size_kb.set(size_kb)  # type: ignore[attr-defined]
+                next_state.append_instrumentation(
+                    self.ser_size_kb, self.agent_id, (time.time(), size_kb)  # type: ignore[attr-defined]
+                )
+                latency = time.perf_counter() - start_time
+                next_state.append_instrumentation(
+                    self.handle_latency, self.agent_id, latency  # type: ignore[attr-defined]
+                )
+
+            # Send to next agent with fault-tolerant retry
+            self._local_team_cache = await send_with_retry(
+                next_state,
+                next_agent_name,
+                self.sink,
+                self._local_team_cache,
+                self.logger,
+            )
+            # Update last message time after successful send
+            self.last_message_time = time.time()
         else:
             await orchestrator.cleanup(self, self.resources, self.logger)  # type: ignore[arg-type]
 
         # Record latency and increment messages processed counter
-        latency = time.time() - start_time
-        self.handle_latency.observe(latency)  # type: ignore[attr-defined]
+        latency = time.perf_counter() - start_time
+        self.handle_latency.set(latency)  # type: ignore[attr-defined]
         self.messages_processed.inc()  # type: ignore[attr-defined]
 
     async def shutdown(self):
         """Gracefully shutdown the agent"""
         self.running = False
+        if self.event_loop_task is not None:
+            await self.queue.put(None)  # type: ignore[arg-type]
+            await self.event_loop_task
 
     @classmethod
     async def get_task_message(
@@ -408,6 +689,10 @@ class AgentActor(abc.ABC):
 
     async def check_health(self):
         return True
+
+    async def get_active_count(self) -> Tuple[int, float]:
+        """Return the count of active tasks and last message timestamp."""
+        return (self.queue.qsize() + len(self.pending_tasks), self.last_message_time)
 
     @abc.abstractmethod
     async def preprocess(self, orchestrator: Orchestrator) -> Any:
@@ -455,6 +740,16 @@ class BaseMetricsAccumulator(abc.ABC):
 
 # @ray.remote
 class Sink(AgentActor):
+    # Constants for team registry
+    REFRESH_INTERVAL = 30.0  # seconds between periodic refreshes
+    GET_ACTOR_TIMEOUT = 60.0  # default timeout for get_actor calls
+    GET_ACTOR_RETRY_INTERVAL = 1.0  # seconds between retries
+
+    # dead detection
+    IDLE_TIMEOUT = 60.0  # seconds of idle time before checking for dead tasks
+    MAX_NEW_ZOMBIE = 10  # at most mark this number at once
+    LATE_ARRIVAL_INCR = 5  # make it harder to mark zombie for each late arrivals
+
     def __init__(
         self,
         id,
@@ -462,10 +757,62 @@ class Sink(AgentActor):
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
     ):
-        super().__init__(id, agent_id, config, resources)  # type: ignore[arg-type]
+        # Sink is its own sink - pass self to parent (self is valid before super())
+        super().__init__(id, agent_id, config, resources, sink=self)  # type: ignore[arg-type]
+
         self.num_done = 0
         self.num_inputs: Optional[int] = None
         self.ray_objects: dict[str, ray.ObjectRef] = {}  # hold the ref to avoid gc
+        self.pending_writes: int = (
+            0  # Track in-progress writes to avoid closing file prematurely
+        )
+
+        # Team registry: Sink is the source of truth for actor handles
+        self._team: Dict[str, List[ray.actor.ActorHandle]] = {}
+        self._team_config: Dict[str, Tuple[int, str]] = {}  # role -> (count, namespace)
+        self._team_lock = asyncio.Lock()
+        self._refresh_task: Optional[asyncio.Task] = None
+
+        # Optimistic timeout tracking for dead orchestrator detection
+        self.dead_orchestrator_tracking = config.dead_orchestrator_tracking
+        self.dead_order_window = config.max_concurrent_tasks
+        # Registration order tracking: when task N completes, tasks before N-max_concurrent_tasks are zombies
+        self.registration_counter: int = 0
+        self.inflight_orchestrators: dict[str, int] = {}  # id -> registration_order
+        self.inflight_order: list[tuple[int, str]] = (
+            []
+        )  # sorted (order, id) for efficient oldest iteration, lazy update, have stale items
+        self.zombie_orchestrators: set[str] = set()  # set of zombie orchestrator ids
+
+        # Idle detection for dead task recovery
+        self.last_message_time: float = time.time()
+        self._idle_check_task: Optional[asyncio.Task] = None
+        self.num_dead: int = 0  # Counter for dead/lost orchestrators
+
+        additional_metrics_config: list[tuple[str, type, str, str, dict[str, Any]]] = [
+            (
+                "task_init_latency",
+                Gauge,
+                "task_init_latency_seconds",
+                "task init latency",
+                {},
+            ),
+            (
+                "e2e_latency",
+                Gauge,
+                "e2e_latency_seconds",
+                "end to end task latency",
+                {},
+            ),
+            (
+                "sink_write_latency",
+                Gauge,
+                "sink_write_latency_seconds",
+                "latency to accmulate overall metrics",
+                {},
+            ),
+        ]
+        self._init_metrics(additional_metrics_config)
 
     async def set_metrics_output(
         self,
@@ -490,8 +837,13 @@ class Sink(AgentActor):
 
     async def set_num_inputs(self, num_inputs: int):
         self.num_inputs = num_inputs
+        # Start idle check task now that we know the total inputs
+        if self._idle_check_task is None:
+            self._idle_check_task = asyncio.create_task(self._idle_check_loop())
 
     async def preprocess(self, orchestrator: "Orchestrator"):
+        # Update last message time for idle detection
+        self.last_message_time = time.time()
 
         def _write_output(output_data, output_path):
             """CPU-intensive work: JSON serialization, encoding, and compression"""
@@ -502,28 +854,108 @@ class Sink(AgentActor):
             else:
                 return json_line + "\n"
 
+        now = time.time()
+        orchestrator.finish_timestamp = now
+        latency = now - orchestrator.creation_timestamp
+        is_tombstone = isinstance(orchestrator, DeadOrchestrator)
+
         if not self.save_success_only or orchestrator.is_success():
             # Run CPU-intensive work in thread pool
+            start_time = time.perf_counter()
             loop = asyncio.get_event_loop()
-            data_to_write = await loop.run_in_executor(
-                None,
-                partial(
-                    _write_output, await orchestrator.to_output(), self.output_path
-                ),
-            )
-            self.output_file.write(data_to_write)
+            self.pending_writes += 1  # Track pending write before yielding
+            try:
+                data_to_write = await loop.run_in_executor(
+                    None,
+                    partial(
+                        _write_output, await orchestrator.to_output(), self.output_path
+                    ),
+                )
+                self.output_file.write(data_to_write)
+                self.sink_write_latency.set(time.perf_counter() - start_time)  # type: ignore[attr-defined]
+            finally:
+                self.pending_writes -= 1  # Always decrement, even on error
 
-        self.num_done += 1
+        # Get registration order and remove from inflight tracking
+        completed_order = self.inflight_orchestrators.pop(orchestrator.id, None)
 
-        if self.metrics_accumulator:
-            self.metrics_accumulator.accumulate(orchestrator)
+        if is_tombstone:
+            self.num_dead += 1
+        else:
+            self.e2e_latency.set(latency)  # type: ignore[attr-defined]
+            latency = orchestrator.init_timestamp - orchestrator.creation_timestamp
+            self.task_init_latency.set(latency)  # type: ignore[attr-defined]
 
-        if self.num_inputs is not None and self.num_done >= self.num_inputs:
+            # Check if this orchestrator was in zombie set (came back from the dead)
+            is_zombie_return = orchestrator.id in self.zombie_orchestrators
+            if is_zombie_return:
+                # Remove from zombie set - it actually completed
+                self.zombie_orchestrators.discard(orchestrator.id)
+                self.logger.info(
+                    f"Zombie orchestrator {orchestrator.id} returned, removing from zombie set"
+                )
+                self.dead_order_window += self.LATE_ARRIVAL_INCR
+
+            if not is_zombie_return:
+                self.num_done += 1
+
+            # Position-based zombie detection: when a non-error orchestrator completes,
+            # all tasks registered more than max_concurrent_tasks before it should be done
+            if (
+                self.dead_orchestrator_tracking
+                and not orchestrator.is_error()
+                and completed_order is not None
+            ):
+                threshold = completed_order - self.dead_order_window
+                if threshold > 0:
+                    to_zombify = 0
+                    # Iterate through oldest entries first, using lazy deletion
+                    # (skip entries already removed from inflight_orchestrators)
+                    while (
+                        self.inflight_order
+                        and self.inflight_order[0][0] <= threshold
+                        and to_zombify < self.MAX_NEW_ZOMBIE
+                    ):
+                        order, orch_id = self.inflight_order.pop(0)
+                        # Only zombify if still in inflight (not already completed)
+                        if orch_id in self.inflight_orchestrators:
+                            del self.inflight_orchestrators[orch_id]
+                            self.zombie_orchestrators.add(orch_id)
+                            to_zombify += 1
+                            # Increase num_done to release semaphore
+                            self.num_done += 1
+
+                    if to_zombify:
+                        self.logger.info(
+                            f"Moved {to_zombify} orchestrators to zombie (threshold order: {threshold})"
+                        )
+
+            if self.metrics_accumulator:
+                self.metrics_accumulator.accumulate(orchestrator)
+
+        # Don't close output file if there are zombies or pending writes
+        if (
+            self.num_inputs is not None
+            and self.num_done >= self.num_inputs
+            and not self.zombie_orchestrators
+            and self.pending_writes == 0
+        ):
             self.output_file.close()
+
         return {"orchestrator": orchestrator}
 
     async def get_progress(self) -> int:
+        # Cap num_done when there are zombies to prevent input pipeline from finishing early
+        if self.zombie_orchestrators and self.num_inputs is not None:
+            return min(self.num_done, self.num_inputs - 1)
         return self.num_done
+
+    async def register_inflight(self, orchestrator_id: str):
+        """Register an orchestrator as in-flight (before sending to first agent)."""
+        self.registration_counter += 1
+        order = self.registration_counter
+        self.inflight_orchestrators[orchestrator_id] = order
+        self.inflight_order.append((order, orchestrator_id))
 
     async def get_overall_metrics(self) -> dict[str, Any] | None:
         return (
@@ -532,8 +964,42 @@ class Sink(AgentActor):
             else {}
         )
 
+    async def get_num_dead(self) -> int:
+        """Return the count of dead/lost orchestrators."""
+        return self.num_dead
+
     async def check_health(self):
         return True
+
+    async def shutdown(self):
+        """Gracefully shutdown the Sink agent and cancel background tasks."""
+        if self._refresh_task is not None:
+            self._refresh_task.cancel()
+            try:
+                await self._refresh_task
+            except asyncio.CancelledError:
+                pass
+            self._refresh_task = None
+        if self._idle_check_task is not None:
+            self._idle_check_task.cancel()
+            try:
+                await self._idle_check_task
+            except asyncio.CancelledError:
+                pass
+            self._idle_check_task = None
+        await super().shutdown()
+
+    async def shutdown_all(self):
+        """Shutdown all actors in the team registry, then shutdown self."""
+        async with self._team_lock:
+            for role, actors in self._team.items():
+                for actor in actors:
+                    try:
+                        await actor.shutdown.remote()
+                    except Exception as e:
+                        self.logger.warning(f"Error shutting down {role}: {repr(e)}")
+        # Finally shutdown self
+        await self.shutdown()
 
     async def register_object(self, obj: list[ray.ObjectRef]):
         o = obj[0]
@@ -543,69 +1009,302 @@ class Sink(AgentActor):
         for o in obj:
             self.ray_objects.pop(o.hex(), None)  # type: ignore[attr-defined]
 
+    # ==== Team Registry Methods ====
+    async def set_team_registry(
+        self,
+        team_config: Dict[str, Tuple[int, str]],
+        initial_team: Optional[Dict[str, List[ray.actor.ActorHandle]]] = None,
+    ):
+        """
+        Initialize the team registry in Sink.
+
+        Args:
+            team_config: Dict mapping role -> (count, namespace) for actor lookup
+            initial_team: Optional pre-verified actor handles to avoid initial lookup race
+        """
+        async with self._team_lock:
+            self._team_config = team_config
+            self._team = initial_team if initial_team is not None else {}
+
+        # Only do initial refresh if we didn't get pre-verified handles
+        if initial_team is None:
+            await self._refresh_team_internal()
+
+        # Start periodic refresh task
+        if self._refresh_task is None:
+            self._refresh_task = asyncio.create_task(self._periodic_refresh())
+        self.logger.info(
+            f"Team registry initialized with roles: {list(team_config.keys())}"
+        )
+
+    async def _periodic_refresh(self):
+        """Background task to periodically refresh actor handles."""
+        while self.running:
+            try:
+                await asyncio.sleep(self.REFRESH_INTERVAL)
+                await self._refresh_team_internal()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning(f"Error in periodic team refresh: {repr(e)}")
+
+    async def _refresh_team_internal(self):
+        """Internal method to refresh all actor handles from Ray."""
+        async with self._team_lock:
+            for role, (count, namespace) in self._team_config.items():
+                new_handles = []
+                for i in range(count):
+                    actor_name = f"{role}_{i}"
+                    try:
+                        handle = ray.get_actor(actor_name, namespace=namespace)
+                        new_handles.append(handle)
+                    except ValueError:
+                        # Actor not found (not yet restarted)
+                        self.logger.warning(
+                            f"Actor {actor_name} not found in namespace {namespace}"
+                        )
+                if new_handles:
+                    self._team[role] = new_handles
+            self.logger.debug(f"Team refreshed: {list(self._team.keys())}")
+
+    async def force_refresh(self):
+        """Force an immediate refresh of all actor handles."""
+        await self._refresh_team_internal()
+
+    async def _write_tombstone(self, orchestrator_id: str):
+        """
+        Write a tombstone record for a lost orchestrator via normal Sink flow.
+
+        Args:
+            orchestrator_id: The ID of the lost orchestrator
+        """
+        self.logger.debug(
+            f"Creating tombstone for lost orchestrator: {orchestrator_id}"
+        )
+
+        # Create a DeadOrchestrator and process it through normal flow
+        dead_orch = DeadOrchestrator(orchestrator_id)
+        await self.receive_message(dead_orch)
+
+    async def _idle_check_loop(self):
+        """Background task to detect idle state and write tombstones for lost tasks."""
+        while self.running:
+            try:
+                await asyncio.sleep(10.0)  # Check every 10 seconds
+
+                # Skip if we're done and no zombies
+                has_zombies = bool(self.zombie_orchestrators)
+                if (
+                    self.num_inputs is not None
+                    and self.num_done >= self.num_inputs
+                    and not has_zombies
+                ):
+                    break
+
+                # Check if we've been idle long enough
+                idle_time = time.time() - self.last_message_time
+                if idle_time < self.IDLE_TIMEOUT:
+                    continue
+
+                # Check if all actors have empty queues and no pending tasks
+                all_idle = await self._check_all_actors_idle()
+                if not all_idle:
+                    continue
+
+                for orch_id in self.inflight_orchestrators:
+                    self.zombie_orchestrators.add(orch_id)
+                    self.num_done += 1
+                self.inflight_orchestrators.clear()
+
+                # All actors are idle - confirm zombies are dead and write tombstones
+                if self.zombie_orchestrators:
+                    self.logger.warning(
+                        f"System idle for {idle_time:.1f}s with {len(self.zombie_orchestrators)} "
+                        f"zombie tasks. Writing tombstones to confirm dead."
+                    )
+                    tasks = [
+                        self._write_tombstone(orch_id)
+                        for orch_id in self.zombie_orchestrators
+                    ]
+                    self.zombie_orchestrators.clear()
+                    await asyncio.gather(*tasks)
+
+                    # Wait for tombstones to be processed through the queue
+                    while self.queue.qsize() > 0 or len(self.pending_tasks) > 0:
+                        await asyncio.sleep(1)
+                    # File will be closed by preprocess when last tombstone is written
+                    break
+
+                # Check if we're still short of expected tasks
+                if self.num_inputs is not None and self.num_done < self.num_inputs:
+                    self.logger.error(
+                        f"Completed {self.num_done} tasks but expected {self.num_inputs}. "
+                        f"Some tasks may have been lost before registration."
+                    )
+                break
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.logger.warning(f"Error in idle check loop: {repr(e)}")
+
+    async def _check_all_actors_idle(self) -> bool:
+        """Check if all actors have zero queue + pending tasks and idle timestamps."""
+        now = time.time()
+        async with self._team_lock:
+            all_actors = [actor for actors in self._team.values() for actor in actors]
+
+        for actor in all_actors:
+            try:
+                count, last_msg_time = await asyncio.wait_for(
+                    actor.get_active_count.remote(),
+                    timeout=5.0,
+                )
+                if count > 0:
+                    return False
+                # Also check if actor's last message time is within IDLE_TIMEOUT
+                if now - last_msg_time < self.IDLE_TIMEOUT:
+                    return False
+            except Exception as e:
+                # If we can't reach an actor, it might be dead - don't consider system idle
+                self.logger.debug(f"Failed to get active count from actor: {repr(e)}")
+                return False
+
+        return True
+
+    async def get_actor(
+        self, role: str, timeout: Optional[float] = None, force_refresh: bool = False
+    ) -> ray.actor.ActorHandle:
+        """
+        Get a random actor handle for the given role.
+        Blocks until an actor is available or timeout expires.
+
+        Args:
+            role: The role name to get an actor for
+            timeout: Maximum time to wait in seconds (default: GET_ACTOR_TIMEOUT)
+            force_refresh: If True, refresh handles before returning
+
+        Returns:
+            A random actor handle for the role
+
+        Raises:
+            TimeoutError: If no actor is available within timeout
+            KeyError: If role is not registered
+        """
+        if timeout is None:
+            timeout = self.GET_ACTOR_TIMEOUT
+
+        if force_refresh:
+            await self._refresh_team_internal()
+
+        start_time = time.time()
+        while True:
+            async with self._team_lock:
+                if role in self._team and self._team[role]:
+                    return random.choice(self._team[role])
+
+            # Check timeout
+            elapsed = time.time() - start_time
+            if elapsed >= timeout:
+                raise TimeoutError(
+                    f"Timeout waiting for actor with role '{role}' after {timeout}s"
+                )
+
+            # Wait and retry
+            self.logger.debug(
+                f"No actor available for role '{role}', retrying in {self.GET_ACTOR_RETRY_INTERVAL}s"
+            )
+            await asyncio.sleep(self.GET_ACTOR_RETRY_INTERVAL)
+            await self._refresh_team_internal()
+
+    async def get_team_snapshot(self) -> Dict[str, List[ray.actor.ActorHandle]]:
+        """Get a snapshot of the current team map."""
+        async with self._team_lock:
+            return dict(self._team)
+
 
 class ScalableTeamManager:
     """Manages teams with multiple actors per role using load balancers when needed"""
 
     def __init__(self, simulation_id: str):
         self.simulation_id = simulation_id
-        self.team: Dict[str, List[ray.actor.ActorHandle]] = {}
         self.teamConfig: Dict[str, Tuple[Type, DictConfig]] = {}
+        # Team registry config: role -> (count, namespace) for actor lookup
+        self.team_registry_config: Dict[str, Tuple[int, str]] = {}
+        # Sink actor handle - must be created first
+        self.sink: Optional[ray.actor.ActorHandle] = None
 
     def create_role(self, role_name: str, agent_config: DictConfig, resources):
-        """Create agents for a role. Uses load balancer only if count > 1"""
+        """Create agents for a role. _sink must be created first."""
+        is_sink = role_name == "_sink"
 
-        # Create agents (your existing AgentActor - no names!)
-        agents = []
-        count = agent_config.get("num_instances", 1)
+        if not is_sink and self.sink is None:
+            raise ValueError("Sink (_sink) must be created first")
+
+        count = 1 if is_sink else agent_config.get("num_instances", 1)
         ray_resources: dict[str, Any] = {}
         if "ray_resources" in agent_config:
             ray_resources = OmegaConf.to_container(  # type: ignore[assignment]
                 agent_config["ray_resources"], resolve=True
             )
 
-        # Create agent actor - need to get the class first, then create remote
-        agent_class = get_ray_actor_class(
-            agent_config._target_
-        )  # This is already a Ray remote class
+        agent_class = get_ray_actor_class(agent_config._target_)
 
+        # Sink should not restart; other actors restart infinitely
+        max_restarts = 0 if is_sink else -1
+
+        agents = []
         for i in range(count):
-            # No agent_id parameter to avoid naming conflicts
+            kwargs = {
+                "id": f"{self.simulation_id}_{role_name}_{i}",
+                "agent_id": role_name,
+                "config": agent_config,
+                "resources": resources,
+            }
+            if not is_sink:
+                kwargs["sink"] = self.sink
+
             agent = agent_class.options(
-                name=f"{role_name}_{i}",  # per-role unique index
-                namespace=self.simulation_id,  # simulation id groups them
+                name=f"{role_name}_{i}",
+                namespace=self.simulation_id,
+                max_restarts=max_restarts,
                 **ray_resources,
-            ).remote(
-                id=f"{self.simulation_id}_{role_name}_{i}",
-                agent_id=role_name,
-                config=agent_config,
-                resources=resources,
+            ).remote(**kwargs)
+
+            logger.info(
+                f"Created agent: {role_name} id={agent._actor_id.hex()} max_restarts={max_restarts}"
             )
-            logger.info(f"Created agent: {role_name} id={agent._actor_id.hex()}")
             agents.append(agent)
 
-        self.team[role_name] = agents
+        if is_sink:
+            self.sink = agents[0]
+
         self.teamConfig[role_name] = (
             agent_class.__ray_metadata__.modified_class,
             agent_config,
         )
+        # Only add non-sink roles to registry (sink won't restart)
+        if not is_sink:
+            self.team_registry_config[role_name] = (count, self.simulation_id)
 
         return agents
 
-    async def initialize_team(self):
-        """Initialize all agents with team references"""
+    async def initialize_team(self, team: Dict[str, List[ray.actor.ActorHandle]]):
+        """Initialize all agents with team references.
 
-        # Check Ray Actor health
-        all_actors = {
-            f"{name}_{i}": actor
-            for name, actor_list in self.team.items()
-            for i, actor in enumerate(actor_list)
-        }
-        logger.info(f"Checking Ray actor health for {list(all_actors.keys())}")
+        Args:
+            team: Dict mapping role -> list of actor handles (from create_role return values)
+        """
+        # Use handles from create_role directly (avoid race with ray.get_actor)
+        all_actors = [self.sink]
+        for role_handles in team.values():
+            all_actors.extend(role_handles)
+
+        logger.info(f"Checking Ray actor health for {len(all_actors)} actors")
         try:
             await asyncio.wait_for(
                 asyncio.gather(
-                    *[handle.check_health.remote() for handle in all_actors.values()]
+                    *[handle.check_health.remote() for handle in all_actors if handle is not None]  # type: ignore[union-attr]
                 ),
                 timeout=10 * len(all_actors),
             )
@@ -616,23 +1315,18 @@ class ScalableTeamManager:
             raise e
         logger.info("Checking Ray actor health done...")
 
-        # Set team for all individual agents
-        for role_name, agents in self.team.items():
-            for agent in agents:
-                await agent.set_team.remote(self.team)
-
-    def get_team(self):
-        """Get team dictionary for orchestrator routing"""
-        return self.team
+        # Initialize Sink's team registry with verified handles (avoid re-lookup race)
+        if self.sink is not None:
+            await self.sink.set_team_registry.remote(self.team_registry_config, team)
 
     def get_team_config(self):
-        """Get team dictionary for orchestrator routing"""
+        """Get team config dictionary for orchestrator routing"""
         return self.teamConfig
 
     async def shutdown(self):
-        for agents in self.team.values():
-            for agent in agents:
-                await agent.shutdown.remote()
+        """Shutdown all actors via sink's registry"""
+        if self.sink:
+            await self.sink.shutdown_all.remote()
 
 
 class P2PAgentFramework:
@@ -654,6 +1348,10 @@ class P2PAgentFramework:
         self.team_manager = ScalableTeamManager(self.simulation_id)
         self.resources: Dict[str, BaseResourceClient] = {}
 
+        # Local team cache for latency-sensitive _process_item
+        # Updated from sink on actor failure
+        self._local_team_cache: Dict[str, List[ray.actor.ActorHandle]] = {}
+
         random.seed(self.cfg["seed"])
         self.num_trial = self.cfg["num_trial"]
         if self.num_trial > 1:
@@ -670,17 +1368,32 @@ class P2PAgentFramework:
     ):
         """Create team of ray actors from config"""
 
-        for agent_id, agent_config in self.cfg.agents.items():
-
+        # Create sink first - it must exist before other agents
+        if "_sink" in self.cfg.agents:
             self.team_manager.create_role(
+                role_name="_sink",
+                agent_config=self.cfg.agents["_sink"],
+                resources=self.resources,
+            )
+
+        # Create other roles (they will receive sink reference)
+        team: Dict[str, List[ray.actor.ActorHandle]] = {}
+        for agent_id, agent_config in self.cfg.agents.items():
+            if agent_id == "_sink":
+                continue  # Already created
+            agents = self.team_manager.create_role(
                 role_name=agent_id,
                 agent_config=agent_config,
                 resources=self.resources,
             )
+            team[agent_id] = agents
 
-        # Initialize the team
-        await self.team_manager.initialize_team()
-        self.sink = self.team_manager.get_team()["_sink"][0]
+        # Initialize the team with collected handles
+        await self.team_manager.initialize_team(team)
+        self.sink = self.team_manager.sink  # type: ignore[assignment]
+
+        # Initialize local team cache from sink
+        self._local_team_cache = await self.sink.get_team_snapshot.remote()  # type: ignore[attr-defined]
 
     async def _progress_task(self):
         async def _update_progress():
@@ -737,13 +1450,12 @@ class P2PAgentFramework:
         handle = ray.put(item)
         await self.sink.register_object.remote([handle])  # type: ignore[attr-defined]
         orchestrator = instantiate(self.cfg.orchestrator)
-        first_agent = random.choice(
-            self.team_manager.get_team()[orchestrator.current_agent()]
-        )
+        first_agent_role = orchestrator.current_agent()
+
         try:
             await orchestrator.init(
                 self.simulation_id,
-                self.team_manager.get_team_config()[orchestrator.current_agent()],
+                self.team_manager.get_team_config()[first_agent_role],
                 self.sink,
                 metadata={
                     "trial": trial,
@@ -754,6 +1466,7 @@ class P2PAgentFramework:
                 resources=self.resources,
                 logger=logger,
             )
+            orchestrator.init_timestamp = time.time()
         except Exception as e:
             traceback.print_exc()
             logger.error(
@@ -764,7 +1477,27 @@ class P2PAgentFramework:
 
         logger.debug(f"done Init {orchestrator.id}")
         logger.debug(f"Enqueue: {orchestrator.id}")
-        await first_agent.receive_message.remote(orchestrator)
+
+        # Register as in-flight before sending to first agent
+        if self.cfg.dead_orchestrator_tracking:
+            await self.sink.register_inflight.remote(orchestrator.id)  # type: ignore[attr-defined]
+
+        # Send to first agent with local cache for latency, fallback to sink on error
+        try:
+            self._local_team_cache = await send_with_retry(
+                orchestrator,
+                first_agent_role,
+                self.sink,  # type: ignore[arg-type]
+                self._local_team_cache,
+                logger,
+            )
+        except RuntimeError as e:
+            # All retries exhausted - send to sink as error
+            logger.error(str(e))
+            orchestrator.status["error"] = f"Failed to reach {first_agent_role}: {e}"
+            await self.sink.receive_message.remote(orchestrator)  # type: ignore[attr-defined]
+            return
+
         logger.debug(f"Done Enqueue: {orchestrator.id}")
 
         if self.cfg.get("rate_limit_enqueue", False):
@@ -795,10 +1528,11 @@ class P2PAgentFramework:
         self.data_loader = instantiate(self.cfg.dataset)
         data_items = self.data_loader.load_data()
 
-        for res_id, res_config in self.cfg.resources.items():
-            self.resources[res_id] = instantiate(
-                res_config, resource_id=res_id, matrix_cli=cli
-            )
+        if self.cfg.get("resources"):
+            for res_id, res_config in self.cfg.resources.items():
+                self.resources[res_id] = instantiate(
+                    res_config, resource_id=res_id, matrix_cli=cli
+                )
         async with AsyncExitStack() as stack:
             self.resources = {
                 res_id: await stack.enter_async_context(res)
@@ -824,7 +1558,9 @@ class P2PAgentFramework:
                 disable=self.sim_index > 0,
             )
 
-            logger.info(f"Starting P2P simulation {self.simulation_id}")
+            logger.info(
+                f"Starting P2P simulation {self.simulation_id} (namespace: {self.simulation_id})"
+            )
             # Process tasks
             if self.cfg.get("rate_limit_enqueue", False):
                 num_consumers = 1
@@ -854,14 +1590,17 @@ class P2PAgentFramework:
         for metric, value in overall_metrics.items():
             logger.info(f"{metric}: {value:.4f}")
 
+        # Log dead task count if any
+        num_dead = await self.sink.get_num_dead.remote()  # type: ignore[attr-defined]
+        if num_dead > 0:
+            logger.warning(f"Dead/lost tasks: {num_dead}")
+
         return overall_metrics
 
 
 @hydra.main(config_path="config", config_name="coral_experiment", version_base=None)
 def main(cfg: DictConfig):
-
     num_tasks = cfg.get("parallelism", 1)
-
     if num_tasks > 1 and cfg.dataset.get("data_files"):
         setup_logging(logger, cfg.get("debug", False))
         cli = Cli(**cfg.matrix)

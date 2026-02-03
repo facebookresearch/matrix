@@ -31,7 +31,6 @@ from ..p2p_agents import (
 from ..p2p_extended import (
     ContainerExecutionAgent,
     ContainerResourceClient,
-    HistoryOrchestrator,
     HuggingfaceDatasetLoader,
     LLMAgentActor,
 )
@@ -87,7 +86,7 @@ class SweContainerClient(ContainerResourceClient):
 
 
 # ==== Swe Simulation State ====
-class SweOrchestrator(HistoryOrchestrator):
+class SweOrchestrator(Orchestrator):
     def __init__(self, step_limit: int):
         super().__init__()
         self._current_agent = "coder"
@@ -187,12 +186,12 @@ class SweCodeAgent(LLMAgentActor):
 class SweExecutionAgent(ContainerExecutionAgent):
 
     async def get_commands(
-        self, orchestrator: HistoryOrchestrator
+        self, orchestrator: Orchestrator
     ) -> List[Union[str, List[str]]]:
         cmd = orchestrator.history[-1].response["action"]
         return [cmd]
 
-    async def postprocess(self, orchestrator: HistoryOrchestrator, results: Any) -> Any:  # type: ignore[override]
+    async def postprocess(self, orchestrator: Orchestrator, results: Any) -> Any:  # type: ignore[override]
         result = results["results"][0]
         response: Dict[str, Any] = {"status_ok": True}
         returncode = result["returncode"]
@@ -249,8 +248,7 @@ class SweMetricsAccumulator(BaseMetricsAccumulator):
         self.output_data: dict[str, Any] = {}
 
     def accumulate(self, orchestrator: SweOrchestrator):  # type: ignore[override]
-        last_turn = orchestrator.history[-1].response if orchestrator.history else {}
-        self.overall_metrics["conv_err"].append(not last_turn.get("status_ok", False))
+        self.overall_metrics["conv_err"].append(orchestrator.is_error())
 
         conv_list = [msg for msg in orchestrator.history if msg.agent in {"coder"}]
         conv_list = conv_list[1:]  # skip the injected prompt

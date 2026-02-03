@@ -23,11 +23,11 @@ from ..p2p_agents import (
     AgentActor,
     BaseMetricsAccumulator,
     BaseResourceClient,
+    HistPair,
     Orchestrator,
     Sink,
 )
 from ..p2p_extended import (
-    HistPair,
     HuggingfaceDatasetLoader,
     LLMAgentActor,
     SequentialOrchestrator,
@@ -67,11 +67,16 @@ class CoralOrchestrator(SequentialOrchestrator):
         )
 
     async def is_done(self) -> bool:
-        return (
+        done = (
             not self.history[-1].response.get("status_ok", True)
             or self.history[-1].response.get("agreement", False)
             or self.history[-1].response.get("rated_turns", 0) >= self.max_turns
         )
+        if done:
+            self.status["success"] = self.history[-1].response.get(
+                "agreement_correctness", False
+            )
+        return done
 
 
 # ==== Concrete Agent Implementation (Example) ====
@@ -225,7 +230,7 @@ class CoralMetricsAccumulator(BaseMetricsAccumulator):
 
     def accumulate(self, orchestrator: CoralOrchestrator):  # type: ignore[override]
         last_turn = orchestrator.history[-1].response if orchestrator.history else {}
-        self.overall_metrics["conv_err"].append(not last_turn.get("status_ok", False))
+        self.overall_metrics["conv_err"].append(orchestrator.is_error())
         self.overall_metrics["agreement"].append(last_turn.get("agreement", False))
         self.overall_metrics["agreement_correctness"].append(
             last_turn.get("agreement_correctness", False)

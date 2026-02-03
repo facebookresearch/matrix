@@ -237,7 +237,7 @@ class FastgenDeployment:
                 conn = listener.accept()
                 logger.info(f"Connection accepted from: {conn}")
 
-                self.workers.append((worker, conn))
+                self.workers.append((worker, conn))  # type: ignore[arg-type]
 
             # wait for workers to be ready
             for _, c in self.workers:

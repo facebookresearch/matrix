@@ -1,0 +1,40 @@
+defaults:
+  - sink
+
+teacher:
+  _target_: matrix.agents.examples.ts_interaction_dummy.DummyCoralAgent
+  system_prompt: ""
+  generation_length: 1024
+  length_delta: 0.2
+  debug: ${debug}
+  num_instances: 1
+  ray_resources:
+    num_cpus: 1
+
+student:
+  _target_: matrix.agents.examples.ts_interaction_dummy.DummyCoralAgent
+  system_prompt: ""
+  generation_length: 1024
+  length_delta: 0.2
+  debug: ${debug}
+  num_instances: 1
+  ray_resources:
+    num_cpus: 1
+
+answer_extractor:
+  _target_: matrix.agents.examples.ts_interaction_dummy.DummyCoralExtractionAgent
+  system_prompt: ""
+  task_prompt: ""
+  debug: ${debug}
+  num_instances: 1
+  ray_resources:
+    num_cpus: 1
+
+answer_matcher:
+  _target_: matrix.agents.examples.ts_interaction_dummy.DummyCoralMatchAgent
+  system_prompt: ""
+  expected_turns: 3
+  debug: ${debug}
+  num_instances: 1
+  ray_resources:
+    num_cpus: 0.5

@@ -15,7 +15,7 @@ import time
 import traceback
 from collections import defaultdict
 from io import StringIO
-from typing import Any, Dict, Generator, List, NamedTuple, Optional, Tuple, Type, Union
+from typing import Any, Dict, Generator, List, Optional, Tuple, Type, Union
 
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 import ray
@@ -33,152 +33,14 @@ from .p2p_agents import (
     BaseMetricsAccumulator,
     BaseResourceClient,
     Orchestrator,
+    RayDict,
     Sink,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class RayDict(dict):
-    """
-    dict subclass for auto Ray storage/dereference of specific large text fields.
-    Optimized for fixed fields: "text", "output".
-    """
-
-    FIXED_FIELDS = [
-        "text",
-        "output",  # in history
-    ]
-    TEXT_SIZE_THRESHOLD = 512  # default size threshold
-
-    def __contains__(self, key: object) -> bool:
-        if isinstance(key, str) and key in self.FIXED_FIELDS:
-            return super().__contains__(key) or super().__contains__(f"{key}_ref")
-        return super().__contains__(key)
-
-    async def get_async(self, key: str, default: Any = None) -> Any:
-        if key in self.FIXED_FIELDS:
-            ref_key = f"{key}_ref"
-            if ref_key in self:
-                return await super().__getitem__(ref_key)
-        return super().get(key, default)
-
-    @classmethod
-    async def from_dict(cls, data: Dict[str, Any], registry: "Sink") -> "RayDict":
-        self = cls()
-        for k, v in data.items():
-            if (
-                k in cls.FIXED_FIELDS
-                and isinstance(v, str)
-                and len(v) > cls.TEXT_SIZE_THRESHOLD
-            ):
-                handle = ray.put(v)
-                self[f"{k}_ref"] = handle
-                await registry.register_object.remote([handle])  # type: ignore[attr-defined]
-            elif k in cls.FIXED_FIELDS:
-                # store small text directly but bypass the assert
-                super(cls, self).__setitem__(k, v)
-            else:
-                self[k] = v
-        return self
-
-    async def to_dict(self) -> dict[str, Any]:
-        out = dict(self)
-        for key in self.FIXED_FIELDS:
-            ref_key = f"{key}_ref"
-            if ref_key in out:
-                out[key] = await out[ref_key]
-                del out[ref_key]
-        return out
-
-    async def cleanup_ray(self, sink: "Sink"):
-        refs_to_free = [
-            self[f"{field}_ref"]
-            for field in self.FIXED_FIELDS
-            if f"{field}_ref" in self and self[f"{field}_ref"] is not None
-        ]
-        if refs_to_free:
-            await sink.unregister_object(refs_to_free)  # type: ignore[attr-defined]
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, lambda: ray.internal.free(refs_to_free))
-
-
-class HistPair(NamedTuple):
-    agent: str
-    response: RayDict
-
-
-class HistoryOrchestrator(Orchestrator):
-
-    def __init__(self):
-        super().__init__()
-        # List of {"agent": str, "response": {"text": str, "tool_calls": [], "tool_call_id": id, "usage": {}, "extracted_answer": str, "status_ok": bool, "agreement": bool}}
-        self.history: list[HistPair] = []
-
-    async def update(
-        self,
-        result: Any,
-        updater: AgentActor,
-        logger: logging.Logger,
-    ) -> "Orchestrator":
-        """Update the orchestrator with the agent's result and determine the next agent."""
-        if not isinstance(result, list):
-            result = [result]
-        for res in result:
-            await self._append(self.current_agent(), res, updater.sink)  # type: ignore[arg-type]
-
-        return self
-
-    async def to_output(self) -> Dict[str, Any]:
-        return {
-            "current_agent": self.current_agent(),
-            "id": self._id,
-            "trial": self.trial,
-            "seed": self.seed,
-            "task": await self.get_task(),
-            "history": [
-                {"agent": msg.agent, "response": await msg.response.to_dict()}
-                for msg in self.history
-            ],
-            "status": self.status,
-        }
-
-    async def init(
-        self,
-        simulation_id: str,
-        first_agent: Tuple[Type, DictConfig],
-        sink: "Sink",
-        metadata: dict[str, Any],
-        resources: dict[str, "BaseResourceClient"],
-        logger: logging.Logger,
-    ) -> None:
-        await super().init(
-            simulation_id, first_agent, sink, metadata, resources, logger
-        )
-        cls, agent_config = first_agent
-        initial_message = await cls.get_task_message(agent_config, metadata["task"])  # type: ignore[attr-defined]
-        if logger is not None:
-            logger.debug(f"Get initial messageMetadataStart {self.id}")
-        if initial_message is not None:
-            await self._append(
-                initial_message["agent"], initial_message["response"], sink
-            )
-
-    async def _append(self, agent: str, msg: dict[str, Any], sink: Sink):
-        if "timestamp" not in msg:
-            msg["timestamp"] = time.time()
-        self.history.append(
-            HistPair(agent=agent, response=await RayDict.from_dict(msg, sink))
-        )
-
-    async def cleanup(self, sink, resources, logger):
-        await super().cleanup(sink, resources, logger)
-        await asyncio.gather(
-            *[hist.response.cleanup_ray(sink) for hist in self.history]
-        )
-
-
-class SequentialOrchestrator(HistoryOrchestrator):
+class SequentialOrchestrator(Orchestrator):
 
     def __init__(
         self,
@@ -431,11 +293,11 @@ class ContainerExecutionAgent(AgentActor):
 
     @abc.abstractmethod
     async def get_commands(
-        self, orchestrator: HistoryOrchestrator
+        self, orchestrator: Orchestrator
     ) -> List[Union[str, List[str]]]:
         pass
 
-    async def preprocess(self, orchestrator: HistoryOrchestrator) -> Dict[str, Any]:  # type: ignore[override]
+    async def preprocess(self, orchestrator: Orchestrator) -> Dict[str, Any]:  # type: ignore[override]
         return {"cmd": await self.get_commands(orchestrator)}
 
     async def process(self, orchestrator: Orchestrator, response: Any) -> Any:

@@ -442,7 +442,7 @@ class ContainerDeployment:
                     tasks.append(handle.cleanup.remote())
                 except Exception:
                     pass
-            ray.get(tasks, raise_on_error=False)
+            ray.get(tasks, timeout=None)  # type: ignore[call-overload]
         except Exception:
             # Ignore all exceptions during cleanup
             pass

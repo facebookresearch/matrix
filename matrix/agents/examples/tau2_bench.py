@@ -36,7 +36,6 @@ from ..p2p_agents import (
 from ..p2p_extended import (
     ContainerExecutionAgent,
     ContainerResourceClient,
-    HistoryOrchestrator,
     LLMAgentActor,
     LLMResourceClient,
 )
@@ -117,7 +116,7 @@ TRANSFER = "###TRANSFER###"
 OUT_OF_SCOPE = "###OUT-OF-SCOPE###"
 
 
-class Tau2Orchestrator(HistoryOrchestrator):
+class Tau2Orchestrator(Orchestrator):
     def __init__(self, step_limit: int):
         super().__init__()
         self._current_agent = "user_simulator"
@@ -352,12 +351,14 @@ class Tau2LLMAgent(LLMAgentActor):
         agent_id: str,
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
+        sink=None,
     ):
         super().__init__(
             id,
             agent_id,
             config,
             resources=resources,
+            sink=sink,
         )
         if agent_id == "llm_agent":
             # instantiate the template
@@ -526,12 +527,14 @@ class Tau2RewardAgent(ContainerExecutionAgent):
         agent_id: str,
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
+        sink=None,
     ):
         super().__init__(
             id,
             agent_id,
             config,
             resources=resources,
+            sink=sink,
         )
         self.tmp_dir = os.path.abspath(os.path.expanduser(config["tmp_dir"]))
 
@@ -576,7 +579,7 @@ class Tau2MetricsAccumulator(BaseMetricsAccumulator):
 
     def accumulate(self, orchestrator: Tau2Orchestrator):  # type: ignore[override]
         last_turn = orchestrator.history[-1].response if orchestrator.history else {}
-        self.overall_metrics["conv_err"].append(not last_turn.get("status_ok", False))
+        self.overall_metrics["conv_err"].append(orchestrator.is_error())
         if "reward_info" in last_turn:
             self.overall_metrics["rewards"].append(
                 last_turn["reward_info"].get("reward", 0)

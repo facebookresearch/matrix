@@ -53,7 +53,8 @@ class TextClassification:
                 self.thresholds = json.loads(f.readline())
             self.labels: tp.List[str] = sorted(self.thresholds.keys())
         else:
-            self.labels = list(self.classifier.model.config.id2label.values())
+            id2label = self.classifier.model.config.id2label
+            self.labels = list(id2label.values()) if id2label else []
             self.thresholds = {label: 0.5 for label in self.labels}
 
     def __call__(self, samples: tp.Dict[str, np.ndarray]) -> tp.Dict[str, np.ndarray]:

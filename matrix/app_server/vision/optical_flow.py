@@ -88,7 +88,7 @@ class OpticalFlowDeployment:
 
                 if prev_gray is not None:
                     flow = cv2.calcOpticalFlowFarneback(
-                        prev_gray, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0
+                        prev_gray, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0  # type: ignore[call-overload]
                     )
 
                     if self.return_flow:

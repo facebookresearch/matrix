@@ -315,7 +315,7 @@ class RayCluster:
                 fp=f,
             )
 
-    def start_grafana(self, force: bool):
+    def start_grafana(self, force: bool, scrape_interval: int = 10):
         """Start Prometheus and Grafana dashboard."""
         import ray
         from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
@@ -356,6 +356,7 @@ class RayCluster:
                 cluster_info.temp_dir,
                 cluster_info.prometheus_port,
                 cluster_info.grafana_port,
+                scrape_interval=scrape_interval,
             )
             ray.get(actor.start.remote())
             return "Successfully started Grafana dashboard"
@@ -368,6 +369,7 @@ class RayCluster:
         enable_grafana: bool = False,
         force_new_head: bool = False,
         use_array: bool = True,
+        prometheus_scrape_interval: int = 10,
     ):
         """
         Starts a Ray cluster on Slurm.
@@ -396,7 +398,11 @@ class RayCluster:
         common_params = {"account", "partition", "qos", "exclusive", "timeout_min"}
         start_wait_time_seconds = 60
         worker_wait_timeout_seconds = 60
-        requirements = slurm or local or {}
+        requirements = slurm or local
+        assert (slurm is None) != (
+            local is None
+        ), "Only one of --slurm or --local is required"
+        assert requirements is not None  # for type checker
         requirements = _normalize_slurm_keys(requirements)
         executor = "slurm" if slurm else "local"
 
@@ -476,7 +482,7 @@ class RayCluster:
             print(json.dumps(cluster_info_dict, indent=2))
 
         if enable_grafana:
-            self.start_grafana(force=True)
+            self.start_grafana(force=True, scrape_interval=prometheus_scrape_interval)
 
         # start the workers
         if add_workers > 0:

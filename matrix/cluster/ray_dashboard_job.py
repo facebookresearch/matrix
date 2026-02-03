@@ -14,6 +14,7 @@ import time
 from typing import List
 
 import ray
+import yaml
 
 # Configure logging
 logging.basicConfig(
@@ -36,7 +37,9 @@ class RayDashboardJob:
     properly when the actor is killed.
     """
 
-    def __init__(self, temp_dir: str, prometheus_port: int, grafana_port: int):
+    def __init__(
+        self, temp_dir: str, prometheus_port: int, grafana_port: int, scrape_interval=10
+    ):
         """
         Initialize the RayDashboardJob actor.
         """
@@ -47,6 +50,7 @@ class RayDashboardJob:
         self.processes: List[subprocess.Popen[str]] = []
         self.monitor_thread: threading.Thread | None = None
         self.should_run = True
+        self.scrape_interval = scrape_interval
         self.pid = os.getpid()
         logger.info(f"RayDashboardJob initialized with PID {self.pid}")
 
@@ -165,6 +169,32 @@ class RayDashboardJob:
 
         return status
 
+    def _update_ray_interval(self, file_path, new_interval):
+        # 1. Read the YAML file
+        with open(file_path, "r") as f:
+            # Use safe_load to avoid executing arbitrary code
+            config = yaml.safe_load(f)
+
+        # 2. Navigate and update the specific 'ray' job
+        found = False
+        if "scrape_configs" in config:
+            for job in config["scrape_configs"]:
+                if job.get("job_name") == "ray":
+                    job["scrape_interval"] = f"{new_interval}s"
+                    found = True
+                    break
+
+        if not found:
+            print("Error: 'ray' job not found in configuration.")
+            return
+
+        # 3. Write the updated config back to the file
+        with open(file_path, "w") as f:
+            # sort_keys=False preserves the original order of top-level keys
+            yaml.dump(config, f, sort_keys=False, default_flow_style=False)
+
+        print(f"Successfully updated Ray scrape_interval to {new_interval}")
+
     def _start_prometheus(self):
         head_env, temp_dir, port = self.head_env, self.temp_dir, self.prometheus_port
 
@@ -176,6 +206,12 @@ class RayDashboardJob:
             shutil.rmtree(lock_file_path)
             print("remove Prometheus data path")
 
+        yml_file = f"{temp_dir}/session_latest/metrics/prometheus/prometheus.yml"
+        try:
+            self._update_ray_interval(yml_file, self.scrape_interval)
+        except:
+            pass
+
         with (
             open(f"{temp_dir}/session_latest/logs/prometheus.out", "w") as stdout_file,
             open(f"{temp_dir}/session_latest/logs/prometheus.err", "w") as stderr_file,
@@ -184,7 +220,7 @@ class RayDashboardJob:
                 [
                     prometheus_path,
                     "--config.file",
-                    f"{temp_dir}/session_latest/metrics/prometheus/prometheus.yml",
+                    yml_file,
                     "--storage.tsdb.path",
                     f"{temp_dir}/session_latest/metrics/prometheus/data/",
                     "--web.listen-address",
