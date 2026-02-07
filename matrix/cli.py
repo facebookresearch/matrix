@@ -83,6 +83,7 @@ class Cli:
         force_new_head: bool = False,
         use_array: bool = True,
         prometheus_scrape_interval: int = 10,
+        logical_resources: tp.Dict[str, int] | None = None,
     ) -> tp.Dict[str, tp.Any]:
         """
         Starts the Ray cluster with the specified number of workers and additional configuration.
@@ -96,6 +97,8 @@ class Cli:
             enable_grafana (bool, optional): If True, enable prometheus and grafana dashboard.
             force_new_head (bool): force to remove head.json if haven't run 'matrix stop_cluster'.
             use_array (bool): If True, use Slurm job arrays for workers (default: True).
+            logical_resources (dict, optional): Custom logical resources to add to workers.
+                Keys are resource names, values are counts. Defaults to empty.
 
         Returns:
             None
@@ -108,6 +111,7 @@ class Cli:
             force_new_head=force_new_head,
             use_array=use_array,
             prometheus_scrape_interval=prometheus_scrape_interval,
+            logical_resources=logical_resources or {},
         )
         return convert_to_json_compatible(status)
 

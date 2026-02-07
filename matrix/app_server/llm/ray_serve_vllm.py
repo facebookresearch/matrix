@@ -603,12 +603,22 @@ def _build_app(cli_args: Dict[str, Any], use_grpc) -> serve.Application:
             {"CPU": ray_resources.get("num_cpus", 1), accelerator: 1}
         )  # for the vLLM actors
 
+    ray_resources.pop("num_cpus", None)
+    ray_resources.pop("num_gpus", None)
+    custom_resources = ray_resources.pop("resources", None)
+
+    # Add custom resources to placement group bundles if specified
+    # This ensures the deployment is scheduled on nodes with the required resources
+    if custom_resources:
+        for bundle in pg_resources:
+            bundle.update(custom_resources)
     # We use the "STRICT_PACK" strategy below to ensure all vLLM actors are placed on
     # the same Ray node.
     cls = VLLMDeployment if not use_grpc else GrpcDeployment
     return cls.options(  # type: ignore[union-attr]
         placement_group_bundles=pg_resources,
         placement_group_strategy="STRICT_PACK" if pp == 1 else "PACK",
+        **ray_resources,
     ).bind(
         engine_args,
         parsed_args.response_role,

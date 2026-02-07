@@ -370,6 +370,7 @@ class RayCluster:
         force_new_head: bool = False,
         use_array: bool = True,
         prometheus_scrape_interval: int = 10,
+        logical_resources: tp.Dict[str, int] | None = None,
     ):
         """
         Starts a Ray cluster on Slurm.
@@ -440,7 +441,7 @@ class RayCluster:
                 cluster=executor,
             )
             s_executor.update_parameters(
-                name=f"ray_head_{self.cluster_id}",
+                name=f"matrix_head_{self.cluster_id}",
                 **head_params,
             )
             head_job = s_executor.submit(
@@ -492,18 +493,19 @@ class RayCluster:
                 num_jobs = 1
             else:
                 num_jobs = add_workers
-            logical_resources = {
+            worker_logical_resources = {
                 f"{key}-{value}": 1
                 for key, value in worker_params.items()
                 if key in _SLURM_KEY_ALIASES.values()
             }
+            worker_logical_resources.update(logical_resources or {})
             print(f"Worker Slurm parameters: {worker_params}")
 
             s_executor = submitit.AutoExecutor(
                 folder=str(self._log_dir), cluster=executor
             )
             s_executor.update_parameters(
-                name=f"ray_worker_{self.cluster_id}",
+                name=f"matrix_worker_{self.cluster_id}",
                 **worker_params,
             )
 
@@ -522,7 +524,7 @@ class RayCluster:
                                 cluster_info,
                                 worker_wait_timeout_seconds,
                                 start_wait_time_seconds,
-                                logical_resources,
+                                worker_logical_resources,
                                 worker_params,
                             )
                         )
