@@ -85,6 +85,7 @@ class _RayWorkerJobExecutor:
             worker_env (Dict[str, str]): Worker environment variables
             num_cpus (int): Number of CPUs
             num_gpus (int): Number of GPUs
+            logical_resources (str): JSON string of logical resources
         """
         subprocess.run(
             [
