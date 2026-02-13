@@ -20,12 +20,13 @@ import torch
 from sentence_transformers import SentenceTransformer
 
 from matrix.utils.basics import get_nested_value, get_user_message_from_llama3_prompt
+from matrix.utils.logging import get_logger
 
 # Basic Logging Setup
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # --- Model Saving/Loading ---
 

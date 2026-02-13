@@ -11,8 +11,9 @@ from typing import Any, Dict, List, Optional, Union
 import aiohttp
 
 from matrix.utils.http import post_url
+from matrix.utils.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class ContainerClient:

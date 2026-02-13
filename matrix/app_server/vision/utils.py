@@ -20,7 +20,9 @@ from tenacity import RetryError, Retrying, stop_after_attempt, wait_fixed
 from torch.utils.data import Dataset
 from torchcodec.decoders import VideoDecoder
 
-logger = logging.getLogger("matrix.app_server.vision.utils")
+from matrix.utils.logging import get_logger
+
+logger = get_logger("matrix.app_server.vision.utils")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 

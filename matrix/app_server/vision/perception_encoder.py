@@ -29,8 +29,9 @@ from matrix.app_server.vision.utils import (
     execute_with_retry,
     get_image_transform,
 )
+from matrix.utils.logging import get_logger
 
-logger = logging.getLogger("ray.serve")
+logger = get_logger("ray.serve")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 
@@ -289,7 +290,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
     for key, value in cli_args.items():
         if value is not None:
             arg_strings.extend([f"--{key}", str(value)])
-    logger.info(arg_strings)
+    logger.info(",".join(arg_strings))
 
     args = argparse.parse_args(arg_strings)
 

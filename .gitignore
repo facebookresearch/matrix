@@ -1,2 +1,8 @@
 __pycache__/
 scripts/notebooks/
+matrix.egg-info/
+build/
+.pyre/
+.pyre_configuration
+.pyre_configuration.local
+.watchmanconfig
