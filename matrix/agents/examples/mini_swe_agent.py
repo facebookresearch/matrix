@@ -28,12 +28,9 @@ from ..p2p_agents import (
     Orchestrator,
     Sink,
 )
-from ..p2p_extended import (
-    ContainerExecutionAgent,
-    ContainerResourceClient,
-    HuggingfaceDatasetLoader,
-    LLMAgentActor,
-)
+from ..agent_actor import ContainerExecutionAgent, LLMAgentActor
+from ..dataset_loader import HuggingfaceDatasetLoader
+from ..resource_client import ContainerResourceClient
 
 """
 error handling:

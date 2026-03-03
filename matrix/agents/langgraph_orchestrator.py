@@ -144,11 +144,7 @@ class LangGraphOrchestrator(Orchestrator):
 
     def _get_next_node(self, current_node: str, state: dict) -> str:
         """Walk the compiled graph's edges / branches to find the next node."""
-        inner = (
-            self._graph.graph
-            if hasattr(self._graph, "graph")
-            else self._graph
-        )
+        inner = self._graph.graph if hasattr(self._graph, "graph") else self._graph
 
         # 1. Unconditional edges
         if hasattr(inner, "edges"):
@@ -168,6 +164,5 @@ class LangGraphOrchestrator(Orchestrator):
                         return key
 
         raise ValueError(
-            f"No edge from node '{current_node}' in the graph. "
-            f"State: {state}"
+            f"No edge from node '{current_node}' in the graph. " f"State: {state}"
         )

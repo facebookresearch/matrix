@@ -27,11 +27,9 @@ from ..p2p_agents import (
     Orchestrator,
     Sink,
 )
-from ..p2p_extended import (
-    HuggingfaceDatasetLoader,
-    LLMAgentActor,
-    SequentialOrchestrator,
-)
+from ..agent_actor import LLMAgentActor
+from ..dataset_loader import HuggingfaceDatasetLoader
+from ..orchestrator import SequentialOrchestrator
 
 
 # ==== Coral Simulation State ====

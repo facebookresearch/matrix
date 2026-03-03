@@ -22,11 +22,8 @@ from ..p2p_agents import (
     Orchestrator,
     Sink,
 )
-from ..p2p_extended import (
-    ContainerExecutionAgent,
-    LLMAgentActor,
-    LLMResourceClient,
-)
+from ..agent_actor import ContainerExecutionAgent, LLMAgentActor
+from ..resource_client import LLMResourceClient
 from .tau2_bench_utils import (
     CURL_POST_PREFIX,
     OUT_OF_SCOPE,
@@ -76,10 +73,15 @@ class Tau2Orchestrator(Orchestrator):
             simulation_id, first_agent, sink, metadata, resources, logger
         )
         needs_sync = await run_initialization_actions(
-            task["initial_state"], resources["container"], self.resource_state["container"], logger
+            task["initial_state"],
+            resources["container"],
+            self.resource_state["container"],
+            logger,
         )
         if needs_sync:
-            await sync_tools(resources["container"], self.resource_state["container"], logger)
+            await sync_tools(
+                resources["container"], self.resource_state["container"], logger
+            )
 
     async def is_done(self) -> bool:
         return self._current_agent is None
@@ -115,12 +117,16 @@ class Tau2Orchestrator(Orchestrator):
         elif self._current_agent == "user_simulator":
             self._current_agent = "llm_agent"
             if self.need_sync:
-                await sync_tools(resources["container"], self.resource_state["container"], logger)
+                await sync_tools(
+                    resources["container"], self.resource_state["container"], logger
+                )
                 self.need_sync = False
         elif self._current_agent == "llm_agent":
             self._current_agent = "user_simulator"
             if self.need_sync:
-                await sync_tools(resources["container"], self.resource_state["container"], logger)
+                await sync_tools(
+                    resources["container"], self.resource_state["container"], logger
+                )
                 self.need_sync = False
         elif self._current_agent == "remote_env":
             # find the last non env call backwards from self.history

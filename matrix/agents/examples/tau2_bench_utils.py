@@ -107,7 +107,9 @@ async def check_should_stop(history, step_limit) -> Tuple[bool, Optional[str]]:
     if history[-1].agent in (
         "user_simulator",
         "llm_agent",
-    ) and not history[-1].response.get("status_ok", False):
+    ) and not history[
+        -1
+    ].response.get("status_ok", False):
         return True, "too_many_errors"
     if history[-1].agent == "user_simulator":
         text = await history[-1].response.get_async("text", "")

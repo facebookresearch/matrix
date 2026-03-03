@@ -1,4 +1,4 @@
-_target_: matrix.agents.p2p_extended.HuggingfaceDatasetLoader
+_target_: matrix.agents.dataset_loader.HuggingfaceDatasetLoader
 name: "HuggingFaceH4/tau2-bench-data"
 split: "train"
 data_files: "domains/${domain}/tasks.json"

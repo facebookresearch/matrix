@@ -37,7 +37,6 @@ from .tau2_bench_utils import (
     sync_tools,
 )
 
-
 # -- State schema: what the routing functions see --------------------------
 
 
@@ -76,9 +75,7 @@ def build_tau2_graph():
         lambda s: (
             "remote_reward"
             if s["should_stop"]
-            else "remote_env"
-            if s["has_tool_calls"]
-            else "llm_agent"
+            else "remote_env" if s["has_tool_calls"] else "llm_agent"
         ),
     )
 
@@ -87,19 +84,13 @@ def build_tau2_graph():
         lambda s: (
             "remote_reward"
             if s["should_stop"]
-            else "remote_env"
-            if s["has_tool_calls"]
-            else "user_simulator"
+            else "remote_env" if s["has_tool_calls"] else "user_simulator"
         ),
     )
 
     graph.add_conditional_edges(
         "remote_env",
-        lambda s: (
-            "remote_reward"
-            if s["should_stop"]
-            else s["last_non_env_agent"]
-        ),
+        lambda s: ("remote_reward" if s["should_stop"] else s["last_non_env_agent"]),
     )
 
     graph.add_edge("remote_reward", END)
@@ -147,10 +138,15 @@ class Tau2LangGraphOrchestrator(LangGraphOrchestrator):
             simulation_id, first_agent, sink, metadata, resources, logger
         )
         needs_sync = await run_initialization_actions(
-            task["initial_state"], resources["container"], self.resource_state["container"], logger
+            task["initial_state"],
+            resources["container"],
+            self.resource_state["container"],
+            logger,
         )
         if needs_sync:
-            await sync_tools(resources["container"], self.resource_state["container"], logger)
+            await sync_tools(
+                resources["container"], self.resource_state["container"], logger
+            )
 
     # -- update: graph routing + side effects -------------------------------
 
@@ -193,7 +189,9 @@ class Tau2LangGraphOrchestrator(LangGraphOrchestrator):
 
         # 5. Sync tools when transitioning back to an LLM agent after env call
         if self.need_sync and self._current_node in ("llm_agent", "user_simulator"):
-            await sync_tools(resources["container"], self.resource_state["container"], logger)
+            await sync_tools(
+                resources["container"], self.resource_state["container"], logger
+            )
             self.need_sync = False
 
         return self

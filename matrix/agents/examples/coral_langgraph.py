@@ -20,7 +20,6 @@ from omegaconf import DictConfig
 from matrix.agents.langgraph_orchestrator import LangGraphOrchestrator
 from matrix.agents.p2p_agents import BaseResourceClient, HistPair, Sink
 
-
 # -- State schema: what the routing functions see --------------------------
 
 
@@ -69,11 +68,15 @@ def build_coral_graph(max_turns: int = 20):
 # -- State reducer: history -> CoralState ----------------------------------
 
 
-def coral_state_reducer(history: List[HistPair], task: dict | None = None) -> CoralState:
+def coral_state_reducer(
+    history: List[HistPair], task: dict | None = None
+) -> CoralState:
     if not history:
         return CoralState(
-            agreement=False, agreement_correctness=False,
-            rated_turns=0, has_error=False,
+            agreement=False,
+            agreement_correctness=False,
+            rated_turns=0,
+            has_error=False,
         )
     last = history[-1].response
     return CoralState(

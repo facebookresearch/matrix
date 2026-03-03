@@ -1,5 +1,5 @@
 container:
-  _target_: matrix.agents.p2p_extended.ContainerResourceClient
+  _target_: matrix.agents.resource_client.ContainerResourceClient
   matrix_service: container
   start_config:
     image: ~/checkpoint/cache/apptainer_sif/tau2_bench.sif

@@ -1,5 +1,5 @@
 teacher_llm:
-  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  _target_: matrix.agents.resource_client.LLMResourceClient
   matrix_service: teacher
   sampling_params:
     temperature: 0.2
@@ -11,7 +11,7 @@ teacher_llm:
     # sticky_routing_prefix: teacher_
 
 student_llm:
-  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  _target_: matrix.agents.resource_client.LLMResourceClient
   matrix_service: student
   sampling_params:
     temperature: 0.2
@@ -23,7 +23,7 @@ student_llm:
     # sticky_routing_prefix: student_
 
 extractor_llm:
-  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  _target_: matrix.agents.resource_client.LLMResourceClient
   matrix_service: extractor
   sampling_params:
     temperature: 0.0
