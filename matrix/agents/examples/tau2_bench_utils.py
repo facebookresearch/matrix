@@ -56,7 +56,7 @@ def pprint_agent(instructions: Any) -> str:
 
 
 def query_tau2_server(
-    resource_client: "BaseResourceClient", endpoint: str, logger
+    resource_client: "BaseResourceClient", endpoint: str, logger  # type: ignore[name-defined]
 ) -> str:
     async def helper():
         resource_info = await resource_client.acquire({}, logger)

@@ -14,6 +14,7 @@ import ray
 import yaml
 from omegaconf import DictConfig
 
+from ..agent_actor import ContainerExecutionAgent, LLMAgentActor
 from ..agent_utils import render_template
 from ..p2p_agents import (
     AgentActor,
@@ -22,7 +23,6 @@ from ..p2p_agents import (
     Orchestrator,
     Sink,
 )
-from ..agent_actor import ContainerExecutionAgent, LLMAgentActor
 from ..resource_client import LLMResourceClient
 from .tau2_bench_utils import (
     CURL_POST_PREFIX,
@@ -108,7 +108,10 @@ class Tau2Orchestrator(Orchestrator):
         if self._current_agent == "remote_reward":
             self._current_agent = None  # type: ignore[assignment]
             return self
-        if await self.should_stop():
+        stop, reason = await check_should_stop(self.history, self.step_limit)
+        if reason:
+            self.status["termination_reason"] = reason
+        if stop:
             self._current_agent = "remote_reward"
             return self
         is_tool_call = self.history and "tool_calls" in self.history[-1].response

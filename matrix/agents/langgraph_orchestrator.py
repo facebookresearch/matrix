@@ -85,7 +85,7 @@ class LangGraphOrchestrator(Orchestrator):
 
     def current_agent(self) -> str:
         if self._current_node in (END, "__end__"):
-            raise ValueError("Graph has reached END, no current agent")
+            return "_sink"
         return self._current_node
 
     async def init(
@@ -114,10 +114,6 @@ class LangGraphOrchestrator(Orchestrator):
         return self
 
     async def is_done(self) -> bool:
-        if not self.history:
-            return False
-        if not self.history[-1].response.get("status_ok", True):
-            return True
         return self._current_node in (END, "__end__")
 
     # ------------------------------------------------------------------
@@ -125,10 +121,24 @@ class LangGraphOrchestrator(Orchestrator):
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _get_builder(graph: Any) -> Any:
+        """Return the builder (StateGraph) that holds edges and branches.
+
+        Compiled LangGraph graphs store the topology on ``graph.builder``
+        rather than on the compiled object itself.  Older versions exposed
+        it on ``graph.graph``.  We try both, falling back to *graph* itself.
+        """
+        if hasattr(graph, "builder") and hasattr(graph.builder, "edges"):
+            return graph.builder
+        if hasattr(graph, "graph") and hasattr(graph.graph, "edges"):
+            return graph.graph
+        return graph
+
+    @staticmethod
     def _resolve_entry_point(graph: Any) -> str:
         """Extract the entry-point node from a compiled LangGraph graph."""
         try:
-            inner = graph.graph if hasattr(graph, "graph") else graph
+            inner = LangGraphOrchestrator._get_builder(graph)
             if hasattr(inner, "edges"):
                 for source, target in inner.edges:
                     if source in (START, "__start__"):
@@ -144,7 +154,7 @@ class LangGraphOrchestrator(Orchestrator):
 
     def _get_next_node(self, current_node: str, state: dict) -> str:
         """Walk the compiled graph's edges / branches to find the next node."""
-        inner = self._graph.graph if hasattr(self._graph, "graph") else self._graph
+        inner = self._get_builder(self._graph)
 
         # 1. Unconditional edges
         if hasattr(inner, "edges"):
@@ -157,11 +167,21 @@ class LangGraphOrchestrator(Orchestrator):
             branches = inner.branches
             if current_node in branches:
                 for _name, branch in branches[current_node].items():
-                    if hasattr(branch, "path"):
-                        key = branch.path(state)
-                        if hasattr(branch, "ends") and branch.ends:
-                            return branch.ends.get(key, key)
-                        return key
+                    # branch is a BranchSpec with .path (callable) and .ends
+                    path = getattr(branch, "path", None)
+                    if path is None:
+                        continue
+                    # path may be a RunnableCallable; invoke it
+                    if callable(getattr(path, "invoke", None)):
+                        key = path.invoke(state)
+                    elif callable(path):
+                        key = path(state)
+                    else:
+                        continue
+                    ends = getattr(branch, "ends", None)
+                    if ends:
+                        return ends.get(key, key)
+                    return key
 
         raise ValueError(
             f"No edge from node '{current_node}' in the graph. " f"State: {state}"

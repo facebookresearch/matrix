@@ -185,7 +185,7 @@ class Tau2LangGraphOrchestrator(LangGraphOrchestrator):
         )
 
         # 4. Let the graph decide the next node
-        self._current_node = self._get_next_node(self._current_node, state)
+        self._current_node = self._get_next_node(self._current_node, state)  # type: ignore[arg-type]
 
         # 5. Sync tools when transitioning back to an LLM agent after env call
         if self.need_sync and self._current_node in ("llm_agent", "user_simulator"):

@@ -21,7 +21,10 @@ from omegaconf import DictConfig, OmegaConf
 from matrix import Cli
 from matrix.utils.ray import get_ray_address
 
+from ..agent_actor import LLMAgentActor
 from ..agent_utils import extract_json
+from ..dataset_loader import HuggingfaceDatasetLoader
+from ..orchestrator import SequentialOrchestrator
 from ..p2p_agents import (
     AgentActor,
     BaseMetricsAccumulator,
@@ -30,9 +33,6 @@ from ..p2p_agents import (
     Orchestrator,
     Sink,
 )
-from ..agent_actor import LLMAgentActor
-from ..dataset_loader import HuggingfaceDatasetLoader
-from ..orchestrator import SequentialOrchestrator
 
 
 @dataclass
