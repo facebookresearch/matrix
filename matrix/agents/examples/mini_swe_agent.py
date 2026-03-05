@@ -20,7 +20,9 @@ from matrix import Cli
 from matrix.utils.os import run_async
 from matrix.utils.ray import get_ray_address
 
+from ..agent_actor import ContainerExecutionAgent, LLMAgentActor
 from ..agent_utils import render_template, setup_logging
+from ..dataset_loader import HuggingfaceDatasetLoader
 from ..p2p_agents import (
     AgentActor,
     BaseMetricsAccumulator,
@@ -28,12 +30,7 @@ from ..p2p_agents import (
     Orchestrator,
     Sink,
 )
-from ..p2p_extended import (
-    ContainerExecutionAgent,
-    ContainerResourceClient,
-    HuggingfaceDatasetLoader,
-    LLMAgentActor,
-)
+from ..resource_client import ContainerResourceClient
 
 """
 error handling:

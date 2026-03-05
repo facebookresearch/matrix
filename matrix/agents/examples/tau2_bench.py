@@ -4,28 +4,18 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import asyncio
 import json
 import logging
 import os
-import pprint
-import re
 import tempfile
-from collections import defaultdict
-from io import StringIO
 from typing import Any, Dict, List, Optional, Tuple, Type
 
 import ray
 import yaml
-from jinja2 import Template
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
 
-from matrix import Cli
-from matrix.client.container_client import ContainerClient
-from matrix.utils.os import run_async
-from matrix.utils.ray import get_ray_address
-
-from ..agent_utils import render_template, setup_logging
+from ..agent_actor import ContainerExecutionAgent, LLMAgentActor
+from ..agent_utils import render_template
 from ..p2p_agents import (
     AgentActor,
     BaseMetricsAccumulator,
@@ -33,11 +23,18 @@ from ..p2p_agents import (
     Orchestrator,
     Sink,
 )
-from ..p2p_extended import (
-    ContainerExecutionAgent,
-    ContainerResourceClient,
-    LLMAgentActor,
-    LLMResourceClient,
+from ..resource_client import LLMResourceClient
+from .tau2_bench_utils import (
+    CURL_POST_PREFIX,
+    OUT_OF_SCOPE,
+    STOP,
+    TRANSFER,
+    build_simulation_output,
+    check_should_stop,
+    pprint_agent,
+    query_tau2_server,
+    run_initialization_actions,
+    sync_tools,
 )
 
 """
@@ -50,72 +47,6 @@ error handling:
 logger = logging.getLogger(__name__)
 
 
-def pprint_agent(instructions: Any) -> str:
-    buffer = StringIO()
-    pprint.pprint(instructions, stream=buffer, width=80)
-    formatted_str = buffer.getvalue()
-    return formatted_str
-
-
-# retry connection error to allow tau2 server to start inside container
-CURL_COMMAND_PREFIX = [
-    "curl",
-    "-s",
-    "--fail-with-body",
-    "--retry",
-    "50",
-    "--retry-delay",
-    "3",
-    "--retry-connrefused",
-]
-CURL_POST_PREFIX = CURL_COMMAND_PREFIX + [
-    "-X",
-    "POST",
-    "-H",
-    "Content-Type: application/json",
-    "-d",
-]
-CURL_POST_PREFIX_VERBOSE = CURL_COMMAND_PREFIX + [
-    "-v",
-    "-X",
-    "POST",
-    "-H",
-    "Content-Type: application/json",
-    "-d",
-]
-
-
-def query_tau2_server(
-    resource_client: "BaseResourceClient", endpoint: str, logger
-) -> str:
-    async def helper():
-        resource_info = await resource_client.acquire({}, logger)
-        try:
-            result = await resource_client.utilize(
-                resource_info,
-                logger,
-                cmd=CURL_COMMAND_PREFIX + [f"http://localhost:8004/{endpoint}"],
-            )
-            logger.debug(
-                f"query_tau2_server {endpoint} got {result} with {resource_info}"
-            )
-            if result["returncode"] != 0:
-                # okay to raise, failed for resource and agent init
-                raise RuntimeError(f"Failed to query {endpoint} for {result}")
-            policy = result.get("output", "").strip()
-            return policy
-        finally:
-            await resource_client.release(resource_info, logger)
-
-    return run_async(helper())
-
-
-# ==== Tau2 Simulation State ====
-STOP = "###STOP###"
-TRANSFER = "###TRANSFER###"
-OUT_OF_SCOPE = "###OUT-OF-SCOPE###"
-
-
 class Tau2Orchestrator(Orchestrator):
     def __init__(self, step_limit: int):
         super().__init__()
@@ -126,18 +57,6 @@ class Tau2Orchestrator(Orchestrator):
 
     def current_agent(self) -> str:
         return self._current_agent
-
-    async def sync_tools(self, resources: dict[str, "BaseResourceClient"], logger):
-        container_client = resources["container"]
-        result = await container_client.utilize(
-            self.resource_state["container"],
-            logger,
-            cmd=CURL_POST_PREFIX + [{}, "http://localhost:8004/api/v1/sync_tools"],
-        )
-        if "returncode" not in result or result["returncode"] != 0:
-            logger.error(
-                f"Failed to sync_tools with {result}, rewards will catch the issue"
-            )
 
     async def init(
         self,
@@ -153,68 +72,25 @@ class Tau2Orchestrator(Orchestrator):
         await super().init(
             simulation_id, first_agent, sink, metadata, resources, logger
         )
-        initial_state = task["initial_state"]
-        if initial_state:
-            container_client = resources["container"]
-            assert (
-                initial_state.get("initialization_data") is None
-            ), "initiailization_data not supported yet"
-            assert (
-                initial_state.get("message_history") is None
-            ), "message_history not supported yet"
-            actions = initial_state.get("initialization_actions", [])
-            for call in actions:
-                cmd = CURL_POST_PREFIX + [
-                    call,
-                    f"http://localhost:8004/api/v1/run_env_function",
-                ]
-                result = await container_client.utilize(
-                    self.resource_state["container"],
-                    logger,
-                    cmd=cmd,
-                )
-                if logger is not None:
-                    logger.debug(f"initial action {cmd}, result {result}")
-                if (
-                    "returncode" not in result
-                    or result["returncode"] != 0
-                    or "Not Found" in result.get("output", "")
-                ):
-                    # fail the task during initialization
-                    raise Exception(result)
-            if actions:
-                await self.sync_tools(resources, logger)
+        needs_sync = await run_initialization_actions(
+            task["initial_state"],
+            resources["container"],
+            self.resource_state["container"],
+            logger,
+        )
+        if needs_sync:
+            await sync_tools(
+                resources["container"], self.resource_state["container"], logger
+            )
 
     async def is_done(self) -> bool:
         return self._current_agent is None
 
     async def should_stop(self) -> bool:
-        num_llm_calls = len(
-            [
-                msg
-                for msg in self.history
-                if msg.agent in ["user_simulator", "llm_agent"]
-            ]
-        )
-        if num_llm_calls > self.step_limit:
-            self.status["termination_reason"] = "max_steps"
-            return True
-        if self.history[-1].agent in [
-            "user_simulator",
-            "llm_agent",
-        ] and not self.history[-1].response.get("status_ok", False):
-            self.status["termination_reason"] = "too_many_errors"
-            # can't recover from llm error
-            return True
-
-        if self.history[-1].agent == "user_simulator":
-            text = await self.history[-1].response.get_async("text", "")
-            is_stop = STOP in text or TRANSFER in text or OUT_OF_SCOPE in text
-            if is_stop:
-                self.status["termination_reason"] = "user_stop"
-
-            return is_stop
-        return False
+        stop, reason = await check_should_stop(self.history, self.step_limit)
+        if reason:
+            self.status["termination_reason"] = reason
+        return stop
 
     async def update(
         self,
@@ -232,7 +108,10 @@ class Tau2Orchestrator(Orchestrator):
         if self._current_agent == "remote_reward":
             self._current_agent = None  # type: ignore[assignment]
             return self
-        if await self.should_stop():
+        stop, reason = await check_should_stop(self.history, self.step_limit)
+        if reason:
+            self.status["termination_reason"] = reason
+        if stop:
             self._current_agent = "remote_reward"
             return self
         is_tool_call = self.history and "tool_calls" in self.history[-1].response
@@ -241,12 +120,16 @@ class Tau2Orchestrator(Orchestrator):
         elif self._current_agent == "user_simulator":
             self._current_agent = "llm_agent"
             if self.need_sync:
-                await self.sync_tools(resources, logger)
+                await sync_tools(
+                    resources["container"], self.resource_state["container"], logger
+                )
                 self.need_sync = False
         elif self._current_agent == "llm_agent":
             self._current_agent = "user_simulator"
             if self.need_sync:
-                await self.sync_tools(resources, logger)
+                await sync_tools(
+                    resources["container"], self.resource_state["container"], logger
+                )
                 self.need_sync = False
         elif self._current_agent == "remote_env":
             # find the last non env call backwards from self.history
@@ -261,63 +144,9 @@ class Tau2Orchestrator(Orchestrator):
         return self
 
     async def to_simulation(self) -> Dict[str, Any]:
-        messages = []
-        last_role = None
-        for turn_idx, msg in enumerate(self.history):
-            role = (
-                "tool"
-                if msg.agent == "remote_env"
-                else "user" if msg.agent == "user_simulator" else "assistant"
-            )
-            msg_type = (
-                "ToolMessage"
-                if role == "tool"
-                else "UseMessage" if role == "user" else "AssistantMessage"
-            )
-            # convert to src/tau2/data_model/simulation
-            message = {
-                "type": msg_type,
-                "role": role,
-                "content": await msg.response.get_async("text"),
-                "turn_idx": turn_idx,
-            }
-            tool_calls = msg.response.get("tool_calls")
-            if tool_calls:
-                tool_calls_fixed = []
-                for call in tool_calls:
-                    arguments = call["function"]["arguments"]
-                    try:
-                        data = json.loads(arguments)
-                    except Exception:
-                        # hack for weak models
-                        data = {}
-                    tool_calls_fixed.append(
-                        {
-                            "id": call["id"],
-                            "name": call["function"]["name"],
-                            "arguments": data,
-                            "requestor": role,
-                        }
-                    )
-                message["tool_calls"] = tool_calls_fixed
-            if role == "tool":
-                message |= {
-                    "id": msg.response["tool_call_id"],
-                    "requestor": last_role,
-                    "error": not msg.response["status_ok"],
-                }
-            if role != "tool":
-                last_role = role
-            messages.append(message)
-        return {
-            "id": self.id,
-            "task_id": self.id,
-            "termination_reason": self.status["termination_reason"],
-            "messages": messages,
-            "start_time": "",
-            "end_time": "",
-            "duration": 1,
-        }
+        return await build_simulation_output(
+            self.history, self.id, self.status.get("termination_reason", "unknown")
+        )
 
 
 # user_simulator: user for llm_agent;  assistant for user_simulator

@@ -19,6 +19,9 @@ from omegaconf import DictConfig, OmegaConf
 from matrix import Cli
 from matrix.utils.ray import get_ray_address
 
+from ..agent_actor import LLMAgentActor
+from ..dataset_loader import HuggingfaceDatasetLoader
+from ..orchestrator import SequentialOrchestrator
 from ..p2p_agents import (
     AgentActor,
     BaseMetricsAccumulator,
@@ -27,26 +30,13 @@ from ..p2p_agents import (
     Orchestrator,
     Sink,
 )
-from ..p2p_extended import (
-    HuggingfaceDatasetLoader,
-    LLMAgentActor,
-    SequentialOrchestrator,
-)
 
 
 # ==== Coral Simulation State ====
-class CoralOrchestrator(SequentialOrchestrator):
-    def __init__(
-        self,
-        interaction_order: List[str],
-        max_turns: int,
-    ):
-        super().__init__(
-            interaction_order,
-        )
-        self.max_turns = max_turns
+class CoralTaskMixin:
+    """Shared Coral task setup for both sequential and LangGraph orchestrators."""
 
-    async def init(
+    async def init(  # type: ignore[override]
         self,
         simulation_id: str,
         first_agent: Tuple[Type, DictConfig],
@@ -57,10 +47,9 @@ class CoralOrchestrator(SequentialOrchestrator):
     ) -> None:
         task = metadata["task"]
         self._id = task["question_id"]
-        await super().init(
+        await super().init(  # type: ignore[misc]
             simulation_id, first_agent, sink, metadata, resources, logger
         )
-        # copy of metadata
         self.task_answer = task.get("answer", None)
         self.task_options = "\n".join(
             [f"({letter}) {option}" for letter, option in task["choices"].items()]
@@ -68,15 +57,27 @@ class CoralOrchestrator(SequentialOrchestrator):
 
     async def is_done(self) -> bool:
         done = (
-            not self.history[-1].response.get("status_ok", True)
-            or self.history[-1].response.get("agreement", False)
-            or self.history[-1].response.get("rated_turns", 0) >= self.max_turns
+            not self.history[-1].response.get("status_ok", True)  # type: ignore[attr-defined]
+            or self.history[-1].response.get("agreement", False)  # type: ignore[attr-defined]
+            or self.history[-1].response.get("rated_turns", 0) >= self.max_turns  # type: ignore[attr-defined]
         )
         if done:
-            self.status["success"] = self.history[-1].response.get(
+            self.status["success"] = self.history[-1].response.get(  # type: ignore[attr-defined]
                 "agreement_correctness", False
             )
         return done
+
+
+class CoralOrchestrator(CoralTaskMixin, SequentialOrchestrator):
+    def __init__(
+        self,
+        interaction_order: List[str],
+        max_turns: int,
+    ):
+        super().__init__(
+            interaction_order,
+        )
+        self.max_turns = max_turns
 
 
 # ==== Concrete Agent Implementation (Example) ====

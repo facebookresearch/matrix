@@ -4,132 +4,21 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import abc
 import asyncio
-import json
 import logging
 import os
 import random
-import re
-import time
 import traceback
-from collections import defaultdict
-from io import StringIO
-from typing import Any, Dict, Generator, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, Optional
 
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-import ray
-from datasets import load_dataset
-from hydra.utils import get_class
 from omegaconf import DictConfig, ListConfig, OmegaConf
 
 from matrix.client import query_llm
 from matrix.client.container_client import ContainerClient
 
-from .agent_utils import setup_logging
-from .p2p_agents import (
-    AgentActor,
-    BaseDatasetLoader,
-    BaseMetricsAccumulator,
-    BaseResourceClient,
-    Orchestrator,
-    RayDict,
-    Sink,
-)
+from .orchestrator import BaseResourceClient
 
 logger = logging.getLogger(__name__)
-
-
-class SequentialOrchestrator(Orchestrator):
-
-    def __init__(
-        self,
-        interaction_order: List[str],
-    ):
-        super().__init__()
-        self.interaction_order = interaction_order
-        self._current_agent_index = 0
-
-    def current_agent(self) -> str:
-        if not self.interaction_order:
-            raise ValueError("No interaction order defined")
-        return self.interaction_order[self._current_agent_index]
-
-    async def update(
-        self,
-        result: Any,
-        updater: "AgentActor",
-        logger: logging.Logger,
-    ) -> "Orchestrator":
-        """Update the orchestrator with the agent's result and determine the next agent."""
-        await super().update(result, updater, logger)
-        self._current_agent_index = (self._current_agent_index + 1) % len(
-            self.interaction_order
-        )
-        return self
-
-
-class HuggingfaceDatasetLoader(BaseDatasetLoader):
-    def __init__(
-        self,
-        name: str,
-        split: str,
-        cut_off: Optional[int] = None,
-        data_files: str | None = None,
-        hub_download: bool = False,  # useful when pyarrow can't handle complex json
-    ):
-        super().__init__()
-        self.dataset_name = name
-        self.split = split
-        if isinstance(data_files, str):
-            data_files = os.path.expanduser(data_files)
-        elif isinstance(data_files, list):
-            data_files = [os.path.expanduser(f) for f in data_files]
-        self.data_files = data_files
-        self.cut_off = cut_off
-        self.hub_download = hub_download
-        self._count = 0
-        self.done = False
-
-    def load_data(self) -> Generator[Dict[str, Any], None, None]:
-        if self.data_files is not None and self.hub_download:
-            import json
-
-            from huggingface_hub import hf_hub_download
-
-            # Download the JSON file, automatically cached locally
-            json_path = hf_hub_download(
-                repo_id=self.dataset_name,
-                filename=self.data_files,
-                repo_type="dataset",
-            )
-
-            # Load it with Python json to get nested dictionary/list
-            with open(json_path, "r") as f:
-                dataset_val = json.load(f)
-        else:
-            dataset_val = load_dataset(
-                self.dataset_name,
-                split=self.split,
-                data_files=self.data_files,
-                streaming=True,
-            )
-        self._count = 0
-
-        for item in dataset_val:
-            if self.cut_off is not None and self._count >= self.cut_off:
-                break
-            item = self.transform(item)
-            self._count += 1
-            yield item
-
-        self.done = True
-
-    def transform(self, item) -> Dict[str, Any]:
-        return dict(item)
-
-    def total_count(self) -> Optional[int]:
-        return self._count if self.done else None
 
 
 class LLMResourceClient(BaseResourceClient):
@@ -287,64 +176,3 @@ class ContainerResourceClient(BaseResourceClient):
 
     def get_container_image(self, task: Dict[str, Any]) -> str:
         raise NotImplementedError("Please implement get_container_image method")
-
-
-class ContainerExecutionAgent(AgentActor):
-
-    @abc.abstractmethod
-    async def get_commands(
-        self, orchestrator: Orchestrator
-    ) -> List[Union[str, List[str]]]:
-        pass
-
-    async def preprocess(self, orchestrator: Orchestrator) -> Dict[str, Any]:  # type: ignore[override]
-        return {"cmd": await self.get_commands(orchestrator)}
-
-    async def process(self, orchestrator: Orchestrator, response: Any) -> Any:
-        cmds = response["cmd"]
-        results = []
-        assert (
-            self.resource_client is not None and orchestrator.resource_state is not None
-        )
-        for cmd in cmds:
-            result = await self.resource_client.utilize(
-                orchestrator.resource_state[self.resource_name],
-                self.logger,
-                cmd=cmd,
-            )
-            if "returncode" not in result:
-                raise Exception(result)
-            results.append(result)
-        return {"results": results}
-
-
-class LLMAgentActor(AgentActor):
-
-    async def process(self, orchestrator: Orchestrator, response: Any) -> Any:
-        assert self.resource_client is not None
-        response = await self.resource_client.utilize(
-            {},
-            self.logger,
-            messages=response,
-            task_id=orchestrator.id,
-            seed=orchestrator.seed,
-        )
-        return response
-
-    async def postprocess(self, orchestrator: Orchestrator, response: Any) -> Any:  # type: ignore[override]
-        if "text" in response and isinstance(response["text"], list):
-            response["text"] = response["text"][0]
-        if "tool_calls" in response:
-            tool_calls = response["tool_calls"][0]  # because n == 1
-            # because openai want a different input tool_call than the one it returns!
-            for call in tool_calls:
-                call["type"] = "function"
-                call["function"] = {
-                    "name": call["name"],
-                    "arguments": call["arguments"],
-                }
-                call.pop("name")
-                call.pop("arguments")
-            response["tool_calls"] = tool_calls
-        response["status_ok"] = "error" not in response
-        return response

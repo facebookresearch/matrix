@@ -11,6 +11,11 @@ A Python package for multi-agent synthetic data generation. Technical details ar
 
 
 ## Examples
+### Setup
+```
+pip install .[agent]
+```
+
 ### Deploy applications
 ```bash
 matrix deploy_applications --action replace --applications "[{'model_name': 'openai/gpt-oss-120b', 'name': 'gpt120b', 'min_replica': 2, 'enable_tools': 'true', 'use_grpc': 'false'}, {'name': 'container', 'app_type': container, 'min_replica': 1, 'max_ongoing_requests':20}, {'model_name': 'meta-llama/Llama-3.1-8B-Instruct', 'use_grpc': 'true', 'min_replica': 1, 'name': '8B'}]"

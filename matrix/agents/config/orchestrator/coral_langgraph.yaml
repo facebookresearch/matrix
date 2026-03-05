@@ -1,0 +1,2 @@
+_target_: matrix.agents.examples.coral_langgraph.CoralLangGraphOrchestrator
+max_turns: 20

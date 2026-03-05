@@ -15,7 +15,7 @@ container:
       TQDM_DISABLE: '1'
 
 coder_llm:
-  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  _target_: matrix.agents.resource_client.LLMResourceClient
   matrix_service: coder_llm
   sampling_params:
     temperature: 0.0

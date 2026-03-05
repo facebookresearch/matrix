@@ -1,5 +1,5 @@
 filter_llm:
-  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  _target_: matrix.agents.resource_client.LLMResourceClient
   matrix_service: filter
   sampling_params:
     temperature: 1
@@ -10,7 +10,7 @@ filter_llm:
     max_retries: 3
 
 score_llm:
-  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  _target_: matrix.agents.resource_client.LLMResourceClient
   matrix_service: score
   sampling_params:
     temperature: 0.2
@@ -21,7 +21,7 @@ score_llm:
     max_retries: 3
 
 question_llm:
-  _target_: matrix.agents.p2p_extended.LLMResourceClient
+  _target_: matrix.agents.resource_client.LLMResourceClient
   matrix_service: question
   sampling_params:
     temperature: 0.0
