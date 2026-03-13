@@ -17,6 +17,7 @@ from omegaconf import DictConfig
 from ray.util.metrics import Counter, Gauge
 
 from .agent_utils import remote_call_with_retry, setup_logging
+from .dispatcher import Dispatcher
 from .orchestrator import BaseResourceClient, DeadOrchestrator, Orchestrator
 
 logger = logging.getLogger(__name__)
@@ -271,13 +272,37 @@ class AgentActor(abc.ABC):
 
         if self.dispatcher_name is not None:
             # Pull-based mode: resolve dispatcher by name, notify of (re)start
-            self.dispatcher = ray.get_actor(self.dispatcher_name, namespace=self.namespace)
-            await self.dispatcher.agent_started.remote(self.ray_name)
+            try:
+                self.dispatcher = ray.get_actor(self.dispatcher_name, namespace=self.namespace)
+            except Exception as e:
+                self.logger.error(
+                    f"Agent {self.id} failed to find dispatcher {self.dispatcher_name}: {repr(e)}"
+                )
+                return
+            try:
+                await self.dispatcher.agent_started.remote(self.ray_name)
+            except Exception as e:
+                self.logger.error(
+                    f"Agent {self.id} failed to call agent_started on dispatcher: {repr(e)}"
+                )
+                return
 
             while self.running:
-                orchestrator = await self.dispatcher.checkout.remote(self.ray_name)
-                if orchestrator is None:  # Shutdown sentinel
+                try:
+                    result = await self.dispatcher.checkout.remote(self.ray_name)
+                except Exception as e:
+                    self.logger.error(
+                        f"Agent {self.id} checkout failed: {repr(e)}, retrying..."
+                    )
+                    await asyncio.sleep(1.0)
+                    continue
+                if result == Dispatcher.SHUTDOWN_SENTINEL:
                     break
+                if result is None:
+                    # Queue empty, poll again after a short sleep
+                    await asyncio.sleep(0.1)
+                    continue
+                orchestrator = result
                 latency = time.time() - orchestrator.enqueue_timestamp
                 self.dequeue_latency.set(latency)  # type: ignore[attr-defined]
                 if self.ENABLE_INSTRUMENTATION:

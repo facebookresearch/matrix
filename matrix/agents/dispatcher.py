@@ -31,6 +31,9 @@ class Dispatcher:
     any previously checked-out orchestrators for that agent.
     """
 
+    # Sentinel object returned by checkout() to signal agents to stop
+    SHUTDOWN_SENTINEL = "SHUTDOWN"
+
     def __init__(self, role: str, sink: ray.actor.ActorHandle, namespace: str):
         self.role = role
         self.sink = sink
@@ -39,6 +42,7 @@ class Dispatcher:
         self.incoming_queue: asyncio.Queue = asyncio.Queue()
         # orch_id -> (agent_ray_name, orchestrator)
         self.checked_out: Dict[str, tuple[str, Orchestrator]] = {}
+        self._shutting_down: bool = False
 
         # Other role Dispatchers for forwarding (handles are stable — dispatchers don't restart)
         self.dispatchers: Dict[str, ray.actor.ActorHandle] = {}
@@ -66,13 +70,16 @@ class Dispatcher:
 
     async def checkout(self, agent_ray_name: str) -> Optional[Orchestrator]:
         """
-        Agent pulls work, blocks until available.
-        Returns None as shutdown sentinel.
+        Agent pulls work. Returns immediately with an orchestrator or None
+        if the queue is empty. Agents poll with sleep on their side.
+        Returns SHUTDOWN_SENTINEL when the dispatcher is shutting down.
         """
-        orchestrator = await self.incoming_queue.get()
-        self.queue_size.set(self.incoming_queue.qsize())
-        if orchestrator is None:
+        if self._shutting_down:
+            return self.SHUTDOWN_SENTINEL
+        if self.incoming_queue.empty():
             return None
+        orchestrator = self.incoming_queue.get_nowait()
+        self.queue_size.set(self.incoming_queue.qsize())
         self.checked_out[orchestrator.id] = (agent_ray_name, orchestrator)
         return orchestrator
 
@@ -149,9 +156,9 @@ class Dispatcher:
             )
 
     async def shutdown(self):
-        """Put None sentinels in queue (one per known agent) to stop their loops."""
-        for _ in self.known_agents:
-            await self.incoming_queue.put(None)
+        """Signal all agents to stop by setting the shutdown flag.
+        Agents will receive SHUTDOWN_SENTINEL on their next checkout call."""
+        self._shutting_down = True
 
     async def check_health(self):
         return True
