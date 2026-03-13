@@ -16,7 +16,7 @@ import ray
 from omegaconf import DictConfig
 from ray.util.metrics import Counter, Gauge
 
-from .agent_utils import send_with_retry, setup_logging
+from .agent_utils import setup_logging
 from .orchestrator import BaseResourceClient, Orchestrator
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,9 @@ class AgentActor(abc.ABC):
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
         sink: ray.actor.ActorHandle,
+        dispatcher_name: str = None,
+        namespace: str = None,
+        ray_name: str = None,
     ):
         # PATCH FIRST - before any HTTP clients are created
         self._patch_getproxies()
@@ -65,8 +68,11 @@ class AgentActor(abc.ABC):
         # Store sink reference and start event loop
         # For Sink actor itself, sink will be None (set later via _set_self_as_sink)
         self.sink = sink
-        # Local team cache for fast actor lookup, updated from sink on failure
-        self._local_team_cache: Dict[str, List[ray.actor.ActorHandle]] = {}
+        # Dispatcher name + namespace for name-based resolution (None for Sink)
+        self.dispatcher_name = dispatcher_name
+        self.namespace = namespace
+        self.ray_name = ray_name  # This agent's Ray actor name (for dispatcher identification)
+        self.dispatcher = None  # resolved lazily in _event_loop
 
         self.event_loop_task: Optional[asyncio.Task] = (
             asyncio.get_event_loop().create_task(self._event_loop())
@@ -79,13 +85,6 @@ class AgentActor(abc.ABC):
                 Counter,
                 "agent_messages_processed",
                 "Total number of messages processed by this agent",
-                {},
-            ),
-            (
-                "queue_size",
-                Gauge,
-                "agent_queue_size",
-                "Current queue size for this agent",
                 {},
             ),
             (
@@ -146,6 +145,17 @@ class AgentActor(abc.ABC):
                 {},
             ),
         ]
+        # queue_size only makes sense for Sink (local queue); dispatched agents use Dispatcher's metric
+        if self.dispatcher_name is None:
+            metrics_config.append(
+                (
+                    "queue_size",
+                    Gauge,
+                    "agent_queue_size",
+                    "Current queue size for this agent",
+                    {},
+                ),
+            )
         self._init_metrics(metrics_config)
 
     @staticmethod
@@ -219,7 +229,10 @@ class AgentActor(abc.ABC):
             orchestrator._append(
                 self.agent_id, {"status_ok": False, "error": msg}, self.sink
             )
-            await self.sink.receive_message.remote(orchestrator)
+            if self.dispatcher is not None:
+                await self.dispatcher.submit_error.remote(orchestrator, orchestrator.id)
+            else:
+                await self.sink.receive_message.remote(orchestrator)
 
         def _log_exceptions(task):
             try:
@@ -237,31 +250,58 @@ class AgentActor(abc.ABC):
                 self.tasks_completed.inc()  # type: ignore[attr-defined]
                 self.pending_tasks_count.set(len(self.pending_tasks))  # type: ignore[attr-defined]
 
-        while self.running:
-            orchestrator = await self.queue.get()
-            if orchestrator is None:  # Shutdown sentinel
-                break
-            latency = time.time() - orchestrator.enqueue_timestamp
-            self.dequeue_latency.set(latency)  # type: ignore[attr-defined]
-            if self.ENABLE_INSTRUMENTATION:
-                orchestrator.append_instrumentation(
-                    self.dequeue_latency, self.agent_id, latency  # type: ignore[attr-defined]
-                )
+        if self.dispatcher_name is not None:
+            # Pull-based mode: resolve dispatcher by name, notify of (re)start
+            self.dispatcher = ray.get_actor(self.dispatcher_name, namespace=self.namespace)
+            await self.dispatcher.agent_started.remote(self.ray_name)
 
-            # Update queue size after getting message
-            self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
+            while self.running:
+                orchestrator = await self.dispatcher.checkout.remote(self.ray_name)
+                if orchestrator is None:  # Shutdown sentinel
+                    break
+                latency = time.time() - orchestrator.enqueue_timestamp
+                self.dequeue_latency.set(latency)  # type: ignore[attr-defined]
+                if self.ENABLE_INSTRUMENTATION:
+                    orchestrator.append_instrumentation(
+                        self.dequeue_latency, self.agent_id, latency  # type: ignore[attr-defined]
+                    )
 
-            task = asyncio.create_task(self._handle(orchestrator))
-            # Attach orchestrator to task for error logging
-            task._orchestrator = orchestrator  # type: ignore[attr-defined]
+                task = asyncio.create_task(self._handle(orchestrator))
+                task._orchestrator = orchestrator  # type: ignore[attr-defined]
 
-            self.pending_tasks.add(task)
-            self.tasks_started.inc()  # type: ignore[attr-defined]
-            self.pending_tasks_count.set(len(self.pending_tasks))  # type: ignore[attr-defined]
+                self.pending_tasks.add(task)
+                self.tasks_started.inc()  # type: ignore[attr-defined]
+                self.pending_tasks_count.set(len(self.pending_tasks))  # type: ignore[attr-defined]
 
-            # Clean up completed tasks
-            task.add_done_callback(self.pending_tasks.discard)
-            task.add_done_callback(_log_exceptions)
+                task.add_done_callback(self.pending_tasks.discard)
+                task.add_done_callback(_log_exceptions)
+        else:
+            # Local-queue mode (Sink)
+            while self.running:
+                orchestrator = await self.queue.get()
+                if orchestrator is None:  # Shutdown sentinel
+                    break
+                latency = time.time() - orchestrator.enqueue_timestamp
+                self.dequeue_latency.set(latency)  # type: ignore[attr-defined]
+                if self.ENABLE_INSTRUMENTATION:
+                    orchestrator.append_instrumentation(
+                        self.dequeue_latency, self.agent_id, latency  # type: ignore[attr-defined]
+                    )
+
+                # Update queue size after getting message
+                self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
+
+                task = asyncio.create_task(self._handle(orchestrator))
+                # Attach orchestrator to task for error logging
+                task._orchestrator = orchestrator  # type: ignore[attr-defined]
+
+                self.pending_tasks.add(task)
+                self.tasks_started.inc()  # type: ignore[attr-defined]
+                self.pending_tasks_count.set(len(self.pending_tasks))  # type: ignore[attr-defined]
+
+                # Clean up completed tasks
+                task.add_done_callback(self.pending_tasks.discard)
+                task.add_done_callback(_log_exceptions)
 
         if self.pending_tasks:
             await asyncio.gather(*self.pending_tasks, return_exceptions=True)
@@ -275,10 +315,6 @@ class AgentActor(abc.ABC):
         result = await self.postprocess(orchestrator, result)
         if self.agent_id != "_sink":
             next_state = await orchestrator.update(result, self, self.logger)
-            if await next_state.is_done():
-                next_agent_name = "_sink"
-            else:
-                next_agent_name = next_state.current_agent()
 
             # temporary
             if self.ENABLE_INSTRUMENTATION:
@@ -293,14 +329,9 @@ class AgentActor(abc.ABC):
                     self.handle_latency, self.agent_id, latency  # type: ignore[attr-defined]
                 )
 
-            # Send to next agent with fault-tolerant retry
-            self._local_team_cache = await send_with_retry(
-                next_state,
-                next_agent_name,
-                self.sink,
-                self._local_team_cache,
-                self.logger,
-            )
+            if self.dispatcher is not None:
+                # Submit to dispatcher for deterministic routing
+                await self.dispatcher.submit.remote(next_state, orchestrator.id)
             # Update last message time after successful send
             self.last_message_time = time.time()
         else:
