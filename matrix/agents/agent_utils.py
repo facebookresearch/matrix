@@ -180,6 +180,50 @@ class HistPair(NamedTuple):
     response: RayDict
 
 
+REMOTE_CALL_TIMEOUT = 60.0  # seconds per attempt
+REMOTE_CALL_RETRIES = 3
+REMOTE_CALL_BACKOFF = 2.0  # seconds between retries
+
+
+async def remote_call_with_retry(
+    method,
+    *args,
+    retries: int = REMOTE_CALL_RETRIES,
+    timeout: float = REMOTE_CALL_TIMEOUT,
+    backoff: float = REMOTE_CALL_BACKOFF,
+    logger: Optional[logging.Logger] = None,
+):
+    """Call a Ray remote method with retry and timeout.
+
+    Args:
+        method: Ray actor method (e.g. handle.submit)
+        *args: Arguments to pass to method.remote(*args)
+        retries: Number of attempts
+        timeout: Timeout per attempt in seconds
+        backoff: Seconds to wait between retries
+        logger: Logger for warnings
+
+    Returns:
+        The result of the remote call
+
+    Raises:
+        The last exception if all retries exhausted
+    """
+    last_error = None
+    for attempt in range(retries):
+        try:
+            return await asyncio.wait_for(method.remote(*args), timeout=timeout)
+        except Exception as e:
+            last_error = e
+            if logger:
+                logger.warning(
+                    f"Remote call failed (attempt {attempt + 1}/{retries}): {repr(e)}"
+                )
+            if attempt < retries - 1:
+                await asyncio.sleep(backoff)
+    raise last_error  # type: ignore[misc]
+
+
 # ==== Utility Functions ====
 async def send_with_retry(
     orchestrator: "Orchestrator",

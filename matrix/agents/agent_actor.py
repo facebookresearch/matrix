@@ -16,8 +16,8 @@ import ray
 from omegaconf import DictConfig
 from ray.util.metrics import Counter, Gauge
 
-from .agent_utils import setup_logging
-from .orchestrator import BaseResourceClient, Orchestrator
+from .agent_utils import remote_call_with_retry, setup_logging
+from .orchestrator import BaseResourceClient, DeadOrchestrator, Orchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +230,26 @@ class AgentActor(abc.ABC):
                 self.agent_id, {"status_ok": False, "error": msg}, self.sink
             )
             if self.dispatcher is not None:
-                await self.dispatcher.submit_error.remote(orchestrator, orchestrator.id)
+                try:
+                    await remote_call_with_retry(
+                        self.dispatcher.submit_error,
+                        orchestrator,
+                        orchestrator.id,
+                        logger=self.logger,
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to submit error to dispatcher for {orchestrator.id}: {repr(e)}"
+                    )
+                    # Fall back to sending directly to sink
+                    try:
+                        await remote_call_with_retry(
+                            self.sink.receive_message, orchestrator, logger=self.logger
+                        )
+                    except Exception:
+                        self.logger.error(
+                            f"Failed to send error orch {orchestrator.id} to sink, dropping"
+                        )
             else:
                 await self.sink.receive_message.remote(orchestrator)
 
@@ -331,7 +350,29 @@ class AgentActor(abc.ABC):
 
             if self.dispatcher is not None:
                 # Submit to dispatcher for deterministic routing
-                await self.dispatcher.submit.remote(next_state, orchestrator.id)
+                try:
+                    await remote_call_with_retry(
+                        self.dispatcher.submit,
+                        next_state,
+                        orchestrator.id,
+                        logger=self.logger,
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to submit orch {orchestrator.id} to dispatcher: {repr(e)}"
+                    )
+                    dead = DeadOrchestrator(
+                        orchestrator.id,
+                        error=f"Dispatcher unreachable: {e}",
+                    )
+                    try:
+                        await remote_call_with_retry(
+                            self.sink.receive_message, dead, logger=self.logger
+                        )
+                    except Exception:
+                        self.logger.error(
+                            f"Failed to tombstone orch {orchestrator.id} to sink, dropping"
+                        )
             # Update last message time after successful send
             self.last_message_time = time.time()
         else:

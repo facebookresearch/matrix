@@ -12,6 +12,7 @@ from typing import Dict, Optional
 import ray
 from ray.util.metrics import Gauge
 
+from .agent_utils import remote_call_with_retry
 from .orchestrator import DeadOrchestrator, Orchestrator
 
 logger = logging.getLogger(__name__)
@@ -83,23 +84,37 @@ class Dispatcher:
         self.checked_out.pop(orch_id, None)
 
         if await processed_orch.is_done():
-            await self.sink.receive_message.remote(processed_orch)
+            await self._send_to_sink(processed_orch)
         else:
             next_role = processed_orch.current_agent()
             if next_role == "_sink":
-                await self.sink.receive_message.remote(processed_orch)
+                await self._send_to_sink(processed_orch)
             elif next_role in self.dispatchers:
-                await self.dispatchers[next_role].enqueue.remote(processed_orch)
+                try:
+                    await remote_call_with_retry(
+                        self.dispatchers[next_role].enqueue,
+                        processed_orch,
+                        logger=self.logger,
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to forward orch {orch_id} to dispatcher {next_role}: {repr(e)}"
+                    )
+                    dead = DeadOrchestrator(
+                        orch_id,
+                        error=f"Failed to forward to {next_role}: {e}",
+                    )
+                    await self._send_to_sink(dead)
             else:
                 self.logger.error(
                     f"Unknown target role '{next_role}' for orch {orch_id}, sending to sink"
                 )
-                await self.sink.receive_message.remote(processed_orch)
+                await self._send_to_sink(processed_orch)
 
     async def submit_error(self, orchestrator: Orchestrator, orch_id: str):
         """Agent error ack. Forward directly to Sink."""
         self.checked_out.pop(orch_id, None)
-        await self.sink.receive_message.remote(orchestrator)
+        await self._send_to_sink(orchestrator)
 
     async def agent_started(self, agent_ray_name: str):
         """
@@ -120,7 +135,18 @@ class Dispatcher:
             dead = DeadOrchestrator(
                 oid, error=f"Agent {agent_ray_name} restarted while processing"
             )
-            await self.sink.receive_message.remote(dead)
+            await self._send_to_sink(dead)
+
+    async def _send_to_sink(self, orchestrator: Orchestrator):
+        """Send to sink with retry. If sink is unreachable, log and drop."""
+        try:
+            await remote_call_with_retry(
+                self.sink.receive_message, orchestrator, logger=self.logger
+            )
+        except Exception as e:
+            self.logger.error(
+                f"Failed to send orch {orchestrator.id} to sink after retries: {repr(e)}"
+            )
 
     async def shutdown(self):
         """Put None sentinels in queue (one per known agent) to stop their loops."""
