@@ -22,17 +22,14 @@ class Dispatcher:
     """
     Dispatcher actor (one per role) that acts as a message broker.
 
-    Agents pull work from their Dispatcher via checkout(), process it,
-    and submit results back via submit(). The Dispatcher tracks exactly
-    which agent has which orchestrator.
+    Receives orchestrators via enqueue(), pushes them to agents via
+    receive_message() round-robin, and routes completed work to the next
+    Dispatcher or Sink.
 
     Dead-agent detection is handled by agent restarts: when an agent
     restarts (max_restarts=-1), it calls agent_started() which tombstones
     any previously checked-out orchestrators for that agent.
     """
-
-    # Sentinel object returned by checkout() to signal agents to stop
-    SHUTDOWN_SENTINEL = "SHUTDOWN"
 
     def __init__(self, role: str, sink: ray.actor.ActorHandle, namespace: str):
         self.role = role
@@ -42,12 +39,13 @@ class Dispatcher:
         self.incoming_queue: asyncio.Queue = asyncio.Queue()
         # orch_id -> (agent_ray_name, orchestrator)
         self.checked_out: Dict[str, tuple[str, Orchestrator]] = {}
-        self._shutting_down: bool = False
 
         # Other role Dispatchers for forwarding (handles are stable — dispatchers don't restart)
         self.dispatchers: Dict[str, ray.actor.ActorHandle] = {}
-        # Known agents (ray actor names), populated by agent_started()
-        self.known_agents: set[str] = set()
+        # Agent handles for push-based delivery, populated by set_agents()
+        self.agents: Dict[str, ray.actor.ActorHandle] = {}
+        self._agent_names: list[str] = []
+        self._next_idx: int = 0
 
         self.logger = logging.getLogger(f"Dispatcher[{role}]")
 
@@ -57,6 +55,10 @@ class Dispatcher:
             tag_keys=("role",),
         )
         self.queue_size.set_default_tags({"role": role})
+
+        # Event loop waits for first agent to register via agent_started()
+        self._agents_ready = asyncio.Event()
+        self._loop_task = asyncio.get_event_loop().create_task(self._event_loop())
 
     async def set_dispatchers(self, dispatchers: Dict[str, ray.actor.ActorHandle]):
         """Wire this Dispatcher to other role Dispatchers for forwarding."""
@@ -68,20 +70,54 @@ class Dispatcher:
         await self.incoming_queue.put(orchestrator)
         self.queue_size.set(self.incoming_queue.qsize())
 
-    async def checkout(self, agent_ray_name: str) -> Optional[Orchestrator]:
-        """
-        Agent pulls work. Returns immediately with an orchestrator or None
-        if the queue is empty. Agents poll with sleep on their side.
-        Returns SHUTDOWN_SENTINEL when the dispatcher is shutting down.
-        """
-        if self._shutting_down:
-            return self.SHUTDOWN_SENTINEL
-        if self.incoming_queue.empty():
-            return None
-        orchestrator = self.incoming_queue.get_nowait()
-        self.queue_size.set(self.incoming_queue.qsize())
-        self.checked_out[orchestrator.id] = (agent_ray_name, orchestrator)
-        return orchestrator
+    async def _event_loop(self):
+        """Dequeue orchestrators and push to agents round-robin."""
+        await self._agents_ready.wait()
+        while True:
+            orchestrator = await self.incoming_queue.get()
+            if orchestrator is None:  # shutdown sentinel
+                break
+            self.queue_size.set(self.incoming_queue.qsize())
+            await self._push_to_agent(orchestrator)
+
+    async def _push_to_agent(self, orchestrator: Orchestrator):
+        """Push orchestrator to an agent with round-robin and retry."""
+        if not self._agent_names:
+            self.logger.error(f"No agents registered for role {self.role}")
+            dead = DeadOrchestrator(
+                orchestrator.id, error=f"No agents for role {self.role}"
+            )
+            await self._send_to_sink(dead)
+            return
+
+        num_agents = len(self._agent_names)
+        for attempt in range(num_agents):
+            idx = (self._next_idx + attempt) % num_agents
+            agent_name = self._agent_names[idx]
+            agent_handle = self.agents[agent_name]
+            try:
+                await remote_call_with_retry(
+                    agent_handle.receive_message,
+                    orchestrator,
+                    logger=self.logger,
+                )
+                self._next_idx = (idx + 1) % num_agents
+                self.checked_out[orchestrator.id] = (agent_name, orchestrator)
+                return
+            except Exception as e:
+                self.logger.warning(
+                    f"Failed to push to agent {agent_name}: {repr(e)}"
+                )
+                continue
+
+        # All agents failed
+        self.logger.error(
+            f"All agents unreachable for orch {orchestrator.id}, tombstoning"
+        )
+        dead = DeadOrchestrator(
+            orchestrator.id, error=f"All agents for {self.role} unreachable"
+        )
+        await self._send_to_sink(dead)
 
     async def submit(self, processed_orch: Orchestrator, orch_id: str):
         """
@@ -123,19 +159,30 @@ class Dispatcher:
         self.checked_out.pop(orch_id, None)
         await self._send_to_sink(orchestrator)
 
-    async def agent_started(self, agent_ray_name: str):
+    async def agent_started(self, agent_ray_name: str, agent_handle: ray.actor.ActorHandle):
         """
-        Called on agent (re)start. Registers the agent and tombstones any
-        previously checked-out orchestrators for it (handles restart race).
+        Called on agent (re)start. Updates the agent handle and tombstones
+        any previously checked-out orchestrators for this agent.
         """
-        self.known_agents.add(agent_ray_name)
-        to_tombstone = [
-            (oid, orch)
-            for oid, (aname, orch) in self.checked_out.items()
-            if aname == agent_ray_name
-        ]
+        # Register / update agent handle
+        self.agents[agent_ray_name] = agent_handle
+        if agent_ray_name not in self._agent_names:
+            self._agent_names.append(agent_ray_name)
+        if not self._agents_ready.is_set():
+            self._agents_ready.set()
+
+        # Atomically remove all checked-out entries for this agent (no await
+        # between removals, so _push_to_agent cannot interleave here)
+        to_tombstone = []
+        for oid in list(self.checked_out):
+            aname, orch = self.checked_out[oid]
+            if aname == agent_ray_name:
+                del self.checked_out[oid]
+                to_tombstone.append((oid, orch))
+
+        # Now send tombstones — _push_to_agent may interleave at these await
+        # points, but any new checked_out entries are for the new agent instance
         for oid, orch in to_tombstone:
-            del self.checked_out[oid]
             self.logger.warning(
                 f"Agent {agent_ray_name} restarted, tombstoning orch {oid}"
             )
@@ -156,9 +203,17 @@ class Dispatcher:
             )
 
     async def shutdown(self):
-        """Signal all agents to stop by setting the shutdown flag.
-        Agents will receive SHUTDOWN_SENTINEL on their next checkout call."""
-        self._shutting_down = True
+        """Stop event loop and signal all agents to shut down."""
+        # Stop the event loop
+        await self.incoming_queue.put(None)
+        # Signal each agent to shut down
+        for agent_name, agent_handle in self.agents.items():
+            try:
+                await agent_handle.shutdown.remote()
+            except Exception as e:
+                self.logger.warning(
+                    f"Error shutting down agent {agent_name}: {repr(e)}"
+                )
 
     async def check_health(self):
         return True

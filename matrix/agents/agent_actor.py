@@ -17,7 +17,6 @@ from omegaconf import DictConfig
 from ray.util.metrics import Counter, Gauge
 
 from .agent_utils import remote_call_with_retry, setup_logging
-from .dispatcher import Dispatcher
 from .orchestrator import BaseResourceClient, DeadOrchestrator, Orchestrator
 
 logger = logging.getLogger(__name__)
@@ -145,18 +144,14 @@ class AgentActor(abc.ABC):
                 "num of kb for the serialized message object",
                 {},
             ),
+            (
+                "queue_size",
+                Gauge,
+                "agent_queue_size",
+                "Current queue size for this agent",
+                {},
+            ),
         ]
-        # queue_size only makes sense for Sink (local queue); dispatched agents use Dispatcher's metric
-        if self.dispatcher_name is None:
-            metrics_config.append(
-                (
-                    "queue_size",
-                    Gauge,
-                    "agent_queue_size",
-                    "Current queue size for this agent",
-                    {},
-                ),
-            )
         self._init_metrics(metrics_config)
 
     @staticmethod
@@ -270,8 +265,8 @@ class AgentActor(abc.ABC):
                 self.tasks_completed.inc()  # type: ignore[attr-defined]
                 self.pending_tasks_count.set(len(self.pending_tasks))  # type: ignore[attr-defined]
 
+        # Resolve dispatcher for submit routing (if this agent has one)
         if self.dispatcher_name is not None:
-            # Pull-based mode: resolve dispatcher by name, notify of (re)start
             try:
                 self.dispatcher = ray.get_actor(self.dispatcher_name, namespace=self.namespace)
             except Exception as e:
@@ -280,72 +275,37 @@ class AgentActor(abc.ABC):
                 )
                 return
             try:
-                await self.dispatcher.agent_started.remote(self.ray_name)
+                self_handle = ray.get_runtime_context().current_actor
+                await self.dispatcher.agent_started.remote(self.ray_name, self_handle)
             except Exception as e:
                 self.logger.error(
                     f"Agent {self.id} failed to call agent_started on dispatcher: {repr(e)}"
                 )
                 return
 
-            while self.running:
-                try:
-                    result = await self.dispatcher.checkout.remote(self.ray_name)
-                except Exception as e:
-                    self.logger.error(
-                        f"Agent {self.id} checkout failed: {repr(e)}, retrying..."
-                    )
-                    await asyncio.sleep(1.0)
-                    continue
-                if result == Dispatcher.SHUTDOWN_SENTINEL:
-                    break
-                if result is None:
-                    # Queue empty, poll again after a short sleep
-                    await asyncio.sleep(0.1)
-                    continue
-                orchestrator = result
-                latency = time.time() - orchestrator.enqueue_timestamp
-                self.dequeue_latency.set(latency)  # type: ignore[attr-defined]
-                if self.ENABLE_INSTRUMENTATION:
-                    orchestrator.append_instrumentation(
-                        self.dequeue_latency, self.agent_id, latency  # type: ignore[attr-defined]
-                    )
+        # All agents: read from local queue (dispatcher pushes here, or direct for Sink)
+        while self.running:
+            orchestrator = await self.queue.get()
+            if orchestrator is None:  # Shutdown sentinel
+                break
+            latency = time.time() - orchestrator.enqueue_timestamp
+            self.dequeue_latency.set(latency)  # type: ignore[attr-defined]
+            if self.ENABLE_INSTRUMENTATION:
+                orchestrator.append_instrumentation(
+                    self.dequeue_latency, self.agent_id, latency  # type: ignore[attr-defined]
+                )
 
-                task = asyncio.create_task(self._handle(orchestrator))
-                task._orchestrator = orchestrator  # type: ignore[attr-defined]
+            self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
 
-                self.pending_tasks.add(task)
-                self.tasks_started.inc()  # type: ignore[attr-defined]
-                self.pending_tasks_count.set(len(self.pending_tasks))  # type: ignore[attr-defined]
+            task = asyncio.create_task(self._handle(orchestrator))
+            task._orchestrator = orchestrator  # type: ignore[attr-defined]
 
-                task.add_done_callback(self.pending_tasks.discard)
-                task.add_done_callback(_log_exceptions)
-        else:
-            # Local-queue mode (Sink)
-            while self.running:
-                orchestrator = await self.queue.get()
-                if orchestrator is None:  # Shutdown sentinel
-                    break
-                latency = time.time() - orchestrator.enqueue_timestamp
-                self.dequeue_latency.set(latency)  # type: ignore[attr-defined]
-                if self.ENABLE_INSTRUMENTATION:
-                    orchestrator.append_instrumentation(
-                        self.dequeue_latency, self.agent_id, latency  # type: ignore[attr-defined]
-                    )
+            self.pending_tasks.add(task)
+            self.tasks_started.inc()  # type: ignore[attr-defined]
+            self.pending_tasks_count.set(len(self.pending_tasks))  # type: ignore[attr-defined]
 
-                # Update queue size after getting message
-                self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
-
-                task = asyncio.create_task(self._handle(orchestrator))
-                # Attach orchestrator to task for error logging
-                task._orchestrator = orchestrator  # type: ignore[attr-defined]
-
-                self.pending_tasks.add(task)
-                self.tasks_started.inc()  # type: ignore[attr-defined]
-                self.pending_tasks_count.set(len(self.pending_tasks))  # type: ignore[attr-defined]
-
-                # Clean up completed tasks
-                task.add_done_callback(self.pending_tasks.discard)
-                task.add_done_callback(_log_exceptions)
+            task.add_done_callback(self.pending_tasks.discard)
+            task.add_done_callback(_log_exceptions)
 
         if self.pending_tasks:
             await asyncio.gather(*self.pending_tasks, return_exceptions=True)
