@@ -16,10 +16,9 @@ import ray
 from omegaconf import DictConfig
 from ray.util.metrics import Counter, Gauge
 
-from .agent_utils import remote_call_with_retry, setup_logging
+from .agent_utils import send_with_retry, setup_logging
 from .orchestrator import BaseResourceClient, DeadOrchestrator, Orchestrator
 
-logger = logging.getLogger(__name__)
 
 
 # ==== Abstract AgentActor ====
@@ -46,7 +45,6 @@ class AgentActor(abc.ABC):
         self.config = config
         self.resource_name = config.get("resource_name")
         if self.resource_name:
-            logger.debug(f"Resources {list(resources.keys())}")
             self.resource_client: Optional[BaseResourceClient] = resources[
                 self.resource_name
             ]
@@ -227,7 +225,7 @@ class AgentActor(abc.ABC):
             )
             if self.dispatcher is not None:
                 try:
-                    await remote_call_with_retry(
+                    await send_with_retry(
                         self.dispatcher.submit_error,
                         orchestrator,
                         orchestrator.id,
@@ -239,7 +237,7 @@ class AgentActor(abc.ABC):
                     )
                     # Fall back to sending directly to sink
                     try:
-                        await remote_call_with_retry(
+                        await send_with_retry(
                             self.sink.receive_message, orchestrator, logger=self.logger
                         )
                     except Exception:
@@ -275,7 +273,7 @@ class AgentActor(abc.ABC):
                 )
                 return
             try:
-                self_handle = ray.get_runtime_context().current_actor
+                self_handle = ray.get_runtime_context().current_actor                
                 await self.dispatcher.agent_started.remote(self.ray_name, self_handle)
             except Exception as e:
                 self.logger.error(
@@ -336,7 +334,7 @@ class AgentActor(abc.ABC):
             if self.dispatcher is not None:
                 # Submit to dispatcher for deterministic routing
                 try:
-                    await remote_call_with_retry(
+                    await send_with_retry(
                         self.dispatcher.submit,
                         next_state,
                         orchestrator.id,
@@ -351,7 +349,7 @@ class AgentActor(abc.ABC):
                         error=f"Dispatcher unreachable: {e}",
                     )
                     try:
-                        await remote_call_with_retry(
+                        await send_with_retry(
                             self.sink.receive_message, dead, logger=self.logger
                         )
                     except Exception:

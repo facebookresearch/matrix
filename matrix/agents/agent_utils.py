@@ -9,7 +9,6 @@ import importlib
 import json
 import logging
 import os
-import random
 import re
 import time
 from collections import namedtuple
@@ -182,111 +181,57 @@ class HistPair(NamedTuple):
 
 REMOTE_CALL_TIMEOUT = 60.0  # seconds per attempt
 REMOTE_CALL_RETRIES = 3
-REMOTE_CALL_BACKOFF = 2.0  # seconds between retries
 
 
-async def remote_call_with_retry(
+async def send_with_retry(
     method,
     *args,
-    retries: int = REMOTE_CALL_RETRIES,
     timeout: float = REMOTE_CALL_TIMEOUT,
-    backoff: float = REMOTE_CALL_BACKOFF,
+    max_retries: int = REMOTE_CALL_RETRIES,
     logger: Optional[logging.Logger] = None,
 ):
     """Call a Ray remote method with retry and timeout.
 
+    Only retries on RayActorError (actor dead/restarting) and TimeoutError.
+    Other exceptions are raised immediately.
+
     Args:
         method: Ray actor method (e.g. handle.submit)
         *args: Arguments to pass to method.remote(*args)
-        retries: Number of attempts
         timeout: Timeout per attempt in seconds
-        backoff: Seconds to wait between retries
+        max_retries: Maximum retry attempts
         logger: Logger for warnings
 
     Returns:
         The result of the remote call
 
     Raises:
-        The last exception if all retries exhausted
-    """
-    last_error = None
-    for attempt in range(retries):
-        try:
-            return await asyncio.wait_for(method.remote(*args), timeout=timeout)
-        except Exception as e:
-            last_error = e
-            if logger:
-                logger.warning(
-                    f"Remote call failed (attempt {attempt + 1}/{retries}): {repr(e)}"
-                )
-            if attempt < retries - 1:
-                await asyncio.sleep(backoff)
-    raise last_error  # type: ignore[misc]
-
-
-# ==== Utility Functions ====
-async def send_with_retry(
-    orchestrator: "Orchestrator",
-    role: str,
-    sink: ray.actor.ActorHandle,
-    local_cache: Dict[str, List[ray.actor.ActorHandle]],
-    log: logging.Logger,
-    timeout: float = 60.0,
-    max_retries: int = 3,
-) -> Dict[str, List[ray.actor.ActorHandle]]:
-    """
-    Send orchestrator to an agent with local cache and fault-tolerant retry.
-
-    Args:
-        orchestrator: The orchestrator state to send
-        role: The role name of the target agent
-        sink: The sink actor handle for registry lookups
-        local_cache: Local team cache dict (will be updated on refresh)
-        log: Logger instance for warnings
-        timeout: Timeout for actor acquisition
-        max_retries: Maximum retry attempts
-
-    Returns:
-        Updated local_cache dict
-
-    Raises:
         RuntimeError: If all retries exhausted
+        Exception: Non-retryable exceptions are raised immediately
     """
     last_exception = None
 
     for attempt in range(max_retries):
         try:
-            if role == "_sink":
-                agent = sink
-            elif attempt == 0 and role in local_cache and local_cache[role]:
-                # First attempt: use local cache for speed
-                agent = random.choice(local_cache[role])
-            else:
-                # Fallback: get from sink with force refresh and update local cache
-                agent = await sink.get_actor.remote(role, timeout, True)
-                local_cache = await sink.get_team_snapshot.remote()
-
-            await agent.receive_message.remote(orchestrator)
-            return local_cache  # Success
+            return await asyncio.wait_for(method.remote(*args), timeout=timeout)
         except ray.exceptions.RayActorError as e:
             last_exception = e
-            log.warning(
-                f"Actor {role} is dead (attempt {attempt + 1}/{max_retries}): {repr(e)}"
-            )
-            # Clear local cache for this role to force refresh
-            local_cache.pop(role, None)
+            if logger:
+                logger.warning(
+                    f"Actor dead (attempt {attempt + 1}/{max_retries}): {repr(e)}"
+                )
             continue
         except TimeoutError as e:
-            last_exception = e  # type: ignore[assignment]
-            log.warning(
-                f"Timeout getting actor {role} (attempt {attempt + 1}/{max_retries}): {repr(e)}"
-            )
+            last_exception = e
+            if logger:
+                logger.warning(
+                    f"Timeout (attempt {attempt + 1}/{max_retries}): {repr(e)}"
+                )
             continue
         except Exception:
-            # For other exceptions, don't retry
+            # Non-retryable, raise immediately
             raise
 
-    # All retries exhausted
     raise RuntimeError(
-        f"Failed to send to {role} after {max_retries} attempts: {last_exception}"
+        f"Remote call failed after {max_retries} attempts: {last_exception}"
     )

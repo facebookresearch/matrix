@@ -97,12 +97,17 @@ class ScalableTeamManager:
         self.sink: Optional[ray.actor.ActorHandle] = None
         # Dispatcher per role (excluding sink)
         self.dispatchers: Dict[str, ray.actor.ActorHandle] = {}
+        # Agent handles per role (must be kept alive to prevent GC)
+        self.agents: Dict[str, List[ray.actor.ActorHandle]] = {}
         # Dispatcher ray resource config
         self.dispatcher_ray_resources: dict[str, Any] = {}
-        if dispatcher_config and "ray_resources" in dispatcher_config:
-            self.dispatcher_ray_resources = OmegaConf.to_container(
-                dispatcher_config["ray_resources"], resolve=True
-            )
+        self.dispatcher_debug: bool = False
+        if dispatcher_config:
+            if "ray_resources" in dispatcher_config:
+                self.dispatcher_ray_resources = OmegaConf.to_container(
+                    dispatcher_config["ray_resources"], resolve=True
+                )
+            self.dispatcher_debug = dispatcher_config.get("debug", False)
 
     def create_role(self, role_name: str, agent_config: DictConfig, resources):
         """Create agents for a role. _sink must be created first."""
@@ -132,7 +137,7 @@ class ScalableTeamManager:
                 namespace=self.simulation_id,
                 max_restarts=0,
                 **self.dispatcher_ray_resources,
-            ).remote(role=role_name, sink=self.sink, namespace=self.simulation_id)
+            ).remote(role=role_name, debug=self.dispatcher_debug, sink=self.sink, namespace=self.simulation_id)
             self.dispatchers[role_name] = dispatcher
             logger.info(f"Created dispatcher for role: {role_name}")
 
@@ -165,6 +170,8 @@ class ScalableTeamManager:
 
         if is_sink:
             self.sink = agents[0]
+
+        self.agents[role_name] = agents
 
         self.teamConfig[role_name] = (
             agent_class.__ray_metadata__.modified_class,

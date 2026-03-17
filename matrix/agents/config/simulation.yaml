@@ -7,14 +7,16 @@ matrix:
 max_concurrent_tasks: 100
 rate_limit_enqueue: false
 
-# Dispatcher settings
-dispatcher:
-  ray_resources:
-    num_cpus: 1
 
 debug: false
 seed: 42
 num_trial: 1
+
+# Dispatcher settings
+dispatcher:
+  debug: ${debug}
+  ray_resources:
+    num_cpus: 1
 
 # Default output settings
 output:

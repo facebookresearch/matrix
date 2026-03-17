@@ -12,11 +12,8 @@ from typing import Dict, Optional
 import ray
 from ray.util.metrics import Gauge
 
-from .agent_utils import remote_call_with_retry
+from .agent_utils import send_with_retry, setup_logging
 from .orchestrator import DeadOrchestrator, Orchestrator
-
-logger = logging.getLogger(__name__)
-
 
 class Dispatcher:
     """
@@ -31,7 +28,7 @@ class Dispatcher:
     any previously checked-out orchestrators for that agent.
     """
 
-    def __init__(self, role: str, sink: ray.actor.ActorHandle, namespace: str):
+    def __init__(self, role: str, sink: ray.actor.ActorHandle, namespace: str, debug: bool = False):
         self.role = role
         self.sink = sink
         self.namespace = namespace
@@ -48,6 +45,7 @@ class Dispatcher:
         self._next_idx: int = 0
 
         self.logger = logging.getLogger(f"Dispatcher[{role}]")
+        setup_logging(self.logger, debug)
 
         self.queue_size = Gauge(
             "dispatcher_queue_size",
@@ -73,6 +71,7 @@ class Dispatcher:
     async def _event_loop(self):
         """Dequeue orchestrators and push to agents round-robin."""
         await self._agents_ready.wait()
+        self.logger.debug("{self.role} run event loop")
         while True:
             orchestrator = await self.incoming_queue.get()
             if orchestrator is None:  # shutdown sentinel
@@ -96,7 +95,7 @@ class Dispatcher:
             agent_name = self._agent_names[idx]
             agent_handle = self.agents[agent_name]
             try:
-                await remote_call_with_retry(
+                await send_with_retry(
                     agent_handle.receive_message,
                     orchestrator,
                     logger=self.logger,
@@ -106,7 +105,8 @@ class Dispatcher:
                 return
             except Exception as e:
                 self.logger.warning(
-                    f"Failed to push to agent {agent_name}: {repr(e)}"
+                    f"Failed to push to agent {agent_name}: {type(e).__name__}: {e}",
+                    exc_info=True,
                 )
                 continue
 
@@ -134,7 +134,7 @@ class Dispatcher:
                 await self._send_to_sink(processed_orch)
             elif next_role in self.dispatchers:
                 try:
-                    await remote_call_with_retry(
+                    await send_with_retry(
                         self.dispatchers[next_role].enqueue,
                         processed_orch,
                         logger=self.logger,
@@ -165,6 +165,7 @@ class Dispatcher:
         any previously checked-out orchestrators for this agent.
         """
         # Register / update agent handle
+        self.logger.debug(f"Agent_started {agent_ray_name} {agent_handle}")
         self.agents[agent_ray_name] = agent_handle
         if agent_ray_name not in self._agent_names:
             self._agent_names.append(agent_ray_name)
@@ -194,7 +195,7 @@ class Dispatcher:
     async def _send_to_sink(self, orchestrator: Orchestrator):
         """Send to sink with retry. If sink is unreachable, log and drop."""
         try:
-            await remote_call_with_retry(
+            await send_with_retry(
                 self.sink.receive_message, orchestrator, logger=self.logger
             )
         except Exception as e:
