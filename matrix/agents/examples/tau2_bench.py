@@ -181,6 +181,7 @@ class Tau2LLMAgent(LLMAgentActor):
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
         sink=None,
+        **kwargs,
     ):
         super().__init__(
             id,
@@ -188,6 +189,7 @@ class Tau2LLMAgent(LLMAgentActor):
             config,
             resources=resources,
             sink=sink,
+            **kwargs,
         )
         if agent_id == "llm_agent":
             # instantiate the template
@@ -357,6 +359,7 @@ class Tau2RewardAgent(ContainerExecutionAgent):
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
         sink=None,
+        **kwargs,
     ):
         super().__init__(
             id,
@@ -364,6 +367,7 @@ class Tau2RewardAgent(ContainerExecutionAgent):
             config,
             resources=resources,
             sink=sink,
+            **kwargs,
         )
         self.tmp_dir = os.path.abspath(os.path.expanduser(config["tmp_dir"]))
 

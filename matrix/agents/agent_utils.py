@@ -220,6 +220,7 @@ async def send_with_retry(
                 logger.warning(
                     f"Actor dead (attempt {attempt + 1}/{max_retries}): {repr(e)}"
                 )
+            await asyncio.sleep(10)
             continue
         except TimeoutError as e:
             last_exception = e
