@@ -36,13 +36,13 @@ from .agent_utils import (
     setup_logging,
 )
 from .dataset_loader import BaseDatasetLoader
+from .dispatcher import Dispatcher
 from .orchestrator import (
     BaseResourceClient,
     DeadOrchestrator,
     Orchestrator,
     SequentialOrchestrator,
 )
-from .dispatcher import Dispatcher
 from .sink import Sink
 
 # Re-export all public names for backward compatibility
@@ -90,7 +90,9 @@ class BaseMetricsAccumulator(abc.ABC):
 class ScalableTeamManager:
     """Manages teams with multiple actors per role using Dispatchers for routing and load balancing"""
 
-    def __init__(self, simulation_id: str, dispatcher_config: Optional[DictConfig] = None):
+    def __init__(
+        self, simulation_id: str, dispatcher_config: Optional[DictConfig] = None
+    ):
         self.simulation_id = simulation_id
         self.teamConfig: Dict[str, Tuple[Type, DictConfig]] = {}
         # Sink actor handle - must be created first
@@ -104,7 +106,7 @@ class ScalableTeamManager:
         self.dispatcher_debug: bool = False
         if dispatcher_config:
             if "ray_resources" in dispatcher_config:
-                self.dispatcher_ray_resources = OmegaConf.to_container(
+                self.dispatcher_ray_resources = OmegaConf.to_container(  # type: ignore [assignment]
                     dispatcher_config["ray_resources"], resolve=True
                 )
             self.dispatcher_debug = dispatcher_config.get("debug", False)
@@ -137,8 +139,13 @@ class ScalableTeamManager:
                 namespace=self.simulation_id,
                 max_restarts=0,
                 **self.dispatcher_ray_resources,
-            ).remote(role=role_name, debug=self.dispatcher_debug, sink=self.sink, namespace=self.simulation_id)
-            self.dispatchers[role_name] = dispatcher
+            ).remote(
+                role=role_name,
+                debug=self.dispatcher_debug,
+                sink=self.sink,
+                namespace=self.simulation_id,
+            )
+            self.dispatchers[role_name] = dispatcher  # type: ignore[assignment]
             logger.info(f"Created dispatcher for role: {role_name}")
 
         agents = []
@@ -192,7 +199,9 @@ class ScalableTeamManager:
             all_actors.extend(role_handles)
         all_actors.extend(self.dispatchers.values())
 
-        logger.info(f"Checking Ray actor health for {len(all_actors)} actors (including dispatchers)")
+        logger.info(
+            f"Checking Ray actor health for {len(all_actors)} actors (including dispatchers)"
+        )
         try:
             await asyncio.wait_for(
                 asyncio.gather(
@@ -381,9 +390,13 @@ class P2PAgentFramework:
 
         # Enqueue to the first agent's Dispatcher
         try:
-            await self.team_manager.dispatchers[first_agent_role].enqueue.remote(orchestrator)
+            await self.team_manager.dispatchers[first_agent_role].enqueue.remote(
+                orchestrator
+            )
         except Exception as e:
-            logger.error(f"Failed to enqueue to dispatcher for {first_agent_role}: {repr(e)}")
+            logger.error(
+                f"Failed to enqueue to dispatcher for {first_agent_role}: {repr(e)}"
+            )
             orchestrator.status["error"] = f"Failed to reach {first_agent_role}: {e}"
             await self.sink.receive_message.remote(orchestrator)  # type: ignore[attr-defined]
             return

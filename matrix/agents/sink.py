@@ -46,9 +46,6 @@ class Sink(AgentActor):
         self.num_done = 0
         self.num_inputs: Optional[int] = None
         self.ray_objects: dict[str, ray.ObjectRef] = {}  # hold the ref to avoid gc
-        self.pending_writes: int = (
-            0  # Track in-progress writes to avoid closing file prematurely
-        )
         self.num_dead: int = 0  # Counter for dead/lost orchestrators
 
         additional_metrics_config: list[tuple[str, type, str, str, dict[str, Any]]] = [
@@ -121,18 +118,14 @@ class Sink(AgentActor):
             # Run CPU-intensive work in thread pool
             start_time = time.perf_counter()
             loop = asyncio.get_event_loop()
-            self.pending_writes += 1  # Track pending write before yielding
-            try:
-                data_to_write = await loop.run_in_executor(
-                    None,
-                    partial(
-                        _write_output, await orchestrator.to_output(), self.output_path
-                    ),
-                )
-                self.output_file.write(data_to_write)
-                self.sink_write_latency.set(time.perf_counter() - start_time)  # type: ignore[attr-defined]
-            finally:
-                self.pending_writes -= 1  # Always decrement, even on error
+            data_to_write = await loop.run_in_executor(
+                None,
+                partial(
+                    _write_output, await orchestrator.to_output(), self.output_path
+                ),
+            )
+            self.output_file.write(data_to_write)
+            self.sink_write_latency.set(time.perf_counter() - start_time)  # type: ignore[attr-defined]
 
         # Increment num_done for ALL arrivals (normal + dead)
         self.num_done += 1
@@ -148,11 +141,7 @@ class Sink(AgentActor):
                 self.metrics_accumulator.accumulate(orchestrator)
 
         # Close output file when all tasks are done and no pending writes
-        if (
-            self.num_inputs is not None
-            and self.num_done >= self.num_inputs
-            and self.pending_writes == 0
-        ):
+        if self.num_inputs is not None and self.num_done >= self.num_inputs:
             self.output_file.close()
 
         return {"orchestrator": orchestrator}

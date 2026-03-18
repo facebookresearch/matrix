@@ -20,7 +20,6 @@ from .agent_utils import send_with_retry, setup_logging
 from .orchestrator import BaseResourceClient, DeadOrchestrator, Orchestrator
 
 
-
 # ==== Abstract AgentActor ====
 # @ray.remote
 class AgentActor(abc.ABC):
@@ -69,7 +68,9 @@ class AgentActor(abc.ABC):
         # Dispatcher name + namespace for name-based resolution (None for Sink)
         self.dispatcher_name = dispatcher_name
         self.namespace = namespace
-        self.ray_name = ray_name  # This agent's Ray actor name (for dispatcher identification)
+        self.ray_name = (
+            ray_name  # This agent's Ray actor name (for dispatcher identification)
+        )
         self.dispatcher = None  # resolved lazily in _event_loop
 
         self.event_loop_task: Optional[asyncio.Task] = (
@@ -245,7 +246,7 @@ class AgentActor(abc.ABC):
                             f"Failed to send error orch {orchestrator.id} to sink, dropping"
                         )
             else:
-                await self.sink.receive_message.remote(orchestrator)
+                await self.receive_message(orchestrator)
 
         def _log_exceptions(task):
             try:
@@ -266,14 +267,17 @@ class AgentActor(abc.ABC):
         # Resolve dispatcher for submit routing (if this agent has one)
         if self.dispatcher_name is not None:
             try:
-                self.dispatcher = ray.get_actor(self.dispatcher_name, namespace=self.namespace)
+                self.dispatcher = ray.get_actor(
+                    self.dispatcher_name, namespace=self.namespace
+                )
+                assert self.dispatcher is not None
             except Exception as e:
                 self.logger.error(
                     f"Agent {self.id} failed to find dispatcher {self.dispatcher_name}: {repr(e)}"
                 )
                 return
             try:
-                self_handle = ray.get_runtime_context().current_actor                
+                self_handle = ray.get_runtime_context().current_actor
                 await self.dispatcher.agent_started.remote(self.ray_name, self_handle)
             except Exception as e:
                 self.logger.error(

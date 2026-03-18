@@ -209,7 +209,7 @@ async def send_with_retry(
         RuntimeError: If all retries exhausted
         Exception: Non-retryable exceptions are raised immediately
     """
-    last_exception = None
+    last_exception: Optional[Exception] = None
 
     for attempt in range(max_retries):
         try:

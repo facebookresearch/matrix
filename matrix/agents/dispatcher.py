@@ -15,6 +15,7 @@ from ray.util.metrics import Gauge
 from .agent_utils import send_with_retry, setup_logging
 from .orchestrator import DeadOrchestrator, Orchestrator
 
+
 class Dispatcher:
     """
     Dispatcher actor (one per role) that acts as a message broker.
@@ -28,7 +29,13 @@ class Dispatcher:
     any previously checked-out orchestrators for that agent.
     """
 
-    def __init__(self, role: str, sink: ray.actor.ActorHandle, namespace: str, debug: bool = False):
+    def __init__(
+        self,
+        role: str,
+        sink: ray.actor.ActorHandle,
+        namespace: str,
+        debug: bool = False,
+    ):
         self.role = role
         self.sink = sink
         self.namespace = namespace
@@ -95,13 +102,13 @@ class Dispatcher:
             agent_name = self._agent_names[idx]
             agent_handle = self.agents[agent_name]
             try:
+                self.checked_out[orchestrator.id] = (agent_name, orchestrator)
                 await send_with_retry(
                     agent_handle.receive_message,
                     orchestrator,
                     logger=self.logger,
                 )
                 self._next_idx = (idx + 1) % num_agents
-                self.checked_out[orchestrator.id] = (agent_name, orchestrator)
                 return
             except Exception as e:
                 self.logger.warning(
@@ -114,6 +121,7 @@ class Dispatcher:
         self.logger.error(
             f"All agents unreachable for orch {orchestrator.id}, tombstoning"
         )
+        self.checked_out.pop(orchestrator.id)
         dead = DeadOrchestrator(
             orchestrator.id, error=f"All agents for {self.role} unreachable"
         )
@@ -124,7 +132,14 @@ class Dispatcher:
         Agent acks completion. Dispatcher removes from checked_out,
         checks is_done()/current_agent(), forwards to target Dispatcher or Sink.
         """
-        self.checked_out.pop(orch_id, None)
+        if orch_id not in self.checked_out:
+            # race condition, dispatch already marked it died
+            self.logger.warning(
+                f"Dispatcher {self.role} failed to find {orch_id}, ignore"
+            )
+            return
+
+        self.checked_out.pop(orch_id)
 
         if await processed_orch.is_done():
             await self._send_to_sink(processed_orch)
@@ -156,10 +171,12 @@ class Dispatcher:
 
     async def submit_error(self, orchestrator: Orchestrator, orch_id: str):
         """Agent error ack. Forward directly to Sink."""
-        self.checked_out.pop(orch_id, None)
+        self.checked_out.pop(orch_id)
         await self._send_to_sink(orchestrator)
 
-    async def agent_started(self, agent_ray_name: str, agent_handle: ray.actor.ActorHandle):
+    async def agent_started(
+        self, agent_ray_name: str, agent_handle: ray.actor.ActorHandle
+    ):
         """
         Called on agent (re)start. Updates the agent handle and tombstones
         any previously checked-out orchestrators for this agent.
