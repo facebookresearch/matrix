@@ -153,9 +153,25 @@ def kill_random_repeatedly(
     print()
 
     kill_count = 0
+    # Pre-determine the kill order: shuffle all actors, then cycle through
+    if max_kills is not None:
+        kill_order = actor_names * ((max_kills // len(actor_names)) + 1)
+        random.shuffle(kill_order)
+        kill_order = kill_order[:max_kills]
+    else:
+        kill_order = None
+
+    idx = 0
     while max_kills is None or kill_count < max_kills:
-        # Pick a random actor
-        target = random.choice(actor_names)
+        if kill_order is not None:
+            target = kill_order[idx]
+        else:
+            # For unlimited mode, shuffle a full round then repeat
+            if idx % len(actor_names) == 0:
+                current_round = list(actor_names)
+                random.shuffle(current_round)
+            target = current_round[idx % len(actor_names)]
+        idx += 1
         print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Attempting to kill: {target}")
 
         # Kill remotely
