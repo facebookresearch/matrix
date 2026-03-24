@@ -33,10 +33,10 @@ from .agent_utils import (
     HistPair,
     RayDict,
     get_ray_actor_class,
-    send_with_retry,
     setup_logging,
 )
 from .dataset_loader import BaseDatasetLoader
+from .dispatcher import Dispatcher
 from .orchestrator import (
     BaseResourceClient,
     DeadOrchestrator,
@@ -49,7 +49,6 @@ from .sink import Sink
 __all__ = [
     "RayDict",
     "HistPair",
-    "send_with_retry",
     "Orchestrator",
     "SequentialOrchestrator",
     "DeadOrchestrator",
@@ -60,6 +59,7 @@ __all__ = [
     "ContainerExecutionAgent",
     "LLMAgentActor",
     "Sink",
+    "Dispatcher",
     "ScalableTeamManager",
     "P2PAgentFramework",
     "main",
@@ -88,15 +88,28 @@ class BaseMetricsAccumulator(abc.ABC):
 
 
 class ScalableTeamManager:
-    """Manages teams with multiple actors per role using load balancers when needed"""
+    """Manages teams with multiple actors per role using Dispatchers for routing and load balancing"""
 
-    def __init__(self, simulation_id: str):
+    def __init__(
+        self, simulation_id: str, dispatcher_config: Optional[DictConfig] = None
+    ):
         self.simulation_id = simulation_id
         self.teamConfig: Dict[str, Tuple[Type, DictConfig]] = {}
-        # Team registry config: role -> (count, namespace) for actor lookup
-        self.team_registry_config: Dict[str, Tuple[int, str]] = {}
         # Sink actor handle - must be created first
         self.sink: Optional[ray.actor.ActorHandle] = None
+        # Dispatcher per role (excluding sink)
+        self.dispatchers: Dict[str, ray.actor.ActorHandle] = {}
+        # Agent handles per role (must be kept alive to prevent GC)
+        self.agents: Dict[str, List[ray.actor.ActorHandle]] = {}
+        # Dispatcher ray resource config
+        self.dispatcher_ray_resources: dict[str, Any] = {}
+        self.dispatcher_debug: bool = False
+        if dispatcher_config:
+            if "ray_resources" in dispatcher_config:
+                self.dispatcher_ray_resources = OmegaConf.to_container(  # type: ignore [assignment]
+                    dispatcher_config["ray_resources"], resolve=True
+                )
+            self.dispatcher_debug = dispatcher_config.get("debug", False)
 
     def create_role(self, role_name: str, agent_config: DictConfig, resources):
         """Create agents for a role. _sink must be created first."""
@@ -117,8 +130,27 @@ class ScalableTeamManager:
         # Sink should not restart; other actors restart infinitely
         max_restarts = 0 if is_sink else -1
 
+        # Create Dispatcher for non-sink roles
+        dispatcher = None
+        if not is_sink:
+            DispatcherActor = ray.remote(Dispatcher)
+            dispatcher = DispatcherActor.options(
+                name=f"dispatcher_{role_name}",
+                namespace=self.simulation_id,
+                max_restarts=0,
+                **self.dispatcher_ray_resources,
+            ).remote(
+                role=role_name,
+                debug=self.dispatcher_debug,
+                sink=self.sink,
+                namespace=self.simulation_id,
+            )
+            self.dispatchers[role_name] = dispatcher  # type: ignore[assignment]
+            logger.info(f"Created dispatcher for role: {role_name}")
+
         agents = []
         for i in range(count):
+            ray_name = f"{role_name}_{i}"
             kwargs = {
                 "id": f"{self.simulation_id}_{role_name}_{i}",
                 "agent_id": role_name,
@@ -127,9 +159,12 @@ class ScalableTeamManager:
             }
             if not is_sink:
                 kwargs["sink"] = self.sink
+                kwargs["dispatcher_name"] = f"dispatcher_{role_name}"
+                kwargs["namespace"] = self.simulation_id
+                kwargs["ray_name"] = ray_name
 
             agent = agent_class.options(
-                name=f"{role_name}_{i}",
+                name=ray_name,
                 namespace=self.simulation_id,
                 max_restarts=max_restarts,
                 **ray_resources,
@@ -143,28 +178,30 @@ class ScalableTeamManager:
         if is_sink:
             self.sink = agents[0]
 
+        self.agents[role_name] = agents
+
         self.teamConfig[role_name] = (
             agent_class.__ray_metadata__.modified_class,
             agent_config,
         )
-        # Only add non-sink roles to registry (sink won't restart)
-        if not is_sink:
-            self.team_registry_config[role_name] = (count, self.simulation_id)
 
         return agents
 
     async def initialize_team(self, team: Dict[str, List[ray.actor.ActorHandle]]):
-        """Initialize all agents with team references.
+        """Initialize all agents and wire Dispatchers.
 
         Args:
             team: Dict mapping role -> list of actor handles (from create_role return values)
         """
-        # Use handles from create_role directly (avoid race with ray.get_actor)
+        # Health-check all actors and dispatchers
         all_actors = [self.sink]
         for role_handles in team.values():
             all_actors.extend(role_handles)
+        all_actors.extend(self.dispatchers.values())
 
-        logger.info(f"Checking Ray actor health for {len(all_actors)} actors")
+        logger.info(
+            f"Checking Ray actor health for {len(all_actors)} actors (including dispatchers)"
+        )
         try:
             await asyncio.wait_for(
                 asyncio.gather(
@@ -179,18 +216,31 @@ class ScalableTeamManager:
             raise e
         logger.info("Checking Ray actor health done...")
 
-        # Initialize Sink's team registry with verified handles (avoid re-lookup race)
-        if self.sink is not None:
-            await self.sink.set_team_registry.remote(self.team_registry_config, team)
+        # Wire Dispatchers to each other
+        for role_name, dispatcher in self.dispatchers.items():
+            await dispatcher.set_dispatchers.remote(self.dispatchers)
+
+        logger.info(f"Dispatchers wired: {list(self.dispatchers.keys())}")
 
     def get_team_config(self):
         """Get team config dictionary for orchestrator routing"""
         return self.teamConfig
 
     async def shutdown(self):
-        """Shutdown all actors via sink's registry"""
+        """Shutdown Dispatchers (which send sentinels to agents), then Sink."""
+        # Shutdown dispatchers first (sends sentinels to agents)
+        for role_name, dispatcher in self.dispatchers.items():
+            try:
+                await dispatcher.shutdown.remote()
+            except Exception as e:
+                logger.warning(f"Error shutting down dispatcher {role_name}: {repr(e)}")
+
+        # Then shutdown sink
         if self.sink:
-            await self.sink.shutdown_all.remote()
+            try:
+                await self.sink.shutdown.remote()
+            except Exception as e:
+                logger.warning(f"Error shutting down sink: {repr(e)}")
 
 
 class P2PAgentFramework:
@@ -209,12 +259,11 @@ class P2PAgentFramework:
 
         self.semaphore = asyncio.Semaphore(self.max_concurrent_tasks)
         self.sink: Sink = None  # type: ignore[assignment]
-        self.team_manager = ScalableTeamManager(self.simulation_id)
+        self.team_manager = ScalableTeamManager(
+            self.simulation_id,
+            dispatcher_config=self.cfg.get("dispatcher"),
+        )
         self.resources: Dict[str, BaseResourceClient] = {}
-
-        # Local team cache for latency-sensitive _process_item
-        # Updated from sink on actor failure
-        self._local_team_cache: Dict[str, List[ray.actor.ActorHandle]] = {}
 
         random.seed(self.cfg["seed"])
         self.num_trial = self.cfg["num_trial"]
@@ -255,9 +304,6 @@ class P2PAgentFramework:
         # Initialize the team with collected handles
         await self.team_manager.initialize_team(team)
         self.sink = self.team_manager.sink  # type: ignore[assignment]
-
-        # Initialize local team cache from sink
-        self._local_team_cache = await self.sink.get_team_snapshot.remote()  # type: ignore[attr-defined]
 
     async def _progress_task(self):
         async def _update_progress():
@@ -342,22 +388,15 @@ class P2PAgentFramework:
         logger.debug(f"done Init {orchestrator.id}")
         logger.debug(f"Enqueue: {orchestrator.id}")
 
-        # Register as in-flight before sending to first agent
-        if self.cfg.dead_orchestrator_tracking:
-            await self.sink.register_inflight.remote(orchestrator.id)  # type: ignore[attr-defined]
-
-        # Send to first agent with local cache for latency, fallback to sink on error
+        # Enqueue to the first agent's Dispatcher
         try:
-            self._local_team_cache = await send_with_retry(
-                orchestrator,
-                first_agent_role,
-                self.sink,  # type: ignore[arg-type]
-                self._local_team_cache,
-                logger,
+            await self.team_manager.dispatchers[first_agent_role].enqueue.remote(
+                orchestrator
             )
-        except RuntimeError as e:
-            # All retries exhausted - send to sink as error
-            logger.error(str(e))
+        except Exception as e:
+            logger.error(
+                f"Failed to enqueue to dispatcher for {first_agent_role}: {repr(e)}"
+            )
             orchestrator.status["error"] = f"Failed to reach {first_agent_role}: {e}"
             await self.sink.receive_message.remote(orchestrator)  # type: ignore[attr-defined]
             return

@@ -17,9 +17,7 @@ from omegaconf import DictConfig
 from ray.util.metrics import Counter, Gauge
 
 from .agent_utils import send_with_retry, setup_logging
-from .orchestrator import BaseResourceClient, Orchestrator
-
-logger = logging.getLogger(__name__)
+from .orchestrator import BaseResourceClient, DeadOrchestrator, Orchestrator
 
 
 # ==== Abstract AgentActor ====
@@ -34,6 +32,9 @@ class AgentActor(abc.ABC):
         config: DictConfig,
         resources: dict[str, BaseResourceClient],
         sink: ray.actor.ActorHandle,
+        dispatcher_name: str = None,
+        namespace: str = None,
+        ray_name: str = None,
     ):
         # PATCH FIRST - before any HTTP clients are created
         self._patch_getproxies()
@@ -43,7 +44,6 @@ class AgentActor(abc.ABC):
         self.config = config
         self.resource_name = config.get("resource_name")
         if self.resource_name:
-            logger.debug(f"Resources {list(resources.keys())}")
             self.resource_client: Optional[BaseResourceClient] = resources[
                 self.resource_name
             ]
@@ -65,8 +65,13 @@ class AgentActor(abc.ABC):
         # Store sink reference and start event loop
         # For Sink actor itself, sink will be None (set later via _set_self_as_sink)
         self.sink = sink
-        # Local team cache for fast actor lookup, updated from sink on failure
-        self._local_team_cache: Dict[str, List[ray.actor.ActorHandle]] = {}
+        # Dispatcher name + namespace for name-based resolution (None for Sink)
+        self.dispatcher_name = dispatcher_name
+        self.namespace = namespace
+        self.ray_name = (
+            ray_name  # This agent's Ray actor name (for dispatcher identification)
+        )
+        self.dispatcher = None  # resolved lazily in _event_loop
 
         self.event_loop_task: Optional[asyncio.Task] = (
             asyncio.get_event_loop().create_task(self._event_loop())
@@ -79,13 +84,6 @@ class AgentActor(abc.ABC):
                 Counter,
                 "agent_messages_processed",
                 "Total number of messages processed by this agent",
-                {},
-            ),
-            (
-                "queue_size",
-                Gauge,
-                "agent_queue_size",
-                "Current queue size for this agent",
                 {},
             ),
             (
@@ -143,6 +141,13 @@ class AgentActor(abc.ABC):
                 Gauge,
                 "ser_size_kb",
                 "num of kb for the serialized message object",
+                {},
+            ),
+            (
+                "queue_size",
+                Gauge,
+                "agent_queue_size",
+                "Current queue size for this agent",
                 {},
             ),
         ]
@@ -219,7 +224,29 @@ class AgentActor(abc.ABC):
             orchestrator._append(
                 self.agent_id, {"status_ok": False, "error": msg}, self.sink
             )
-            await self.sink.receive_message.remote(orchestrator)
+            if self.dispatcher is not None:
+                try:
+                    await send_with_retry(
+                        self.dispatcher.submit_error,
+                        orchestrator,
+                        orchestrator.id,
+                        logger=self.logger,
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to submit error to dispatcher for {orchestrator.id}: {repr(e)}"
+                    )
+                    # Fall back to sending directly to sink
+                    try:
+                        await send_with_retry(
+                            self.sink.receive_message, orchestrator, logger=self.logger
+                        )
+                    except Exception:
+                        self.logger.error(
+                            f"Failed to send error orch {orchestrator.id} to sink, dropping"
+                        )
+            else:
+                await self.receive_message(orchestrator)
 
         def _log_exceptions(task):
             try:
@@ -237,6 +264,28 @@ class AgentActor(abc.ABC):
                 self.tasks_completed.inc()  # type: ignore[attr-defined]
                 self.pending_tasks_count.set(len(self.pending_tasks))  # type: ignore[attr-defined]
 
+        # Resolve dispatcher for submit routing (if this agent has one)
+        if self.dispatcher_name is not None:
+            try:
+                self.dispatcher = ray.get_actor(
+                    self.dispatcher_name, namespace=self.namespace
+                )
+                assert self.dispatcher is not None
+            except Exception as e:
+                self.logger.error(
+                    f"Agent {self.id} failed to find dispatcher {self.dispatcher_name}: {repr(e)}"
+                )
+                return
+            try:
+                self_handle = ray.get_runtime_context().current_actor
+                await self.dispatcher.agent_started.remote(self.ray_name, self_handle)
+            except Exception as e:
+                self.logger.error(
+                    f"Agent {self.id} failed to call agent_started on dispatcher: {repr(e)}"
+                )
+                return
+
+        # All agents: read from local queue (dispatcher pushes here, or direct for Sink)
         while self.running:
             orchestrator = await self.queue.get()
             if orchestrator is None:  # Shutdown sentinel
@@ -248,18 +297,15 @@ class AgentActor(abc.ABC):
                     self.dequeue_latency, self.agent_id, latency  # type: ignore[attr-defined]
                 )
 
-            # Update queue size after getting message
             self.queue_size.set(self.queue.qsize())  # type: ignore[attr-defined]
 
             task = asyncio.create_task(self._handle(orchestrator))
-            # Attach orchestrator to task for error logging
             task._orchestrator = orchestrator  # type: ignore[attr-defined]
 
             self.pending_tasks.add(task)
             self.tasks_started.inc()  # type: ignore[attr-defined]
             self.pending_tasks_count.set(len(self.pending_tasks))  # type: ignore[attr-defined]
 
-            # Clean up completed tasks
             task.add_done_callback(self.pending_tasks.discard)
             task.add_done_callback(_log_exceptions)
 
@@ -275,10 +321,6 @@ class AgentActor(abc.ABC):
         result = await self.postprocess(orchestrator, result)
         if self.agent_id != "_sink":
             next_state = await orchestrator.update(result, self, self.logger)
-            if await next_state.is_done():
-                next_agent_name = "_sink"
-            else:
-                next_agent_name = next_state.current_agent()
 
             # temporary
             if self.ENABLE_INSTRUMENTATION:
@@ -293,14 +335,31 @@ class AgentActor(abc.ABC):
                     self.handle_latency, self.agent_id, latency  # type: ignore[attr-defined]
                 )
 
-            # Send to next agent with fault-tolerant retry
-            self._local_team_cache = await send_with_retry(
-                next_state,
-                next_agent_name,
-                self.sink,
-                self._local_team_cache,
-                self.logger,
-            )
+            if self.dispatcher is not None:
+                # Submit to dispatcher for deterministic routing
+                try:
+                    await send_with_retry(
+                        self.dispatcher.submit,
+                        next_state,
+                        orchestrator.id,
+                        logger=self.logger,
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to submit orch {orchestrator.id} to dispatcher: {repr(e)}"
+                    )
+                    dead = DeadOrchestrator(
+                        orchestrator.id,
+                        error=f"Dispatcher unreachable: {e}",
+                    )
+                    try:
+                        await send_with_retry(
+                            self.sink.receive_message, dead, logger=self.logger
+                        )
+                    except Exception:
+                        self.logger.error(
+                            f"Failed to tombstone orch {orchestrator.id} to sink, dropping"
+                        )
             # Update last message time after successful send
             self.last_message_time = time.time()
         else:
