@@ -7,7 +7,6 @@
 import aiohttp
 import requests
 
-
 DEFAULT_HTTP_TIMEOUT_SECONDS = 30
 
 
