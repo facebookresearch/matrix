@@ -25,9 +25,10 @@ from matrix.job.job_utils import (
     undeploy_helper,
 )
 from matrix.utils.basics import str_to_callable
+from matrix.utils.logging import get_logger
 from matrix.utils.ray import Action, get_ray_address, get_ray_head_node
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class JobApi:

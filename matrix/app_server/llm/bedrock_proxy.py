@@ -19,7 +19,9 @@ from ray import serve
 from starlette.requests import Request
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest
 
-logger = logging.getLogger("ray.serve")
+from matrix.utils.logging import get_logger
+
+logger = get_logger("ray.serve")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 
@@ -124,11 +126,11 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
             arg_strings.extend([f"--{key}"])
         else:
             arg_strings.extend([f"--{key}", str(value)])
-    logger.info(arg_strings)
+    logger.info(",".join(arg_strings))
 
     args = argparse.parse_args(args=arg_strings)
 
-    logger.log(logging.INFO, f"args: {args}")
+    logger.info(f"args: {args}")
     assert "claude" in args.model_name.lower(), "Only Claude model is supported"
 
     return BedrockDeployment.options(  # type: ignore[attr-defined]
