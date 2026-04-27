@@ -296,6 +296,9 @@ llm_model_default_parameters = {
         # leading to EngineCore crashes.
         "gpu-memory-utilization": 0.9,
         "trust-remote-code": True,
+        "stage_overrides": {
+            1: {"enforce_eager": True},  # talker: CUDA graphs broken with flash attn
+        },
     },
     "facebook/cwm": {
         "name": "cwm",

@@ -94,7 +94,7 @@ vllm_app_template = """
   args:
     model: {{ app.model_name }}
     {% for key, value in app.items() %}
-    {% if key not in non_model_params or key in ["ray_resources"]%}
+    {% if key not in non_model_params or key in ["ray_resources", "stage_overrides"]%}
     {{ key }}: {{ 'null' if value is true else value }}
     {% endif %}
     {% endfor %}
