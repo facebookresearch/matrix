@@ -1,0 +1,15 @@
+defaults:
+  - /simulation
+  - /agents: debate_agents
+  - /dataset: debate_dataset
+  - /metrics: debate_metrics
+  - /orchestrator: debate_sequential
+  - /resources: debate_resources
+
+max_concurrent_tasks: 10
+
+dataset:
+  cut_off: 50
+
+output:
+  path: "omni_debate_results.jsonl"
