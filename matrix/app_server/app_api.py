@@ -441,6 +441,7 @@ class AppApi:
             "llm",
             "sglang_llm",
             "fastgen",
+            "omni_llm",
             "openai",
             "metagen",
             "sagemaker",

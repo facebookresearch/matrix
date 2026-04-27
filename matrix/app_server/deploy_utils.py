@@ -68,6 +68,11 @@ non_model_params = [
     # Optical flow
     "return_flow",
     "motion_score",
+    # Omni (speech) models
+    "deploy_config",
+    "async_chunk",
+    "stage_overrides",
+    "num_gpus",
 ]
 
 vllm_app_template = """
@@ -75,6 +80,8 @@ vllm_app_template = """
   route_prefix: /{{ app.name }}
   {% if app.app_type == 'fastgen' %}
   import_path: matrix.app_server.llm.ray_serve_fastgen:build_app
+  {% elif app.app_type == 'omni_llm' %}
+  import_path: matrix.app_server.llm.ray_serve_omni_llm:build_omni_app
   {% else %}
   import_path: matrix.app_server.llm.ray_serve_vllm:{{ 'build_app_grpc' if app.use_grpc else 'build_app' }}
   {% endif %}
@@ -98,6 +105,8 @@ vllm_app_template = """
   - name: SglangDeployment
   {% elif app.app_type == 'fastgen' %}
   - name: FastgenDeployment
+  {% elif app.app_type == 'omni_llm' %}
+  - name: OmniDeployment
   {% else %}
   - name: VLLMDeployment
   {% endif %}
@@ -310,6 +319,7 @@ def get_app_type(app):
         "VLLMDeployment": "llm",
         "SglangDeployment": "sglang_llm",
         "FastgenDeployment": "fastgen",
+        "OmniDeployment": "omni_llm",
         "PerceptionEncoderDeployment": "perception_encoder",
         "OpticalFlowDeployment": "optical_flow",
         "LlamaApiDeployment": "llama_api",
@@ -404,6 +414,7 @@ def get_yaml_for_deployment(
                 "llm",
                 "sglang_llm",
                 "fastgen",
+                "omni_llm",
                 "code",
                 "container",
                 "hello",
@@ -435,11 +446,14 @@ def get_yaml_for_deployment(
                     and not hasattr(BaseDeployment, k.replace("-", "_"))
                 }
                 assert not unknown, f"unknown vllm model args {unknown}"
+            elif app_type == "omni_llm":
+                # omni_llm uses vllm-omni's AsyncOmni, skip AsyncEngineArgs validation
+                pass
             else:
                 unknown = {k: v for k, v in app.items() if k not in non_model_params}
                 assert not unknown, f"unknown {app_type} model args {unknown}"
 
-            if app_type in ["llm", "sglang_llm", "fastgen"]:
+            if app_type in ["llm", "sglang_llm", "fastgen", "omni_llm"]:
                 update_vllm_app_params(app)
                 yaml_str += Template(vllm_app_template).render(
                     temp_dir=temp_dir,
@@ -647,6 +661,14 @@ def get_resource_requirements(
         ray_resources: dict[str, Any] = app_config.get("ray_resources", {})  # type: ignore[assignment]
         cpus_per_gpu = ray_resources.get("num_cpus", CPUS_PER_GPU)
         cpus_per_replica = 1 + (num_gpus_per_replica * cpus_per_gpu)
+        cpu_requirement = cpus_per_replica * min_replica
+
+    elif app_type == "omni_llm":
+        # omni_llm: num_gpus controls total GPUs (for multi-stage pipeline)
+        num_gpus_per_replica = int(app_config.get("num_gpus", 2))
+        gpu_requirement = num_gpus_per_replica * min_replica
+        ray_resources = app_config.get("ray_resources", {})  # type: ignore[assignment]
+        cpus_per_replica = ray_resources.get("num_cpus", 1)
         cpu_requirement = cpus_per_replica * min_replica
 
     elif app_type in ["perception_encoder", "optical_flow"]:

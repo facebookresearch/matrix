@@ -160,6 +160,22 @@ classifiers=[
     "iopath",
     "jsonlines",
   ]
+  vllm_omni = [
+    "submitit>=1.5.2",
+    "transformers>=4.57.3",
+    "torch>=2.7.1",
+    "vllm==0.18.0",
+    "vllm-omni==0.18.0",
+    "ray[serve]>=2.48.0",
+    "boto3",
+    "google-genai>=1.13.0",
+    "datasketch",
+    "s3fs",
+    "datasets",
+    "iopath",
+    "jsonlines",
+    "soundfile",
+  ]
   ray = [
     "submitit>=1.5.2",
     "ray[default,serve]>=2.48.0",

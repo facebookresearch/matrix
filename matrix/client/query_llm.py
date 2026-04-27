@@ -209,6 +209,98 @@ def make_error_response(
     }
 
 
+async def make_speech_request(
+    url: tp.Union[None, str, tp.Callable[[], tp.Awaitable[str]]],
+    model: str,
+    text: str,
+    voice: str = "default",
+    response_format: str = "wav",
+    output_file: tp.Optional[str] = None,
+    max_retries: int = 3,
+    initial_delay: int = 1,
+    backoff_factor: int = 2,
+    timeout_secs: int = 600,
+    endpoint_cache: tp.Optional[EndpointCache] = None,
+) -> tp.Dict[str, tp.Any]:
+    """Send a TTS request to /v1/audio/speech and return audio data or save to file.
+
+    Args:
+        url: Base URL for the endpoint (e.g., http://host:port/app_name/v1)
+        model: The model name
+        text: Text to convert to speech
+        voice: Voice to use for TTS
+        response_format: Audio format (wav, mp3, etc.)
+        output_file: Optional path to save audio data
+        max_retries: Maximum number of retries
+        initial_delay: Initial retry delay in seconds
+        backoff_factor: Exponential backoff factor
+        timeout_secs: Request timeout in seconds
+        endpoint_cache: Optional endpoint cache for URL resolution
+
+    Returns:
+        Dict with "audio_bytes" (bytes), "content_type" (str), and optionally "output_file" (str)
+    """
+    import httpx
+
+    exception: tp.Optional[Exception] = None
+    for attempt in range(max(1, max_retries)):
+        if callable(url):
+            base_url = await url()
+        elif not url and endpoint_cache:
+            url = await get_an_endpoint_url(endpoint_cache, "")
+            base_url = url
+        else:
+            assert url is not None
+            base_url = url
+
+        speech_url = f"{base_url}/audio/speech"
+        payload = {
+            "model": model,
+            "input": text,
+            "voice": voice,
+            "response_format": response_format,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=timeout_secs) as client:
+                response = await client.post(
+                    speech_url,
+                    json=payload,
+                )
+                if response.status_code == 200:
+                    audio_bytes = response.content
+                    content_type = response.headers.get(
+                        "content-type", f"audio/{response_format}"
+                    )
+                    result: tp.Dict[str, tp.Any] = {
+                        "audio_bytes": audio_bytes,
+                        "content_type": content_type,
+                    }
+                    if output_file:
+                        with open(output_file, "wb") as f:
+                            f.write(audio_bytes)
+                        result["output_file"] = output_file
+                        logger.info(
+                            f"Saved audio ({len(audio_bytes)} bytes) to {output_file}"
+                        )
+                    return result
+                else:
+                    error_text = response.text
+                    exception = Exception(
+                        f"Speech request failed with status {response.status_code}: {error_text}"
+                    )
+        except Exception as e:
+            exception = e
+
+        if attempt < max_retries - 1:
+            delay = initial_delay * (backoff_factor**attempt + random.uniform(0, 1))
+            await asyncio.sleep(delay)
+            if endpoint_cache:
+                url = await get_an_endpoint_url(endpoint_cache, "", True)
+
+    return {"error": str(exception or "unknown error")}
+
+
 async def make_request(
     url: tp.Union[None, str, tp.Callable[[], tp.Awaitable[str]]],
     model: str,
@@ -233,6 +325,7 @@ async def make_request(
     top_k: int = -1,
     guided_decoding: tp.Optional[tp.Dict[str, tp.Any]] = None,
     extra_body: tp.Optional[tp.Dict[str, tp.Any]] = None,
+    speech_mode: bool = False,
 ) -> tp.Dict[str, tp.Any]:
     if "metadata" not in data:
         data["metadata"] = {}
@@ -241,6 +334,8 @@ async def make_request(
     exception: tp.Optional[Exception] = None
 
     extra_body = extra_body or {}
+    if speech_mode:
+        extra_body["modalities"] = ["text", "audio"]
     if top_k != -1:
         extra_body["top_k"] = top_k
     if guided_decoding:
@@ -294,23 +389,39 @@ async def make_request(
                             extra_headers=extra_headers,
                             extra_body=extra_body,
                         )
+                        # Separate text and audio choices (omni models return
+                        # separate choices for each modality)
+                        text_choices = [
+                            c for c in response.choices
+                            if c.message.content is not None
+                            or getattr(c.message, "reasoning_content", None) is not None
+                            or c.message.tool_calls is not None
+                        ]
+                        audio_choices = [
+                            c for c in response.choices
+                            if getattr(c.message, "audio", None) is not None
+                        ]
+                        # Fall back to all choices if no audio split detected
+                        if not audio_choices:
+                            text_choices = list(response.choices[:n])
+
                         result = {
                             "request": data,
                             "response": {
                                 "finish_reason": [
-                                    response.choices[i].finish_reason for i in range(n)
+                                    c.finish_reason for c in text_choices
                                 ],
                                 "response_timestamp": time.time(),
                             },
                         }
-                        message0 = response.choices[0].message
+                        message0 = text_choices[0].message if text_choices else response.choices[0].message
                         if message0.content:
-                            result["response"]["text"] = [response.choices[i].message.content for i in range(n)]  # type: ignore[attr-defined]
+                            result["response"]["text"] = [c.message.content for c in text_choices]  # type: ignore[attr-defined]
                         if (
                             hasattr(message0, "reasoning_content")
                             and message0.reasoning_content
                         ):
-                            result["response"]["reasoning_content"] = [response.choices[i].message.reasoning_content for i in range(n)]  # type: ignore[attr-defined]
+                            result["response"]["reasoning_content"] = [c.message.reasoning_content for c in text_choices]  # type: ignore[attr-defined]
                         if message0.tool_calls:
                             result["response"]["tool_calls"] = [
                                 [
@@ -319,12 +430,23 @@ async def make_request(
                                         "arguments": tool_call.function.arguments,  # type: ignore[union-attr]
                                         "id": tool_call.id or str(uuid.uuid4()),
                                     }
-                                    for tool_call in response.choices[
-                                        i
-                                    ].message.tool_calls  # type: ignore[union-attr]
+                                    for tool_call in c.message.tool_calls  # type: ignore[union-attr]
                                 ]
-                                for i in range(n)
+                                for c in text_choices
                             ]
+                        # Extract audio responses
+                        if audio_choices:
+                            result["response"]["audio"] = []
+                            for c in audio_choices:
+                                audio = c.message.audio  # type: ignore[union-attr]
+                                audio_dict: dict[str, tp.Any] = {}
+                                if hasattr(audio, "data") and audio.data:
+                                    audio_dict["data"] = audio.data
+                                if hasattr(audio, "id") and audio.id:
+                                    audio_dict["id"] = audio.id
+                                if hasattr(audio, "transcript") and audio.transcript:
+                                    audio_dict["transcript"] = audio.transcript
+                                result["response"]["audio"].append(audio_dict)
                         if (logprobs or top_logprobs is not None) and response.choices[
                             0
                         ].logprobs is not None:
