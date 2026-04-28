@@ -216,7 +216,7 @@ class FastgenDeployment:
 
         hostname = socket.gethostname()
         listener = Listener((hostname, 0), "AF_INET", authkey=None)
-        host, port = listener.address  # type: ignore[misc]
+        host, port = listener.address  # type: ignore[misc,str-unpack]
         logger.info(f"Listener started on host={host}, port={port}")
 
         with tempfile.TemporaryDirectory() as rdv_dir:
