@@ -317,7 +317,7 @@ def build_omni_app(cli_args: Dict[str, Any]) -> serve.Application:
     # Merge deploy_args into engine_args for the constructor
     all_args = {**engine_args, **deploy_args}
 
-    return OmniDeployment.options(
+    return OmniDeployment.options(  # type: ignore[attr-defined]
         placement_group_bundles=pg_resources,
         placement_group_strategy="STRICT_PACK",
         # The actor must request GPUs so Ray sets CUDA_VISIBLE_DEVICES to the

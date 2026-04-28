@@ -40,14 +40,14 @@ class StreamlitArenaActor:
 
     def start(self):
         """Launch the Streamlit server and begin monitoring."""
-        arena_script = os.path.join(
-            os.path.dirname(__file__), "arena.py"
-        )
+        arena_script = os.path.join(os.path.dirname(__file__), "arena.py")
         if not os.path.exists(arena_script):
             raise FileNotFoundError(f"Arena script not found: {arena_script}")
 
         cmd = [
-            "streamlit", "run", arena_script,
+            "streamlit",
+            "run",
+            arena_script,
             f"--server.port={self.port}",
             "--server.headless=true",
             "--server.address=0.0.0.0",

@@ -392,13 +392,15 @@ async def make_request(
                         # Separate text and audio choices (omni models return
                         # separate choices for each modality)
                         text_choices = [
-                            c for c in response.choices
+                            c
+                            for c in response.choices
                             if c.message.content is not None
                             or getattr(c.message, "reasoning_content", None) is not None
                             or c.message.tool_calls is not None
                         ]
                         audio_choices = [
-                            c for c in response.choices
+                            c
+                            for c in response.choices
                             if getattr(c.message, "audio", None) is not None
                         ]
                         # Fall back to all choices if no audio split detected
@@ -414,7 +416,11 @@ async def make_request(
                                 "response_timestamp": time.time(),
                             },
                         }
-                        message0 = text_choices[0].message if text_choices else response.choices[0].message
+                        message0 = (
+                            text_choices[0].message
+                            if text_choices
+                            else response.choices[0].message
+                        )
                         if message0.content:
                             result["response"]["text"] = [c.message.content for c in text_choices]  # type: ignore[attr-defined]
                         if (
@@ -440,12 +446,12 @@ async def make_request(
                             for c in audio_choices:
                                 audio = c.message.audio  # type: ignore[union-attr]
                                 audio_dict: dict[str, tp.Any] = {}
-                                if hasattr(audio, "data") and audio.data:
-                                    audio_dict["data"] = audio.data
-                                if hasattr(audio, "id") and audio.id:
-                                    audio_dict["id"] = audio.id
-                                if hasattr(audio, "transcript") and audio.transcript:
-                                    audio_dict["transcript"] = audio.transcript
+                                if hasattr(audio, "data") and audio.data:  # type: ignore[union-attr]
+                                    audio_dict["data"] = audio.data  # type: ignore[union-attr]
+                                if hasattr(audio, "id") and audio.id:  # type: ignore[union-attr]
+                                    audio_dict["id"] = audio.id  # type: ignore[union-attr]
+                                if hasattr(audio, "transcript") and audio.transcript:  # type: ignore[union-attr]
+                                    audio_dict["transcript"] = audio.transcript  # type: ignore[union-attr]
                                 result["response"]["audio"].append(audio_dict)
                         if (logprobs or top_logprobs is not None) and response.choices[
                             0

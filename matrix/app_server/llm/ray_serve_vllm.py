@@ -25,7 +25,10 @@ from starlette.responses import JSONResponse, StreamingResponse
 from vllm.engine.arg_utils import AsyncEngineArgs
 
 try:
-    from vllm.engine.async_llm_engine import AsyncEngineDeadError, AsyncLLMEngine
+    from vllm.engine.async_llm_engine import (  # type: ignore[attr-defined]
+        AsyncEngineDeadError,
+        AsyncLLMEngine,
+    )
 
     _has_v0 = True
 except ImportError:
@@ -304,7 +307,7 @@ class BaseDeployment:
                 model_config=model_config,
                 renderer=getattr(self.engine, "renderer", None),
                 io_processor=getattr(self.engine, "io_processor", None),
-                model_registry=kwargs["models"].registry,
+                model_registry=kwargs["models"].registry,  # type: ignore[union-attr]
                 request_logger=self.request_logger,
                 chat_template=self.chat_template,
                 chat_template_content_format="auto",
@@ -333,7 +336,9 @@ class BaseDeployment:
             "enable_auto_tools",
             "tool_parser",
         ]
-        completion_kwargs = {k: v for k, v in kwargs.items() if k not in completion_exclude}
+        completion_kwargs = {
+            k: v for k, v in kwargs.items() if k not in completion_exclude
+        }
         self.openai_serving_completion = OpenAIServingCompletion(
             **completion_kwargs  # type: ignore[arg-type]
         )

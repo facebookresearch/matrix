@@ -339,7 +339,9 @@ class Cli:
                     print(f"Audio saved to: {audio_file} ({len(resp.content)} bytes)")
                     return True
                 else:
-                    print(f"TTS health check failed (HTTP {resp.status_code}): {resp.text}")
+                    print(
+                        f"TTS health check failed (HTTP {resp.status_code}): {resp.text}"
+                    )
                     return False
 
             if use_speech:
@@ -617,7 +619,7 @@ class Cli:
             arena_port = find_free_ports(1)[0]
 
         head_node = get_ray_head_node()
-        actor = StreamlitArenaActor.options(
+        actor = StreamlitArenaActor.options(  # type: ignore[attr-defined]
             name=StreamlitArenaActor.NAME,
             namespace=ACTOR_NAME_SPACE,
             scheduling_strategy=NodeAffinitySchedulingStrategy(

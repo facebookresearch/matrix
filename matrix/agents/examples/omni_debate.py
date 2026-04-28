@@ -62,7 +62,9 @@ class DebateOrchestrator(SequentialOrchestrator):
     ) -> None:
         task = metadata["task"]
         self._id = str(task["topic_id"])
-        await super().init(simulation_id, first_agent, sink, metadata, resources, logger)
+        await super().init(
+            simulation_id, first_agent, sink, metadata, resources, logger
+        )
 
     async def is_done(self) -> bool:
         if not self.history:
@@ -72,8 +74,7 @@ class DebateOrchestrator(SequentialOrchestrator):
             return True
         # Count actual debate turns (exclude the seed at index 0)
         turns = sum(
-            1 for msg in self.history[1:]
-            if msg.agent in {"proponent", "opponent"}
+            1 for msg in self.history[1:] if msg.agent in {"proponent", "opponent"}
         )
         # Each round = 2 turns (proponent + opponent), max_turns = number of rounds
         done = turns >= self.max_turns * 2
@@ -86,7 +87,9 @@ class DebateOrchestrator(SequentialOrchestrator):
 @ray.remote
 class DebateAgent(LLMAgentActor):
 
-    async def preprocess(self, orchestrator: DebateOrchestrator) -> List[Dict[str, str]]:
+    async def preprocess(  # type: ignore[override]
+        self, orchestrator: DebateOrchestrator
+    ) -> List[Dict[str, str]]:
         """Build messages for the LLM. Only send text history, not audio."""
         task = await orchestrator.get_task()
         topic = task["topic"]
@@ -102,10 +105,12 @@ class DebateAgent(LLMAgentActor):
 
         # Build chat messages: system prompt + topic + alternating user/assistant
         messages = [{"role": "system", "content": self.system_prompt}]
-        messages.append({
-            "role": "user",
-            "content": f'The debate topic is: "{topic}"\n\nPlease present your opening argument.',
-        })
+        messages.append(
+            {
+                "role": "user",
+                "content": f'The debate topic is: "{topic}"\n\nPlease present your opening argument.',
+            }
+        )
 
         # Append debate history as alternating assistant/user turns
         for agent, text in debate_msgs:
@@ -114,14 +119,16 @@ class DebateAgent(LLMAgentActor):
 
         # Ensure the last message is from "user" so the model can respond
         if messages[-1]["role"] == "assistant":
-            messages.append({
-                "role": "user",
-                "content": "Please continue with your next argument.",
-            })
+            messages.append(
+                {
+                    "role": "user",
+                    "content": "Please continue with your next argument.",
+                }
+            )
 
         return messages
 
-    async def postprocess(self, orchestrator: DebateOrchestrator, response: Any) -> Any:
+    async def postprocess(self, orchestrator: DebateOrchestrator, response: Any) -> Any:  # type: ignore[override]
         """Store both text and audio in history."""
         return await super().postprocess(orchestrator, response)
 
@@ -140,10 +147,11 @@ class DebateAgent(LLMAgentActor):
 
 # ==== Metrics ====
 class DebateMetricsAccumulator(BaseMetricsAccumulator):
-    def accumulate(self, orchestrator: DebateOrchestrator):
+    def accumulate(self, orchestrator: DebateOrchestrator):  # type: ignore[override]
         self.overall_metrics["conv_err"].append(orchestrator.is_error())
         debate_turns = [
-            msg for msg in orchestrator.history
+            msg
+            for msg in orchestrator.history
             if msg.agent in {"proponent", "opponent"}
         ]
         self.overall_metrics["total_turns"].append(len(debate_turns))
@@ -159,7 +167,5 @@ class DebateMetricsAccumulator(BaseMetricsAccumulator):
             self.overall_metrics[f"{role}_avg_tokens"].append(avg_len)
 
         # Track how many turns had audio
-        audio_count = sum(
-            1 for msg in debate_turns if msg.response.get("audio")
-        )
+        audio_count = sum(1 for msg in debate_turns if msg.response.get("audio"))
         self.overall_metrics["audio_turns"].append(audio_count)
