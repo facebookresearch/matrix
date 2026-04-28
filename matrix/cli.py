@@ -148,8 +148,15 @@ class Cli:
         else:
             assert head.hostname
             results = []
+            ssh_ports = (
+                f"-L {head.dashboard_port}:localhost:{head.dashboard_port} "
+                f"-L {head.prometheus_port}:localhost:{head.prometheus_port} "
+                f"-L {head.grafana_port}:localhost:{head.grafana_port}"
+            )
+            if head.arena_port:
+                ssh_ports += f" -L {head.arena_port}:localhost:{head.arena_port}"
             results.append(
-                f"ssh to head node:\nssh -L {head.dashboard_port}:localhost:{head.dashboard_port} -L {head.prometheus_port}:localhost:{head.prometheus_port} -L {head.grafana_port}:localhost:{head.grafana_port} {head.hostname}"
+                f"ssh to head node:\nssh {ssh_ports} {head.hostname}"
             )  # type: ignore[union-attr]
             cluster_info = convert_to_json_compatible(head)
             results.append(f"Head Info: {json.dumps(cluster_info, indent=2)}")
@@ -559,6 +566,98 @@ class Cli:
                         )[0]
                         print(response)
                     return "error" not in response["response"]  # type: ignore[index]
+
+    def arena_start(self, port: int | None = None, force: bool = False):
+        """Start the Sokrates Arena UI on the Ray head node.
+
+        Args:
+            port: Port to bind to. Defaults to the arena_port from ClusterInfo.
+            force: If True, restart even if already running.
+
+        Returns:
+            dict with status and URL.
+        """
+        import ray
+        from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
+
+        from matrix.agents.ui.arena_actor import StreamlitArenaActor
+        from matrix.utils.ray import ACTOR_NAME_SPACE, get_ray_head_node
+
+        cluster_info = self.cluster.cluster_info()
+        assert cluster_info is not None, "Head is not ready"
+        from matrix.utils.ray import init_ray_if_necessary
+
+        init_ray_if_necessary(cluster_info)
+
+        try:
+            actor = ray.get_actor(StreamlitArenaActor.NAME, ACTOR_NAME_SPACE)
+        except ValueError:
+            actor = None
+
+        if actor and force:
+            try:
+                ray.get(actor.cleanup.remote())
+                ray.kill(actor)
+            except Exception:
+                pass
+            actor = None
+
+        if actor:
+            status = ray.get(actor.get_status.remote())
+            return {
+                "status": "already running",
+                "url": f"http://{cluster_info.hostname}:{status['port']}",
+                **status,
+            }
+
+        arena_port = port or cluster_info.arena_port
+        if arena_port is None:
+            from matrix.utils.os import find_free_ports
+
+            arena_port = find_free_ports(1)[0]
+
+        head_node = get_ray_head_node()
+        actor = StreamlitArenaActor.options(
+            name=StreamlitArenaActor.NAME,
+            namespace=ACTOR_NAME_SPACE,
+            scheduling_strategy=NodeAffinitySchedulingStrategy(
+                node_id=head_node["NodeID"],
+                soft=False,
+            ),
+            lifetime="detached",
+            num_cpus=0,
+            num_gpus=0,
+            max_restarts=3,
+            max_task_retries=-1,
+        ).remote(arena_port)
+        result = ray.get(actor.start.remote())
+        result["url"] = f"http://{cluster_info.hostname}:{arena_port}"
+        return result
+
+    def arena_stop(self):
+        """Stop the Sokrates Arena UI."""
+        import ray
+
+        from matrix.agents.ui.arena_actor import StreamlitArenaActor
+        from matrix.utils.ray import ACTOR_NAME_SPACE
+
+        cluster_info = self.cluster.cluster_info()
+        assert cluster_info is not None, "Head is not ready"
+        from matrix.utils.ray import init_ray_if_necessary
+
+        init_ray_if_necessary(cluster_info)
+
+        try:
+            actor = ray.get_actor(StreamlitArenaActor.NAME, ACTOR_NAME_SPACE)
+        except ValueError:
+            return "Arena is not running"
+
+        try:
+            ray.get(actor.cleanup.remote())
+            ray.kill(actor)
+        except Exception:
+            pass
+        return "Arena stopped"
 
     @property
     def app(self):

@@ -47,7 +47,8 @@ class RayHeadJob:
             sglang_dist_init_port,
             sglang_http_port,
             dashboard_agent_listen_port,
-        ) = find_free_ports(11)
+            arena_port,
+        ) = find_free_ports(12)
         # Configure environment variables
         head_env.update(
             {
@@ -111,6 +112,7 @@ class RayHeadJob:
                 sglang_dist_init_port=int(sglang_dist_init_port),
                 sglang_http_port=int(sglang_http_port),
                 dashboard_agent_listen_port=int(dashboard_agent_listen_port),
+                arena_port=int(arena_port),
                 temp_dir=temp_dir,
                 executor=executor,
             )
