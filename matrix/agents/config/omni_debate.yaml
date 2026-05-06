@@ -1,15 +1,79 @@
-defaults:
-  - /simulation
-  - /agents: debate_agents
-  - /dataset: debate_dataset
-  - /metrics: debate_metrics
-  - /orchestrator: debate_sequential
-  - /resources: debate_resources
-
-max_concurrent_tasks: 10
-
-dataset:
-  cut_off: 50
-
+matrix:
+  cluster_id: null
+  matrix_dir: null
+max_concurrent_tasks: 1
+rate_limit_enqueue: false
+debug: false
+seed: 42
+num_trial: 1
+dispatcher:
+  debug: false
+  ray_resources:
+    num_cpus: 1
 output:
-  path: "omni_debate_results.jsonl"
+  path: omni_debate_results.jsonl
+  success_only: false
+agents:
+  _sink:
+    _target_: matrix.agents.p2p_agents.Sink
+    debug: false
+    ray_resources:
+      num_cpus: 2
+  proponent:
+    _target_: matrix.agents.examples.omni_debate.DebateAgent
+    system_prompt: |
+      You are a skilled debater arguing IN FAVOR of the given topic.
+      Present clear, logical arguments supporting the position.
+      Respond to your opponent's counterarguments directly.
+      Be persuasive but respectful. Keep responses concise (2-3 paragraphs).
+    resource_name: proponent_llm
+    debug: false
+    num_instances: 1
+    ray_resources:
+      num_cpus: 1
+  opponent:
+    _target_: matrix.agents.examples.omni_debate.DebateAgent
+    system_prompt: |
+      You are a skilled debater arguing AGAINST the given topic.
+      Present clear, logical arguments opposing the position.
+      Respond to your opponent's counterarguments directly.
+      Be persuasive but respectful. Keep responses concise (2-3 paragraphs).
+    resource_name: opponent_llm
+    debug: false
+    num_instances: 1
+    ray_resources:
+      num_cpus: 1
+dataset:
+  _target_: matrix.agents.examples.omni_debate.DebateDatasetLoader
+  name: ibm-research/debate_speeches
+  split: train
+  cut_off: 3
+metrics:
+  _target_: matrix.agents.examples.omni_debate.DebateMetricsAccumulator
+orchestrator:
+  _target_: matrix.agents.examples.omni_debate.DebateOrchestrator
+  interaction_order:
+  - proponent
+  - opponent
+  max_turns: 3
+resources:
+  proponent_llm:
+    _target_: matrix.agents.resource_client.LLMResourceClient
+    matrix_service: qwen3
+    sampling_params:
+      temperature: 0.7
+      max_tokens: 1024
+      speech_mode: true
+    exec_params:
+      timeout_secs: 1800
+      max_retries: 3
+  opponent_llm:
+    _target_: matrix.agents.resource_client.LLMResourceClient
+    matrix_service: qwen3
+    sampling_params:
+      temperature: 0.7
+      max_tokens: 1024
+      speech_mode: true
+    exec_params:
+      timeout_secs: 1800
+      max_retries: 3

@@ -224,6 +224,7 @@ classifiers=[
     "hydra-core",
     "zstandard",
     "langgraph",
+    "streamlit",
   ]
 
 [project.scripts]

@@ -1,4 +1,0 @@
-_target_: matrix.agents.examples.omni_debate.DebateDatasetLoader
-name: "ibm-research/debate_speeches"
-split: "train"
-cut_off: null

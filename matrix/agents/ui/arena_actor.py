@@ -21,7 +21,7 @@ logger = logging.getLogger("StreamlitArenaActor")
 
 @ray.remote(max_restarts=3)
 class StreamlitArenaActor:
-    """Ray actor that runs the Sokrates Arena Streamlit app as a managed subprocess.
+    """Ray actor that runs the Arena Streamlit app as a managed subprocess.
 
     Follows the same pattern as RayDashboardJob: a detached actor pinned to the
     head node that launches a subprocess, monitors it, and exposes

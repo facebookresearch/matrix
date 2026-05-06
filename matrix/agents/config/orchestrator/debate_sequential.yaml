@@ -1,6 +1,0 @@
-_target_: matrix.agents.examples.omni_debate.DebateOrchestrator
-interaction_order:
-  - proponent
-  - opponent
-
-max_turns: 3  # 3 rounds (6 total agent turns)

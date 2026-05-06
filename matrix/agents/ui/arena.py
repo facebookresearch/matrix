@@ -1,5 +1,5 @@
 """
-Sokrates Speech LLM Arena — Streamlit Prototype Demo
+Speech LLM Arena — Streamlit Prototype Demo
 Demonstrates: topic/model/format selection, streaming LLM output,
 3-agent debate trajectory, human-in-the-loop, and voice input.
 """
@@ -15,7 +15,7 @@ from openai import OpenAI
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Sokrates — Speech LLM Arena",
+    page_title="Speech LLM Arena",
     page_icon="🎙️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -255,7 +255,7 @@ with st.sidebar:
 
 # ── Main area ─────────────────────────────────────────────────────────────────
 st.markdown(
-    '<div class="main-title">🎙️ Sokrates Speech LLM Arena</div>', unsafe_allow_html=True
+    '<div class="main-title">🎙️ Speech LLM Arena</div>', unsafe_allow_html=True
 )
 st.markdown(
     '<div class="subtitle">Three-dimensional evaluation via multi-agent debate · IQ · EQ · Joint Score</div>',
@@ -628,7 +628,7 @@ with tab_voice:
     st.divider()
     st.markdown("#### 🔊 Listen to Agent Outputs (TTS Simulation)")
     st.caption(
-        "In the full Sokrates system, each agent's output would be synthesized via TTS and played back here with prosodic analysis."
+        "In the full system, each agent's output would be synthesized via TTS and played back here with prosodic analysis."
     )
 
     if st.session_state.debate_history:
@@ -859,9 +859,9 @@ with tab_rollouts:
 with tab_about:
     st.markdown(
         """
-### About Sokrates
+### About
 
-**Sokrates** is a three-dimensional evaluation platform for spoken LLMs, staging structured debates between three audio-native models to assess not just *what* they say (IQ Score) but *how* they say it (EQ Score) and whether the right words are emphasized (Joint Score).
+This is a three-dimensional evaluation platform for spoken LLMs, staging structured debates between three audio-native models to assess not just *what* they say (IQ Score) but *how* they say it (EQ Score) and whether the right words are emphasized (Joint Score).
 
 #### The Three Scores
 
@@ -892,7 +892,7 @@ This Streamlit prototype demonstrates the full interaction surface:
 
 #### Full System Architecture
 
-The production Sokrates system uses:
+The production system uses:
 - **LangGraph** for debate state machine orchestration
 - **Pipecat** for real-time audio streaming between models
 - **MATRIX** for HPC-scale offline debate generation
