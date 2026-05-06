@@ -254,9 +254,7 @@ with st.sidebar:
         st.rerun()
 
 # ── Main area ─────────────────────────────────────────────────────────────────
-st.markdown(
-    '<div class="main-title">🎙️ Speech LLM Arena</div>', unsafe_allow_html=True
-)
+st.markdown('<div class="main-title">🎙️ Speech LLM Arena</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="subtitle">Three-dimensional evaluation via multi-agent debate · IQ · EQ · Joint Score</div>',
     unsafe_allow_html=True,
