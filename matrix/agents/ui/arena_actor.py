@@ -30,8 +30,9 @@ class StreamlitArenaActor:
 
     NAME = "system.arena"
 
-    def __init__(self, port: int):
+    def __init__(self, port: int, temp_dir: str):
         self.port = port
+        self.temp_dir = temp_dir
         self.process: subprocess.Popen | None = None
         self.monitor_thread: threading.Thread | None = None
         self.should_run = True
@@ -54,14 +55,22 @@ class StreamlitArenaActor:
             "--browser.gatherUsageStats=false",
         ]
 
+        log_dir = f"{self.temp_dir}/session_latest/logs"
+        stdout_path = f"{log_dir}/arena.out"
+        stderr_path = f"{log_dir}/arena.err"
         logger.info("Starting Streamlit: %s", " ".join(cmd))
-        self.process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            preexec_fn=os.setsid,
-        )
+        logger.info("Streamlit logs: %s, %s", stdout_path, stderr_path)
+        with (
+            open(stdout_path, "w") as stdout_file,
+            open(stderr_path, "w") as stderr_file,
+        ):
+            self.process = subprocess.Popen(
+                cmd,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                text=True,
+                preexec_fn=os.setsid,
+            )
 
         # Start monitoring thread
         self.monitor_thread = threading.Thread(target=self._monitor, daemon=True)
@@ -72,6 +81,8 @@ class StreamlitArenaActor:
             "actor_pid": self.pid,
             "streamlit_pid": self.process.pid,
             "port": self.port,
+            "stdout_log": stdout_path,
+            "stderr_log": stderr_path,
         }
 
     def _monitor(self):
@@ -81,9 +92,6 @@ class StreamlitArenaActor:
             if self.process and self.process.poll() is not None:
                 exit_code = self.process.poll()
                 logger.warning("Streamlit exited with code %s", exit_code)
-                stdout, _ = self.process.communicate()
-                if stdout:
-                    logger.info("Streamlit output: %s", stdout[-2000:])
                 self.cleanup()
                 return
             time.sleep(2)

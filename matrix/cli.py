@@ -631,7 +631,7 @@ class Cli:
             num_gpus=0,
             max_restarts=3,
             max_task_retries=-1,
-        ).remote(arena_port)
+        ).remote(arena_port, cluster_info.temp_dir)
         result = ray.get(actor.start.remote())
         result["url"] = f"http://{cluster_info.hostname}:{arena_port}"
         return result
