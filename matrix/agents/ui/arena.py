@@ -1,6 +1,7 @@
 """
 Trajectory Viewer — Streamlit app for browsing multi-agent rollout results.
 Supports text-only trajectories and trajectories with inline audio playback.
+Loads only one page at a time to avoid blocking on large files.
 """
 
 import base64
@@ -8,6 +9,8 @@ import json
 from pathlib import Path
 
 import streamlit as st
+
+PAGE_SIZE = 20
 
 st.set_page_config(
     page_title="Trajectory Viewer",
@@ -74,12 +77,28 @@ AGENT_STYLES = {
 }
 
 
-def _load_results(path: str) -> list[dict]:
+def _build_line_index(path: str) -> list[int]:
+    """Scan file and return byte offsets for each non-empty line."""
+    offsets = []
+    with open(path, "rb") as f:
+        while True:
+            pos = f.tell()
+            line = f.readline()
+            if not line:
+                break
+            if line.strip():
+                offsets.append(pos)
+    return offsets
+
+
+def _load_page(path: str, offsets: list[int], start: int, count: int) -> list[dict]:
+    """Read and parse `count` lines starting at index `start`."""
     results = []
     with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
+        for i in range(start, min(start + count, len(offsets))):
+            f.seek(offsets[i])
+            line = f.readline()
+            if line.strip():
                 results.append(json.loads(line))
     return results
 
@@ -111,7 +130,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Sidebar: file selection ──────────────────────────────────────────────────
+# ── Sidebar: file selection & pagination ─────────────────────────────────────
 with st.sidebar:
     st.markdown("## Load Trajectories")
 
@@ -128,31 +147,61 @@ with st.sidebar:
         if not rollout_path or not Path(rollout_path).exists():
             st.error(f"File not found: {rollout_path}")
         else:
-            st.session_state.rollout_games = _load_results(rollout_path)
+            st.session_state.line_offsets = _build_line_index(rollout_path)
             st.session_state.rollout_file = rollout_path
+            st.session_state.page = 0
 
-    if "rollout_games" in st.session_state and st.session_state.rollout_games:
-        games = st.session_state.rollout_games
+    if "line_offsets" in st.session_state and st.session_state.line_offsets:
+        total = len(st.session_state.line_offsets)
+        total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+        page = st.session_state.get("page", 0)
+
         st.divider()
-        successes = sum(1 for g in games if g.get("status", {}).get("success"))
-        errors = sum(1 for g in games if g.get("status", {}).get("error"))
-        st.caption(
-            f"{len(games)} trajectories · {successes} success · {errors} error"
-        )
+        st.caption(f"{total} trajectories")
+
+        col_prev, col_info, col_next = st.columns([1, 1, 1])
+        with col_prev:
+            if st.button("Prev", use_container_width=True, disabled=page <= 0):
+                st.session_state.page = page - 1
+                st.session_state.pop("rollout_game_select", None)
+                st.rerun()
+        with col_info:
+            st.markdown(
+                f"<div style='text-align:center;padding:0.4rem 0;font-size:0.9rem;'>"
+                f"Page {page + 1} / {total_pages}</div>",
+                unsafe_allow_html=True,
+            )
+        with col_next:
+            if st.button(
+                "Next", use_container_width=True, disabled=page >= total_pages - 1
+            ):
+                st.session_state.page = page + 1
+                st.session_state.pop("rollout_game_select", None)
+                st.rerun()
 
 # ── Main area ────────────────────────────────────────────────────────────────
-if "rollout_games" not in st.session_state or not st.session_state.rollout_games:
+if "line_offsets" not in st.session_state or not st.session_state.line_offsets:
     st.info("Enter a results JSONL path in the sidebar and click **Load**.")
     st.stop()
 
-games = st.session_state.rollout_games
+offsets = st.session_state.line_offsets
+rollout_file = st.session_state.rollout_file
+page = st.session_state.get("page", 0)
+page_start = page * PAGE_SIZE
+
+games = _load_page(rollout_file, offsets, page_start, PAGE_SIZE)
+
+if not games:
+    st.info("No trajectories on this page.")
+    st.stop()
 
 
 def _game_label(i):
     g = games[i]
     t = _get_topic(g)
     short = t[:70] + "…" if len(t) > 70 else t
-    gid = g.get("id", i)
+    global_idx = page_start + i
+    gid = g.get("id", global_idx)
     return f"#{gid}  {short}"
 
 
