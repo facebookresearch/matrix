@@ -25,7 +25,10 @@ from starlette.responses import JSONResponse, StreamingResponse
 from vllm.engine.arg_utils import AsyncEngineArgs
 
 try:
-    from vllm.engine.async_llm_engine import AsyncEngineDeadError, AsyncLLMEngine
+    from vllm.engine.async_llm_engine import (  # type: ignore[attr-defined]
+        AsyncEngineDeadError,
+        AsyncLLMEngine,
+    )
 
     _has_v0 = True
 except ImportError:
@@ -46,13 +49,32 @@ except ImportError:
     from vllm.v1.metrics.ray_wrappers import RayPrometheusStatLogger  # type: ignore[assignment]
 
 from vllm.entrypoints.openai.cli_args import make_arg_parser
-from vllm.entrypoints.openai.protocol import (
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    CompletionRequest,
-    CompletionResponse,
-    ErrorResponse,
-)
+
+# vllm >= 0.18 restructured entrypoints into subpackages
+try:
+    from vllm.entrypoints.openai.protocol import (
+        ChatCompletionRequest,
+        ChatCompletionResponse,
+        CompletionRequest,
+        CompletionResponse,
+        ErrorResponse,
+    )
+
+    _has_v18 = False
+except ImportError:
+    from vllm.entrypoints.openai.chat_completion.protocol import (  # type: ignore[no-redef]
+        ChatCompletionRequest,
+        ChatCompletionResponse,
+    )
+    from vllm.entrypoints.openai.completion.protocol import (  # type: ignore[no-redef]
+        CompletionRequest,
+        CompletionResponse,
+    )
+    from vllm.entrypoints.openai.engine.protocol import (  # type: ignore[no-redef]
+        ErrorResponse,
+    )
+
+    _has_v18 = True
 
 from matrix.app_server.llm import openai_pb2
 
@@ -70,20 +92,44 @@ except:
 
         has_base_model_path = True
     except:
-        has_base_model_path = False
+        try:
+            from vllm.entrypoints.openai.models.protocol import (  # type: ignore[no-redef]
+                BaseModelPath,
+            )
+
+            has_base_model_path = True
+        except:
+            has_base_model_path = False
 from vllm.config import ModelConfig
 from vllm.entrypoints.logger import RequestLogger
-from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
-from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
+
+try:
+    from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
+except ImportError:
+    from vllm.entrypoints.openai.chat_completion.serving import (  # type: ignore[no-redef]
+        OpenAIServingChat,
+    )
+
+try:
+    from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
+except ImportError:
+    from vllm.entrypoints.openai.completion.serving import (  # type: ignore[no-redef]
+        OpenAIServingCompletion,
+    )
 
 try:
     from vllm.entrypoints.openai.serving_engine import (  # type: ignore[attr-defined]
         LoRAModulePath,
     )
 except:
-    from vllm.entrypoints.openai.serving_models import (
-        LoRAModulePath,  # type: ignore[no-redef]
-    )
+    try:
+        from vllm.entrypoints.openai.serving_models import (
+            LoRAModulePath,  # type: ignore[no-redef]
+        )
+    except:
+        from vllm.entrypoints.openai.models.protocol import (  # type: ignore[no-redef]
+            LoRAModulePath,
+        )
 
 try:
     from vllm.utils import FlexibleArgumentParser
@@ -232,9 +278,14 @@ class BaseDeployment:
             else:
                 base_model_paths = [self.engine_args.model]
 
-        # v0.7.0
+        # v0.7.0+
         if "models" in init_params:
-            from vllm.entrypoints.openai.serving_models import OpenAIServingModels
+            try:
+                from vllm.entrypoints.openai.serving_models import OpenAIServingModels
+            except ImportError:
+                from vllm.entrypoints.openai.models.serving import (  # type: ignore[no-redef]
+                    OpenAIServingModels,
+                )
 
             model_kwargs = {
                 "engine_client": self.engine,
@@ -247,6 +298,21 @@ class BaseDeployment:
             kwargs["models"] = OpenAIServingModels(**model_kwargs)  # type: ignore[assignment, arg-type]
         if "chat_template_content_format" in init_params:
             kwargs["chat_template_content_format"] = "auto"
+
+        # v0.18+: OpenAIServingChat requires openai_serving_render
+        if "openai_serving_render" in init_params:
+            from vllm.entrypoints.serve.render.serving import OpenAIServingRender
+
+            render = OpenAIServingRender(
+                model_config=model_config,
+                renderer=getattr(self.engine, "renderer", None),
+                io_processor=getattr(self.engine, "io_processor", None),
+                model_registry=kwargs["models"].registry,  # type: ignore[union-attr]
+                request_logger=self.request_logger,
+                chat_template=self.chat_template,
+                chat_template_content_format="auto",
+            )
+            kwargs["openai_serving_render"] = render
 
         # v0.6.6
         if "lora_modules" in init_params:
@@ -270,8 +336,11 @@ class BaseDeployment:
             "enable_auto_tools",
             "tool_parser",
         ]
+        completion_kwargs = {
+            k: v for k, v in kwargs.items() if k not in completion_exclude
+        }
         self.openai_serving_completion = OpenAIServingCompletion(
-            **{k: v for k, v in kwargs.items() if not k in completion_exclude}  # type: ignore[arg-type]
+            **completion_kwargs  # type: ignore[arg-type]
         )
 
     def create_prometheus_logger(

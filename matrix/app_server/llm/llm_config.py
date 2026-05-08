@@ -286,6 +286,20 @@ llm_model_default_parameters = {
         "use_v1_engine": "true",
         "tool-call-parser": "kimi_k2",
     },
+    "Qwen/Qwen3-Omni-30B-A3B": {
+        "name": "Qwen3-Omni-30B-A3B",
+        "num_gpus": 2,  # stage YAML needs devices "0" and "1"
+        "max_ongoing_requests": 16,
+        # NOTE: Do NOT set max-model-len here. vllm-omni's stage YAML manages
+        # per-stage limits. Setting it here causes partial enforcement that
+        # rejects at API level but not after multimodal token expansion,
+        # leading to EngineCore crashes.
+        "gpu-memory-utilization": 0.8,
+        "trust-remote-code": True,
+        "stage_overrides": {
+            1: {"enforce_eager": True},  # talker: CUDA graphs broken with flash attn
+        },
+    },
     "facebook/cwm": {
         "name": "cwm",
         "tensor-parallel-size": 2,

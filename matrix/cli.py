@@ -148,8 +148,15 @@ class Cli:
         else:
             assert head.hostname
             results = []
+            ssh_ports = (
+                f"-L {head.dashboard_port}:localhost:{head.dashboard_port} "
+                f"-L {head.prometheus_port}:localhost:{head.prometheus_port} "
+                f"-L {head.grafana_port}:localhost:{head.grafana_port}"
+            )
+            if head.arena_port:
+                ssh_ports += f" -L {head.arena_port}:localhost:{head.arena_port}"
             results.append(
-                f"ssh to head node:\nssh -L {head.dashboard_port}:localhost:{head.dashboard_port} -L {head.prometheus_port}:localhost:{head.prometheus_port} -L {head.grafana_port}:localhost:{head.grafana_port} {head.hostname}"
+                f"ssh to head node:\nssh {ssh_ports} {head.hostname}"
             )  # type: ignore[union-attr]
             cluster_info = convert_to_json_compatible(head)
             results.append(f"Head Info: {json.dumps(cluster_info, indent=2)}")
@@ -273,6 +280,8 @@ class Cli:
         use_chat: bool = True,
         use_tools: bool = False,
         use_image: bool = False,
+        use_tts: bool = False,
+        use_speech: bool = False,
         **kwargs,
     ) -> bool:
         """
@@ -291,6 +300,9 @@ class Cli:
             use_chat (bool, optional): If True, uses chat format for the request.
                 Defaults to True.
             use_tools (bool, optional): If True, enables tool usage in the request.
+            use_image (bool, optional): If True, enables image input in the request.
+            use_tts (bool, optional): If True, sends a TTS request to /v1/audio/speech.
+            use_speech (bool, optional): If True, sends chat completion with audio modality.
             **kwargs: Additional parameters for the test request.
 
             Returns:
@@ -306,6 +318,60 @@ class Cli:
             if not metadata:
                 return False
             deployment_name = metadata["deployment_name"]
+
+            if use_tts:
+                # Send TTS request to /v1/audio/speech and save audio
+                import httpx
+
+                url = f"{metadata['endpoints']['head']}/audio/speech"
+                tts_payload = {
+                    "model": metadata["model_name"],
+                    "input": prompt or "Hello, this is a text to speech health check.",
+                    "voice": "default",
+                    "response_format": "wav",
+                }
+                resp = httpx.post(url, json=tts_payload, timeout=600)
+                if resp.status_code == 200:
+                    audio_file = f"/tmp/tts_audio_{app_name}.wav"
+                    with open(audio_file, "wb") as f:
+                        f.write(resp.content)
+                    print(f"TTS health check passed (HTTP {resp.status_code})")
+                    print(f"Audio saved to: {audio_file} ({len(resp.content)} bytes)")
+                    return True
+                else:
+                    print(
+                        f"TTS health check failed (HTTP {resp.status_code}): {resp.text}"
+                    )
+                    return False
+
+            if use_speech:
+                # Send chat completion with audio modality and save audio to file
+                import base64
+
+                import httpx
+
+                url = f"{metadata['endpoints']['head']}/chat/completions"
+                speech_payload = {
+                    "model": metadata["model_name"],
+                    "messages": [
+                        {"role": "user", "content": prompt or "Say hello."},
+                    ],
+                    "modalities": ["text", "audio"],
+                    "temperature": 0.7,
+                }
+                resp = httpx.post(url, json=speech_payload, timeout=600)
+                result = resp.json()
+                for choice in result.get("choices", []):
+                    msg = choice.get("message", {})
+                    if msg.get("content"):
+                        print(f"Text: {msg['content']}")
+                    if msg.get("audio", {}).get("data"):
+                        audio_data = base64.b64decode(msg["audio"]["data"])
+                        audio_file = f"/tmp/omni_audio_{app_name}.wav"
+                        with open(audio_file, "wb") as f:
+                            f.write(audio_data)
+                        print(f"Audio saved to: {audio_file} ({len(audio_data)} bytes)")
+                return resp.status_code == 200
 
             if "code" in deployment_name.lower():
                 url = f"{metadata['endpoints']['head']}"
@@ -427,6 +493,11 @@ class Cli:
                         "tools": tools,
                         "tool_choice": tool_choice,
                     }
+                if use_speech:
+                    data_payload["modalities"] = ["text", "audio"]
+                elif "omni" in deployment_name.lower():
+                    # Default omni to text-only for faster health checks
+                    data_payload["modalities"] = ["text"]
                 if use_curl and not metadata["use_grpc"]:
                     url = f"{metadata['endpoints']['head']}/chat/completions"
                     data_json = json.dumps(data_payload)
@@ -497,6 +568,98 @@ class Cli:
                         )[0]
                         print(response)
                     return "error" not in response["response"]  # type: ignore[index]
+
+    def arena_start(self, port: int | None = None, force: bool = False):
+        """Start the Sokrates Arena UI on the Ray head node.
+
+        Args:
+            port: Port to bind to. Defaults to the arena_port from ClusterInfo.
+            force: If True, restart even if already running.
+
+        Returns:
+            dict with status and URL.
+        """
+        import ray
+        from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
+
+        from matrix.agents.ui.arena_actor import StreamlitArenaActor
+        from matrix.utils.ray import ACTOR_NAME_SPACE, get_ray_head_node
+
+        cluster_info = self.cluster.cluster_info()
+        assert cluster_info is not None, "Head is not ready"
+        from matrix.utils.ray import init_ray_if_necessary
+
+        init_ray_if_necessary(cluster_info)
+
+        try:
+            actor = ray.get_actor(StreamlitArenaActor.NAME, ACTOR_NAME_SPACE)
+        except ValueError:
+            actor = None
+
+        if actor and force:
+            try:
+                ray.get(actor.cleanup.remote())
+                ray.kill(actor)
+            except Exception:
+                pass
+            actor = None
+
+        if actor:
+            status = ray.get(actor.get_status.remote())
+            return {
+                "status": "already running",
+                "url": f"http://{cluster_info.hostname}:{status['port']}",
+                **status,
+            }
+
+        arena_port = port or cluster_info.arena_port
+        if arena_port is None:
+            from matrix.utils.os import find_free_ports
+
+            arena_port = find_free_ports(1)[0]
+
+        head_node = get_ray_head_node()
+        actor = StreamlitArenaActor.options(  # type: ignore[attr-defined]
+            name=StreamlitArenaActor.NAME,
+            namespace=ACTOR_NAME_SPACE,
+            scheduling_strategy=NodeAffinitySchedulingStrategy(
+                node_id=head_node["NodeID"],
+                soft=False,
+            ),
+            lifetime="detached",
+            num_cpus=0,
+            num_gpus=0,
+            max_restarts=3,
+            max_task_retries=-1,
+        ).remote(arena_port, cluster_info.temp_dir)
+        result = ray.get(actor.start.remote())
+        result["url"] = f"http://{cluster_info.hostname}:{arena_port}"
+        return result
+
+    def arena_stop(self):
+        """Stop the Sokrates Arena UI."""
+        import ray
+
+        from matrix.agents.ui.arena_actor import StreamlitArenaActor
+        from matrix.utils.ray import ACTOR_NAME_SPACE
+
+        cluster_info = self.cluster.cluster_info()
+        assert cluster_info is not None, "Head is not ready"
+        from matrix.utils.ray import init_ray_if_necessary
+
+        init_ray_if_necessary(cluster_info)
+
+        try:
+            actor = ray.get_actor(StreamlitArenaActor.NAME, ACTOR_NAME_SPACE)
+        except ValueError:
+            return "Arena is not running"
+
+        try:
+            ray.get(actor.cleanup.remote())
+            ray.kill(actor)
+        except Exception:
+            pass
+        return "Arena stopped"
 
     @property
     def app(self):

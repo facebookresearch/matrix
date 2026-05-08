@@ -26,6 +26,7 @@ class ClusterInfo:
     sglang_dist_init_port: tp.Optional[int] = None
     sglang_http_port: tp.Optional[int] = None
     dashboard_agent_listen_port: tp.Optional[int] = None
+    arena_port: tp.Optional[int] = None
     temp_dir: tp.Optional[str] = None
     executor: tp.Optional[str] = None
 
