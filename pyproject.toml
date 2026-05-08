@@ -94,7 +94,7 @@ classifiers=[
     "submitit>=1.5.2",
     "transformers>=4.45.2",
     "torch>=2.5.1",
-    "sglang[all]==0.4.5.post1",
+    "sglang[all]==0.5.10rc0",
     "sglang-router",
     "boto3",
     "google-genai>=1.13.0",
