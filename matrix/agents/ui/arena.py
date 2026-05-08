@@ -217,9 +217,7 @@ topic = _get_topic(game)
 history = game.get("history", [])
 status = game.get("status", {})
 
-status_emoji = (
-    "✅" if status.get("success") else ("❌" if status.get("error") else "⏹")
-)
+status_emoji = "✅" if status.get("success") else ("❌" if status.get("error") else "⏹")
 st.markdown(
     f'<div class="topic-box">{status_emoji} <strong>Topic:</strong> {topic}</div>',
     unsafe_allow_html=True,
