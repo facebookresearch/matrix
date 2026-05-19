@@ -120,3 +120,69 @@ def test_fetch_url_sync(unused_tcp_port):
         status, content = fetch_url_sync("http://127.0.0.1:1")
         assert status is None
         assert "boom" in content
+
+
+@pytest.mark.asyncio
+async def test_post_url_forwards_timeout():
+    async with aiohttp.ClientSession() as session:
+        with patch.object(session, "post", side_effect=Exception("boom")) as mock_post:
+            await post_url(session, "http://example.com", timeout=1.25)
+
+    mock_post.assert_called_once_with(
+        "http://example.com", json=None, timeout=1.25
+    )
+
+
+@pytest.mark.asyncio
+async def test_fetch_url_forwards_timeout():
+    class _DummyResponse:
+        status = 200
+
+        async def text(self):
+            return "ok"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class _DummySession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, headers=None, timeout=None):
+            self.calls.append((url, headers, timeout))
+            return _DummyResponse()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    dummy_session = _DummySession()
+    with patch("matrix.utils.http.aiohttp.ClientSession", return_value=dummy_session):
+        status, content = await fetch_url(
+            "http://example.com", headers={"x": "1"}, timeout=2.5
+        )
+
+    assert status == 200
+    assert content == "ok"
+    assert dummy_session.calls == [
+        ("http://example.com", {"x": "1"}, 2.5)
+    ]
+
+
+def test_fetch_url_sync_forwards_timeout():
+    with patch("matrix.utils.http.requests.get") as mock_get:
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.text = "ok"
+
+        status, content = fetch_url_sync("http://example.com", timeout=3.0)
+
+    assert status == 200
+    assert content == "ok"
+    mock_get.assert_called_once_with(
+        "http://example.com", headers=None, timeout=3.0
+    )
