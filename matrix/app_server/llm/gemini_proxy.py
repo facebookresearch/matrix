@@ -17,7 +17,9 @@ from ray import serve
 from starlette.requests import Request
 from vllm.entrypoints.openai.protocol import ChatCompletionRequest
 
-logger = logging.getLogger("ray.serve")
+from matrix.utils.logging import get_logger
+
+logger = get_logger("ray.serve")
 
 app = FastAPI()
 
@@ -209,7 +211,7 @@ def build_app(cli_args: Dict[str, str]) -> serve.Application:
             arg_strings.extend([f"--{key}"])
         else:
             arg_strings.extend([f"--{key}", str(value)])
-    logger.info(arg_strings)
+    logger.info(",".join(arg_strings))
 
     args = argparse.parse_args(args=arg_strings)
 

@@ -20,12 +20,13 @@ import matrix
 from matrix import Cli
 from matrix.job.eval_utils import *
 from matrix.job.job_api import JobApi
+from matrix.utils.logging import get_logger
 from matrix.utils.os import download_s3_dir, find_free_ports, is_port_available
 from matrix.utils.ray import get_ray_address
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 app = FastAPI(title="Job API Service", description="HTTP Service for Matrix Job API")
 

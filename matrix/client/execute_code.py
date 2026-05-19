@@ -19,12 +19,13 @@ from fire import Fire
 
 from matrix.client.client_utils import get_an_endpoint_url, save_to_jsonl
 from matrix.client.endpoint_cache import EndpointCache
+from matrix.utils.logging import get_logger
 
 # Configure logging for execute_code.py
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger("execute_code")
+logger = get_logger("execute_code")
 # Optionally suppress noisy logs from imported modules if not already done
 logging.getLogger("httpx").setLevel(logging.WARNING)
 

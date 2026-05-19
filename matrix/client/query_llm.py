@@ -32,13 +32,14 @@ from openai.types.chat.chat_completion_tool_union_param import (
 from matrix.app_server.llm import openai_pb2, openai_pb2_grpc
 from matrix.client.client_utils import get_an_endpoint_url, save_to_jsonl
 from matrix.client.endpoint_cache import EndpointCache
+from matrix.utils.logging import get_logger
 from matrix.utils.os import batch_requests_async, run_async
 
 CHAR_PER_TOKEN = 3.61
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger("query_llm")
+logger = get_logger("query_llm")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("openai._base_client").setLevel(logging.WARNING)
 

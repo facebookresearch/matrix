@@ -23,11 +23,12 @@ from matrix.client.client_utils import (
     save_to_jsonl,
 )
 from matrix.client.endpoint_cache import EndpointCache
+from matrix.utils.logging import get_logger
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
-logger = logging.getLogger("process_vision_data")
+logger = get_logger("process_vision_data")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 

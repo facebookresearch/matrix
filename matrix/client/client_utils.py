@@ -13,8 +13,9 @@ import time
 import typing as tp
 
 from matrix.client.endpoint_cache import EndpointCache
+from matrix.utils.logging import get_logger
 
-logger = logging.getLogger("matrix.client.utils")
+logger = get_logger("matrix.client.utils")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 

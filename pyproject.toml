@@ -226,6 +226,9 @@ classifiers=[
     "langgraph",
     "streamlit",
   ]
+  meta = [
+      "frogger2 @ git+ssh://git@github.com/fairinternal/frogger2.git"
+  ]
 
 [project.scripts]
 matrix="matrix.cli:main"
