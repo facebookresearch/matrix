@@ -13,7 +13,7 @@ import random
 import time
 import typing as tp
 import uuid
-from functools import partial, reduce
+from functools import partial
 
 import grpc
 import openai
@@ -139,8 +139,9 @@ def load_from_jsonl(
         except Exception as e:
             raise ValueError(f"Error in line {line_number}\n{line} of {file_name}: {e}")
 
-    def get_text_length(messages: tp.List[tp.Dict[str, str]]) -> int:
-        return reduce(lambda x, y: x + y, [len(m["content"]) for m in messages])
+    def get_text_length(messages: tp.List[tp.Dict[str, tp.Any]]) -> int:
+        # Assistant tool-call turns can have no content (missing or None).
+        return sum(len(m.get("content") or "") for m in messages)
 
     data = []
     for file_name in input_files:

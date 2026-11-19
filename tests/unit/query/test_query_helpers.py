@@ -152,6 +152,31 @@ def test_load_from_jsonl_messages_no_metadata(tmp_path):
     assert results[0]["messages"][1] == {"role": "user", "content": "hi"}
 
 
+def test_load_from_jsonl_tool_call_messages(tmp_path):
+    file = tmp_path / "input.jsonl"
+    messages = [
+        {"role": "user", "content": "What is the weather in Paris?"},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {"name": "get_weather", "arguments": "{}"},
+                }
+            ],
+        },
+        {"role": "assistant", "content": None},
+        {"role": "tool", "tool_call_id": "call_1", "content": "18C"},
+    ]
+    _write_jsonl(file, [{"request": {"messages": messages}}])
+
+    results = query_llm.load_from_jsonl(
+        (str(file),), "prompt", "request.messages", system_prompt=""
+    )
+    assert results[0]["messages"] == messages
+
+
 def test_load_from_jsonl_invalid_json(tmp_path):
     file = tmp_path / "input.jsonl"
     file.write_text("{bad json}\n", encoding="utf-8")
